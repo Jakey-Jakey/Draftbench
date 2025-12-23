@@ -178,6 +178,17 @@ The IDs are: "{idA}", "{idB}", "{idC}". Rank all three.`,
 
 let loadedConfig: PipelineConfig | null = null;
 
+function mergeJudge(defaultJudge: JudgeConfig, override?: Partial<JudgeConfig>): JudgeConfig {
+    if (!override) {
+        return defaultJudge;
+    }
+
+    return {
+        ...defaultJudge,
+        ...override,
+    };
+}
+
 /**
  * Deep merge two objects, with source overwriting target for matching keys.
  */
@@ -191,7 +202,39 @@ function deepMerge(target: PipelineConfig, source: Partial<PipelineConfig>): Pip
 
     // Merge tournament
     if (source.tournament) {
-        result.tournament = { ...target.tournament, ...source.tournament };
+        const mergedTournament = { ...target.tournament, ...source.tournament };
+
+        if (source.tournament.swissJudge) {
+            mergedTournament.swissJudge = mergeJudge(
+                target.tournament.swissJudge,
+                source.tournament.swissJudge,
+            );
+        }
+
+        if (source.tournament.playoffJudges) {
+            mergedTournament.playoffJudges = source.tournament.playoffJudges.map((judge, index) =>
+                mergeJudge(target.tournament.playoffJudges[index] ?? target.tournament.swissJudge, judge),
+            );
+        }
+
+        if (source.tournament.initialLeaderboard) {
+            mergedTournament.initialLeaderboard = {
+                ...target.tournament.initialLeaderboard,
+                ...source.tournament.initialLeaderboard,
+            };
+
+            if (source.tournament.initialLeaderboard.judges) {
+                mergedTournament.initialLeaderboard.judges = source.tournament.initialLeaderboard.judges.map(
+                    (judge, index) =>
+                        mergeJudge(
+                            target.tournament.initialLeaderboard.judges[index] ?? target.tournament.swissJudge,
+                            judge,
+                        ),
+                );
+            }
+        }
+
+        result.tournament = mergedTournament;
     }
 
     // Merge output
