@@ -15,7 +15,20 @@
     },
     "tournament": {
         "swissRounds": 7,
-        "playoffSize": 8
+        "playoffSize": 8,
+        "initialGenerations": 1,
+        "initialLeaderboard": {
+            "enabled": false,
+            "judges": []
+        },
+        "swissJudge": {
+            "model": "claude",
+            "effort": "low"
+        },
+        "playoffJudges": [
+            { "model": "claude", "effort": "low" },
+            { "model": "gpt", "effort": "high" }
+        ]
     },
     "output": {
         "runsDirectory": "runs"
