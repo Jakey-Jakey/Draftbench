@@ -11,6 +11,7 @@ Default to using Bun instead of Node.js.
 - Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
 - Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
 - Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
+- Use `bun run lint` to lint the code (using Biome)
 - Bun automatically loads .env, so don't use dotenv.
 
 ## APIs

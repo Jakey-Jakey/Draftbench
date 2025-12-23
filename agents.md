@@ -96,6 +96,9 @@ bun run index.ts --config config.draft-leaderboard.json
 
 # Combined
 bun run index.ts --config my-config.json --dry-run
+
+# Linting
+bun run lint
 ```
 
 ---
@@ -127,6 +130,7 @@ runs/<timestamp>/
 4. **Prompt Templates**: Use `{varname}` syntax. Available vars depend on phase (see `config.ts` types).
 5. **Cost Control**: Use `--dry-run` liberally. Full runs cost ~$15-20 in API calls.
 6. **Incremental Writes**: Files are written as each phase completes—safe to interrupt and resume manually.
+7. **Linting**: Use `bun run lint` to check for code style and potential errors using Biome.
 
 ---
 

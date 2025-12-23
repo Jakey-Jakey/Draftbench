@@ -3,6 +3,9 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "lint": "bun x @biomejs/biome check ."
+  },
   "dependencies": {
     "@openrouter/ai-sdk-provider": "^1.0.0",
     "ai": "^5.0.0",
