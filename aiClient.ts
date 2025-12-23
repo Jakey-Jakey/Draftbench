@@ -5,16 +5,21 @@ import { getConfig, interpolate, type ModelName } from "./config";
 // Re-export ModelName type
 export type { ModelName } from "./config";
 
-// Initialize the OpenRouter provider
-if (!process.env.OPENROUTER_API_KEY) {
-  throw new Error(
-    "OPENROUTER_API_KEY environment variable is required. Please set it before running the script."
-  );
-}
+// Lazily initialize the OpenRouter provider to allow dry-run without a key
+let openrouter: ReturnType<typeof createOpenRouter> | null = null;
 
-const openrouter = createOpenRouter({
-  apiKey: process.env.OPENROUTER_API_KEY,
-});
+function getOpenRouter() {
+  if (!openrouter) {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        "OPENROUTER_API_KEY environment variable is required. Please set it before running the script."
+      );
+    }
+    openrouter = createOpenRouter({ apiKey });
+  }
+  return openrouter;
+}
 
 /**
  * Get the model slug map from config.
@@ -80,7 +85,7 @@ export async function generateStatblock(model: ModelName): Promise<GenerateResul
   }
 
   const result = await generateText({
-    model: openrouter(modelSlug),
+    model: getOpenRouter()(modelSlug),
     system: config.prompts.generate.system,
     prompt: config.prompts.generate.user,
     providerOptions: {
@@ -113,7 +118,7 @@ export async function reviewStatblock(
   const prompt = interpolate(config.prompts.review.userTemplate, { statblock });
 
   const result = await generateText({
-    model: openrouter(modelSlug),
+    model: getOpenRouter()(modelSlug),
     system: config.prompts.review.system,
     prompt,
     providerOptions: {
@@ -150,7 +155,7 @@ export async function reviseStatblock(
   });
 
   const result = await generateText({
-    model: openrouter(modelSlug),
+    model: getOpenRouter()(modelSlug),
     system: config.prompts.revise.system,
     prompt,
     providerOptions: {
@@ -200,7 +205,7 @@ export async function judgeStatblocks(
   const allIds = Array.from(statblocks.keys());
 
   const result = await generateText({
-    model: openrouter(modelSlug),
+    model: getOpenRouter()(modelSlug),
     system: `You are an expert D&D 5e game designer judging monster statblocks. Compare ALL the statblocks provided and rank them from best to worst. Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
 
 You MUST respond with ONLY a valid JSON object in this exact format, no other text:
@@ -283,7 +288,7 @@ export async function pairwiseJudge(
   });
 
   const result = await generateText({
-    model: openrouter(modelSlug),
+    model: getOpenRouter()(modelSlug),
     system: systemPrompt,
     prompt: userPrompt,
     providerOptions: {
@@ -360,7 +365,7 @@ export async function threeWayJudge(
   });
 
   const result = await generateText({
-    model: openrouter(modelSlug),
+    model: getOpenRouter()(modelSlug),
     system: systemPrompt,
     prompt: userPrompt,
     providerOptions: {
