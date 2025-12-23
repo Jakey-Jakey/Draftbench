@@ -4,27 +4,38 @@ import {
   reviseStatblock,
   pairwiseJudge,
   threeWayJudge,
-  MODELS,
+  getModels,
   type ModelName,
   type GenerateResult,
   type ReviewResult,
   type ReviseResult,
   type ThreeWayResult,
 } from "./aiClient";
+import { loadConfig, getConfig, parseArgs, type CLIArgs } from "./config";
 import { mkdir, writeFile, appendFile } from "fs/promises";
 import { join } from "path";
 
-const RUNS_DIR = "runs";
-const MODEL_NAMES: ModelName[] = ["claude", "gpt", "gemini"];
-const SWISS_ROUNDS = 7;
-const TOP_N_PLAYOFF = 8;
+// Parse CLI arguments and load config
+const cliArgs = parseArgs();
+const config = loadConfig(cliArgs.configPath);
+
+// Derive constants from config
+const RUNS_DIR = config.output.runsDirectory;
+const MODEL_NAMES = Object.keys(config.models) as ModelName[];
+const SWISS_ROUNDS = config.tournament.swissRounds;
+const TOP_N_PLAYOFF = config.tournament.playoffSize;
+
+// Dry run mode flag
+const DRY_RUN = cliArgs.dryRun;
 
 /**
  * Ensures the runs directory exists.
  */
 async function ensureRunsDirectory(subdir?: string): Promise<string> {
   const dir = subdir ? join(RUNS_DIR, subdir) : RUNS_DIR;
-  await mkdir(dir, { recursive: true });
+  if (!DRY_RUN) {
+    await mkdir(dir, { recursive: true });
+  }
   return dir;
 }
 
@@ -292,6 +303,47 @@ function computeLeaderboard(
 }
 
 // ============================================================================
+// Dry Run Helpers
+// ============================================================================
+
+/**
+ * Creates mock data for dry run mode.
+ */
+function createMockStatblock(model: ModelName): string {
+  return `# Mock Statblock (${model})
+---
+**Armor Class** 20
+**Hit Points** 300
+**Speed** 30 ft.
+
+This is a mock statblock for dry-run testing purposes.`;
+}
+
+function createMockReview(): string {
+  return "Mock review: The statblock is well-balanced but could use more legendary actions.";
+}
+
+/**
+ * Logs configuration details for dry run.
+ */
+function printDryRunConfig(): void {
+  console.log("\n📋 DRY RUN - Configuration Details:\n");
+  console.log("Models:");
+  for (const [name, model] of Object.entries(config.models)) {
+    console.log(`  ${name}: ${model.slug} (reasoning: ${model.reasoningEffort})`);
+  }
+  console.log(`\nTournament:`);
+  console.log(`  Swiss Rounds: ${SWISS_ROUNDS}`);
+  console.log(`  Playoff Size: ${TOP_N_PLAYOFF}`);
+  console.log(`  Total Contestants: ${MODEL_NAMES.length ** 3}`);
+  console.log(`\nOutput:`);
+  console.log(`  Runs Directory: ${RUNS_DIR}`);
+  console.log(`\nPrompts (first 100 chars):`);
+  console.log(`  Generate: ${config.prompts.generate.user.slice(0, 100)}...`);
+  console.log(`\n📋 END DRY RUN CONFIG\n`);
+}
+
+// ============================================================================
 // Main Pipeline
 // ============================================================================
 
@@ -306,8 +358,14 @@ function computeLeaderboard(
  */
 async function runCrossReviewPipeline(): Promise<void> {
   console.log("🎲 Auto-Draftify: D&D 5e Cross-Review Pipeline (Optimized Swiss)\n");
-  console.log("📝 Creating: Doctor Doom (Marvel Comics) Monster Statblock\n");
-  console.log("Models:", Object.entries(MODELS).map(([k, v]) => `${k}: ${v}`).join("\n        "));
+
+  if (DRY_RUN) {
+    console.log("🧪 DRY RUN MODE - No API calls will be made\n");
+    printDryRunConfig();
+  }
+
+  console.log("📝 Creating: Monster Statblock\n");
+  console.log("Models:", Object.entries(getModels()).map(([k, v]) => `${k}: ${v}`).join("\n        "));
   console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
   console.log(`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (dual-judge: Claude + GPT)`);
   console.log("Swiss Judge: Claude (low) | Playoff Judges: Claude (low) + GPT (high)\n");
@@ -323,27 +381,39 @@ async function runCrossReviewPipeline(): Promise<void> {
   const playoffLogPath = join(runDir, "playoff_rounds.md");
 
   // Initialize logs
-  await writeFile(swissLogPath, "# Swiss Tournament Log (1v1v1)\n\n", "utf-8");
-  await writeFile(playoffLogPath, "# Top-8 Round Robin Playoff\n\n", "utf-8");
+  if (!DRY_RUN) {
+    await writeFile(swissLogPath, "# Swiss Tournament Log (1v1v1)\n\n", "utf-8");
+    await writeFile(playoffLogPath, "# Top-8 Round Robin Playoff\n\n", "utf-8");
+  }
 
   // === PHASE 1: Generate (3 parallel calls) ===
   console.log("Phase 1/5: Generating statblocks from all models...");
   const statblocksByModel = new Map<ModelName, GenerateResult>();
   let generateCount = 0;
 
-  // Immediate writes as each completes
-  const generatePromises = MODEL_NAMES.map(async (model) => {
-    const result = await generateStatblock(model);
-    statblocksByModel.set(result.model, result);
-    generateCount++;
-    console.log(`  ✓ ${result.model} generated (${generateCount}/${MODEL_NAMES.length})`);
-    // Write immediately
-    const path = join(runDir, `${result.model}_original.md`);
-    await writeFile(path, `# Original Statblock (${result.model})\n\n${result.text}`, "utf-8");
-    return result;
-  });
-  await Promise.all(generatePromises);
-  console.log(`  ✓ Wrote originals to ${runDir}\n`);
+  if (DRY_RUN) {
+    // Mock data for dry run
+    for (const model of MODEL_NAMES) {
+      const result: GenerateResult = { text: createMockStatblock(model), model };
+      statblocksByModel.set(model, result);
+      generateCount++;
+      console.log(`  ✓ ${model} generated (mock) (${generateCount}/${MODEL_NAMES.length})`);
+    }
+  } else {
+    // Immediate writes as each completes
+    const generatePromises = MODEL_NAMES.map(async (model) => {
+      const result = await generateStatblock(model);
+      statblocksByModel.set(result.model, result);
+      generateCount++;
+      console.log(`  ✓ ${result.model} generated (${generateCount}/${MODEL_NAMES.length})`);
+      // Write immediately
+      const path = join(runDir, `${result.model}_original.md`);
+      await writeFile(path, `# Original Statblock (${result.model})\n\n${result.text}`, "utf-8");
+      return result;
+    });
+    await Promise.all(generatePromises);
+  }
+  console.log(`  ✓ ${DRY_RUN ? "Mock data generated" : `Wrote originals to ${runDir}`}\n`);
 
   // === PHASE 2: Review (9 parallel calls) ===
   console.log("Phase 2/5: Cross-reviewing statblocks (including self-review)...");
@@ -351,26 +421,39 @@ async function runCrossReviewPipeline(): Promise<void> {
   let reviewCount = 0;
   const totalReviews = MODEL_NAMES.length * MODEL_NAMES.length;
 
-  const reviewPromises: Promise<void>[] = [];
-  for (const reviewer of MODEL_NAMES) {
-    for (const reviewed of MODEL_NAMES) {
-      const statblock = statblocksByModel.get(reviewed)!.text;
-      reviewPromises.push(
-        (async () => {
-          const review = await reviewStatblock(reviewer, reviewed, statblock);
-          reviews.push(review);
-          reviewCount++;
-          const selfTag = review.reviewer === review.reviewed ? " (self)" : "";
-          console.log(`  ✓ ${review.reviewer} reviewed ${review.reviewed}'s statblock${selfTag} (${reviewCount}/${totalReviews})`);
-          // Write immediately
-          const path = join(reviewsDir, `${review.reviewer}_reviews_${review.reviewed}.md`);
-          await writeFile(path, `# ${review.reviewer} reviews ${review.reviewed}\n\n${review.text}`, "utf-8");
-        })()
-      );
+  if (DRY_RUN) {
+    // Mock reviews
+    for (const reviewer of MODEL_NAMES) {
+      for (const reviewed of MODEL_NAMES) {
+        const review: ReviewResult = { text: createMockReview(), reviewer, reviewed };
+        reviews.push(review);
+        reviewCount++;
+        const selfTag = reviewer === reviewed ? " (self)" : "";
+        console.log(`  ✓ ${reviewer} reviewed ${reviewed}'s statblock${selfTag} (mock) (${reviewCount}/${totalReviews})`);
+      }
     }
+  } else {
+    const reviewPromises: Promise<void>[] = [];
+    for (const reviewer of MODEL_NAMES) {
+      for (const reviewed of MODEL_NAMES) {
+        const statblock = statblocksByModel.get(reviewed)!.text;
+        reviewPromises.push(
+          (async () => {
+            const review = await reviewStatblock(reviewer, reviewed, statblock);
+            reviews.push(review);
+            reviewCount++;
+            const selfTag = review.reviewer === review.reviewed ? " (self)" : "";
+            console.log(`  ✓ ${review.reviewer} reviewed ${review.reviewed}'s statblock${selfTag} (${reviewCount}/${totalReviews})`);
+            // Write immediately
+            const path = join(reviewsDir, `${review.reviewer}_reviews_${review.reviewed}.md`);
+            await writeFile(path, `# ${review.reviewer} reviews ${review.reviewed}\n\n${review.text}`, "utf-8");
+          })()
+        );
+      }
+    }
+    await Promise.all(reviewPromises);
   }
-  await Promise.all(reviewPromises);
-  console.log(`  ✓ Wrote reviews to ${reviewsDir}\n`);
+  console.log(`  ✓ ${DRY_RUN ? "Mock reviews generated" : `Wrote reviews to ${reviewsDir}`}\n`);
 
   // === PHASE 3: Revise (27 parallel calls) ===
   console.log("Phase 3/5: Revising statblocks (27 revisions)...");
@@ -398,25 +481,35 @@ async function runCrossReviewPipeline(): Promise<void> {
   let reviseCount = 0;
   const totalRevisions = revisionTasks.length;
 
-  const revisePromises = revisionTasks.map(async (task) => {
-    const originalStatblock = statblocksByModel.get(task.generator)!.text;
-    const review = reviews.find((r) => r.reviewed === task.generator && r.reviewer === task.reviewer)!;
-    const feedback = `## Feedback:\n${review.text}`;
-    const result = await reviseStatblock(task.reviser, originalStatblock, feedback);
-    revisedById.set(task.id, { result, task });
-    reviseCount++;
-    console.log(`  ✓ ${task.id} (${reviseCount}/${totalRevisions})`);
-    // Write immediately
-    const path = join(revisionsDir, `${task.id}.md`);
-    await writeFile(
-      path,
-      `# ${task.generator}'s Statblock\n\n**Reviewed by:** ${task.reviewer}\n**Revised by:** ${task.reviser}\n\n${result.text}`,
-      "utf-8"
-    );
-    return { task, result };
-  });
-  await Promise.all(revisePromises);
-  console.log(`  ✓ Wrote ${totalRevisions} revisions to ${revisionsDir}\n`);
+  if (DRY_RUN) {
+    // Mock revisions
+    for (const task of revisionTasks) {
+      const result: ReviseResult = { text: createMockStatblock(task.reviser), model: task.reviser };
+      revisedById.set(task.id, { result, task });
+      reviseCount++;
+      console.log(`  ✓ ${task.id} (mock) (${reviseCount}/${totalRevisions})`);
+    }
+  } else {
+    const revisePromises = revisionTasks.map(async (task) => {
+      const originalStatblock = statblocksByModel.get(task.generator)!.text;
+      const review = reviews.find((r) => r.reviewed === task.generator && r.reviewer === task.reviewer)!;
+      const feedback = `## Feedback:\n${review.text}`;
+      const result = await reviseStatblock(task.reviser, originalStatblock, feedback);
+      revisedById.set(task.id, { result, task });
+      reviseCount++;
+      console.log(`  ✓ ${task.id} (${reviseCount}/${totalRevisions})`);
+      // Write immediately
+      const path = join(revisionsDir, `${task.id}.md`);
+      await writeFile(
+        path,
+        `# ${task.generator}'s Statblock\n\n**Reviewed by:** ${task.reviewer}\n**Revised by:** ${task.reviser}\n\n${result.text}`,
+        "utf-8"
+      );
+      return { task, result };
+    });
+    await Promise.all(revisePromises);
+  }
+  console.log(`  ✓ ${DRY_RUN ? "Mock revisions generated" : `Wrote ${totalRevisions} revisions to ${revisionsDir}`}\n`);
 
   // === PHASE 4: Swiss Tournament (7 rounds, 1v1v1) ===
   console.log(`Phase 4/5: Swiss Tournament (${SWISS_ROUNDS} rounds, 1v1v1 format)...`);
@@ -434,95 +527,135 @@ async function runCrossReviewPipeline(): Promise<void> {
 
   for (let round = 1; round <= SWISS_ROUNDS; round++) {
     console.log(`  Round ${round}/${SWISS_ROUNDS}...`);
-    await appendFile(swissLogPath, `## Round ${round}\n\n`, "utf-8");
+    if (!DRY_RUN) {
+      await appendFile(swissLogPath, `## Round ${round}\n\n`, "utf-8");
+    }
 
     const { triples } = generateSwissTriples(contestants, round);
 
-    // Run all triples in parallel with randomized, anonymized IDs
-    const triplePromises = triples.map(async ([idA, idB, idC]): Promise<SwissMatch> => {
-      // Randomize order to eliminate position bias
-      const entries: [string, string][] = [
-        [idA, revisedById.get(idA)!.result.text],
-        [idB, revisedById.get(idB)!.result.text],
-        [idC, revisedById.get(idC)!.result.text],
-      ];
-      const shuffled = shuffleArray(entries);
-      const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];
+    if (DRY_RUN) {
+      // Mock judging - random results
+      for (const [idA, idB, idC] of triples) {
+        const ids = shuffleArray([idA, idB, idC]);
+        const match: SwissMatch = {
+          round,
+          ids: [idA, idB, idC],
+          first: ids[0]!,
+          second: ids[1]!,
+          third: ids[2]!,
+          reasoning: "Mock judgment for dry run.",
+        };
 
-      // Anonymize IDs to prevent judge bias
-      const result = await threeWayJudge("S1", e1[1], "S2", e2[1], "S3", e3[1]);
+        // Update contestants
+        const first = contestants.find((c) => c.id === match.first);
+        const second = contestants.find((c) => c.id === match.second);
+        const third = contestants.find((c) => c.id === match.third);
 
-      // Map anonymous winners back to real IDs
-      const anonToReal = new Map<string, string>([
-        ["S1", e1[0]],
-        ["S2", e2[0]],
-        ["S3", e3[0]],
-      ]);
+        if (first && second && third) {
+          first.points += 2;
+          first.placements.first++;
+          second.points += 1;
+          second.placements.second++;
+          third.placements.third++;
 
-      const match: SwissMatch = {
-        round,
-        ids: [idA, idB, idC],
-        first: anonToReal.get(result.first) ?? idA,
-        second: anonToReal.get(result.second) ?? idB,
-        third: anonToReal.get(result.third) ?? idC,
-        reasoning: result.reasoning,
-      };
+          first.opponents.add(second.id);
+          first.opponents.add(third.id);
+          second.opponents.add(first.id);
+          second.opponents.add(third.id);
+          third.opponents.add(first.id);
+          third.opponents.add(second.id);
+        }
 
-      // Write match result immediately
-      await appendFile(
-        swissLogPath,
-        `- **1st: ${match.first}** | 2nd: ${match.second} | 3rd: ${match.third}\n  - *${match.reasoning}*\n`,
-        "utf-8"
-      );
+        allSwissMatches.push(match);
+        console.log(`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third} (mock)`);
+      }
+    } else {
+      // Run all triples in parallel with randomized, anonymized IDs
+      const triplePromises = triples.map(async ([idA, idB, idC]): Promise<SwissMatch> => {
+        // Randomize order to eliminate position bias
+        const entries: [string, string][] = [
+          [idA, revisedById.get(idA)!.result.text],
+          [idB, revisedById.get(idB)!.result.text],
+          [idC, revisedById.get(idC)!.result.text],
+        ];
+        const shuffled = shuffleArray(entries);
+        const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];
 
-      // Write detailed judgment file
-      const judgmentFile = join(swissJudgmentsDir, `round${round}_${match.first}_vs_${match.second}_vs_${match.third}.md`);
-      let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
-      judgmentMd += `**Judge**: Claude (low thinking)\n\n`;
-      judgmentMd += `## Contestants\n\n`;
-      judgmentMd += `- S1 (${e1[0]}): ${e1[0]}\n`;
-      judgmentMd += `- S2 (${e2[0]}): ${e2[0]}\n`;
-      judgmentMd += `- S3 (${e3[0]}): ${e3[0]}\n\n`;
-      judgmentMd += `## Result\n\n`;
-      judgmentMd += `1. **${match.first}** (2 pts)\n`;
-      judgmentMd += `2. ${match.second} (1 pt)\n`;
-      judgmentMd += `3. ${match.third} (0 pts)\n\n`;
-      judgmentMd += `## Reasoning\n\n${result.reasoning}\n`;
-      await writeFile(judgmentFile, judgmentMd, "utf-8");
+        // Anonymize IDs to prevent judge bias
+        const result = await threeWayJudge("S1", e1[1], "S2", e2[1], "S3", e3[1]);
 
-      return match;
-    });
+        // Map anonymous winners back to real IDs
+        const anonToReal = new Map<string, string>([
+          ["S1", e1[0]],
+          ["S2", e2[0]],
+          ["S3", e3[0]],
+        ]);
 
-    const roundResults = await Promise.all(triplePromises);
+        const match: SwissMatch = {
+          round,
+          ids: [idA, idB, idC],
+          first: anonToReal.get(result.first) ?? idA,
+          second: anonToReal.get(result.second) ?? idB,
+          third: anonToReal.get(result.third) ?? idC,
+          reasoning: result.reasoning,
+        };
 
-    // Update contestants
-    for (const match of roundResults) {
-      const first = contestants.find((c) => c.id === match.first);
-      const second = contestants.find((c) => c.id === match.second);
-      const third = contestants.find((c) => c.id === match.third);
+        // Write match result immediately
+        await appendFile(
+          swissLogPath,
+          `- **1st: ${match.first}** | 2nd: ${match.second} | 3rd: ${match.third}\n  - *${match.reasoning}*\n`,
+          "utf-8"
+        );
 
-      if (first && second && third) {
-        // Award points: 2/1/0
-        first.points += 2;
-        first.placements.first++;
-        second.points += 1;
-        second.placements.second++;
-        third.placements.third++;
+        // Write detailed judgment file
+        const judgmentFile = join(swissJudgmentsDir, `round${round}_${match.first}_vs_${match.second}_vs_${match.third}.md`);
+        let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
+        judgmentMd += `**Judge**: Claude (low thinking)\n\n`;
+        judgmentMd += `## Contestants\n\n`;
+        judgmentMd += `- S1 (${e1[0]}): ${e1[0]}\n`;
+        judgmentMd += `- S2 (${e2[0]}): ${e2[0]}\n`;
+        judgmentMd += `- S3 (${e3[0]}): ${e3[0]}\n\n`;
+        judgmentMd += `## Result\n\n`;
+        judgmentMd += `1. **${match.first}** (2 pts)\n`;
+        judgmentMd += `2. ${match.second} (1 pt)\n`;
+        judgmentMd += `3. ${match.third} (0 pts)\n\n`;
+        judgmentMd += `## Reasoning\n\n${result.reasoning}\n`;
+        await writeFile(judgmentFile, judgmentMd, "utf-8");
 
-        // Track opponents
-        first.opponents.add(second.id);
-        first.opponents.add(third.id);
-        second.opponents.add(first.id);
-        second.opponents.add(third.id);
-        third.opponents.add(first.id);
-        third.opponents.add(second.id);
+        return match;
+      });
+
+      const roundResults = await Promise.all(triplePromises);
+
+      // Update contestants
+      for (const match of roundResults) {
+        const first = contestants.find((c) => c.id === match.first);
+        const second = contestants.find((c) => c.id === match.second);
+        const third = contestants.find((c) => c.id === match.third);
+
+        if (first && second && third) {
+          // Award points: 2/1/0
+          first.points += 2;
+          first.placements.first++;
+          second.points += 1;
+          second.placements.second++;
+          third.placements.third++;
+
+          // Track opponents
+          first.opponents.add(second.id);
+          first.opponents.add(third.id);
+          second.opponents.add(first.id);
+          second.opponents.add(third.id);
+          third.opponents.add(first.id);
+          third.opponents.add(second.id);
+        }
+
+        allSwissMatches.push(match);
+        console.log(`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`);
       }
 
-      allSwissMatches.push(match);
-      console.log(`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`);
+      await appendFile(swissLogPath, "\n", "utf-8");
     }
-
-    await appendFile(swissLogPath, "\n", "utf-8");
     console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
   }
 
@@ -540,8 +673,10 @@ async function runCrossReviewPipeline(): Promise<void> {
   const top8 = sortedBySwiss.slice(0, TOP_N_PLAYOFF);
   const top8Ids = new Set(top8.map((c) => c.id));
 
-  console.log(`  Top 8 qualifiers: ${top8.map((c) => c.id).join(", ")}`);
-  await appendFile(playoffLogPath, `## Qualifiers\n\n${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("\n")}\n\n`, "utf-8");
+  console.log(`  Top ${TOP_N_PLAYOFF} qualifiers: ${top8.map((c) => c.id).join(", ")}`);
+  if (!DRY_RUN) {
+    await appendFile(playoffLogPath, `## Qualifiers\n\n${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("\n")}\n\n`, "utf-8");
+  }
 
   // Track playoff results
   const playoffResults = new Map<string, { points: number; wins: number; losses: number; draws: number }>();
@@ -558,103 +693,138 @@ async function runCrossReviewPipeline(): Promise<void> {
   }
 
   console.log(`  Running ${playoffPairs.length} matchups (×2 judges = ${playoffPairs.length * 2} total)...`);
-  await appendFile(playoffLogPath, `## Matches\n\n`, "utf-8");
+  if (!DRY_RUN) {
+    await appendFile(playoffLogPath, `## Matches\n\n`, "utf-8");
+  }
 
-  // Run all pairs with dual-judge (Claude low + GPT high) and randomized positions
-  const playoffPromises = playoffPairs.map(async ([idA, idB]) => {
-    const textA = revisedById.get(idA)!.result.text;
-    const textB = revisedById.get(idB)!.result.text;
+  if (DRY_RUN) {
+    // Mock playoff results
+    for (const [idA, idB] of playoffPairs) {
+      const resultA = playoffResults.get(idA)!;
+      const resultB = playoffResults.get(idB)!;
 
-    // Randomize positions for this match
-    const swapped = Math.random() > 0.5;
-    const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
-    const [firstText, secondText] = swapped ? [textB, textA] : [textA, textB];
-
-    // Run both judges in parallel with same randomized positions
-    const [claudeResult, gptResult] = await Promise.all([
-      pairwiseJudge("S1", firstText, "S2", secondText, "claude", "low"),
-      pairwiseJudge("S1", firstText, "S2", secondText, "gpt", "high"),
-    ]);
-
-    // Map back to real IDs
-    const claudeWinner = claudeResult.winner === "S1" ? firstId : secondId;
-    const gptWinner = gptResult.winner === "S1" ? firstId : secondId;
-
-    let matchResult: { winner: string | null; loser: string | null; isDraw: boolean };
-    let logEntry: string;
-
-    if (claudeWinner === gptWinner) {
-      // Both judges agree - clear winner
-      matchResult = { winner: claudeWinner, loser: claudeWinner === idA ? idB : idA, isDraw: false };
-      logEntry = `- **${matchResult.winner}** beat ${matchResult.loser} (2-0)\n`;
-      logEntry += `  - Claude: *${claudeResult.reasoning}*\n`;
-      logEntry += `  - GPT: *${gptResult.reasoning}*\n`;
-    } else {
-      // Judges disagree - draw
-      matchResult = { winner: null, loser: null, isDraw: true };
-      logEntry = `- ${idA} vs ${idB}: **DRAW** (1-1)\n`;
-      logEntry += `  - Claude picked ${claudeWinner}: *${claudeResult.reasoning}*\n`;
-      logEntry += `  - GPT picked ${gptWinner}: *${gptResult.reasoning}*\n`;
+      // Random outcome
+      const outcome = Math.random();
+      if (outcome < 0.4) {
+        // A wins
+        resultA.points += 1;
+        resultA.wins++;
+        resultB.losses++;
+        console.log(`    ✓ ${idA} beat ${idB} (mock)`);
+      } else if (outcome < 0.8) {
+        // B wins
+        resultB.points += 1;
+        resultB.wins++;
+        resultA.losses++;
+        console.log(`    ✓ ${idB} beat ${idA} (mock)`);
+      } else {
+        // Draw
+        resultA.points += 0.5;
+        resultA.draws++;
+        resultB.points += 0.5;
+        resultB.draws++;
+        console.log(`    = ${idA} drew ${idB} (mock)`);
+      }
     }
+  } else {
+    // Run all pairs with dual-judge (Claude low + GPT high) and randomized positions
+    const playoffPromises = playoffPairs.map(async ([idA, idB]) => {
+      const textA = revisedById.get(idA)!.result.text;
+      const textB = revisedById.get(idB)!.result.text;
 
-    // Write detailed judgment file for playoff
-    const judgmentFile = join(playoffJudgmentsDir, `${idA}_vs_${idB}.md`);
-    let judgmentMd = `# Playoff Judgment: ${idA} vs ${idB}\n\n`;
-    judgmentMd += `**Position Order**: S1=${firstId}, S2=${secondId}\n\n`;
-    judgmentMd += `## Claude (low thinking)\n\n`;
-    judgmentMd += `- **Winner**: ${claudeWinner}\n`;
-    judgmentMd += `- **Reasoning**: ${claudeResult.reasoning}\n\n`;
-    judgmentMd += `## GPT (high thinking)\n\n`;
-    judgmentMd += `- **Winner**: ${gptWinner}\n`;
-    judgmentMd += `- **Reasoning**: ${gptResult.reasoning}\n\n`;
-    judgmentMd += `## Final Result\n\n`;
-    if (matchResult.isDraw) {
-      judgmentMd += `**DRAW** - Judges disagreed (0.5 pts each)\n`;
-    } else {
-      judgmentMd += `**${matchResult.winner}** wins (1 pt)\n`;
-    }
-    await writeFile(judgmentFile, judgmentMd, "utf-8");
+      // Randomize positions for this match
+      const swapped = Math.random() > 0.5;
+      const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
+      const [firstText, secondText] = swapped ? [textB, textA] : [textA, textB];
 
-    // Update scores
-    const resultA = playoffResults.get(idA)!;
-    const resultB = playoffResults.get(idB)!;
+      // Run both judges in parallel with same randomized positions
+      const [claudeResult, gptResult] = await Promise.all([
+        pairwiseJudge("S1", firstText, "S2", secondText, "claude", "low"),
+        pairwiseJudge("S1", firstText, "S2", secondText, "gpt", "high"),
+      ]);
 
-    if (matchResult.isDraw) {
-      resultA.points += 0.5;
-      resultA.draws++;
-      resultB.points += 0.5;
-      resultB.draws++;
-      console.log(`    = ${idA} drew ${idB}`);
-    } else if (matchResult.winner === idA) {
-      resultA.points += 1;
-      resultA.wins++;
-      resultB.losses++;
-      console.log(`    ✓ ${idA} beat ${idB}`);
-    } else {
-      resultB.points += 1;
-      resultB.wins++;
-      resultA.losses++;
-      console.log(`    ✓ ${idB} beat ${idA}`);
-    }
+      // Map back to real IDs
+      const claudeWinner = claudeResult.winner === "S1" ? firstId : secondId;
+      const gptWinner = gptResult.winner === "S1" ? firstId : secondId;
 
-    // Write immediately
-    await appendFile(playoffLogPath, logEntry, "utf-8");
+      let matchResult: { winner: string | null; loser: string | null; isDraw: boolean };
+      let logEntry: string;
 
-    return matchResult;
-  });
+      if (claudeWinner === gptWinner) {
+        // Both judges agree - clear winner
+        matchResult = { winner: claudeWinner, loser: claudeWinner === idA ? idB : idA, isDraw: false };
+        logEntry = `- **${matchResult.winner}** beat ${matchResult.loser} (2-0)\n`;
+        logEntry += `  - Claude: *${claudeResult.reasoning}*\n`;
+        logEntry += `  - GPT: *${gptResult.reasoning}*\n`;
+      } else {
+        // Judges disagree - draw
+        matchResult = { winner: null, loser: null, isDraw: true };
+        logEntry = `- ${idA} vs ${idB}: **DRAW** (1-1)\n`;
+        logEntry += `  - Claude picked ${claudeWinner}: *${claudeResult.reasoning}*\n`;
+        logEntry += `  - GPT picked ${gptWinner}: *${gptResult.reasoning}*\n`;
+      }
 
-  await Promise.all(playoffPromises);
+      // Write detailed judgment file for playoff
+      const judgmentFile = join(playoffJudgmentsDir, `${idA}_vs_${idB}.md`);
+      let judgmentMd = `# Playoff Judgment: ${idA} vs ${idB}\n\n`;
+      judgmentMd += `**Position Order**: S1=${firstId}, S2=${secondId}\n\n`;
+      judgmentMd += `## Claude (low thinking)\n\n`;
+      judgmentMd += `- **Winner**: ${claudeWinner}\n`;
+      judgmentMd += `- **Reasoning**: ${claudeResult.reasoning}\n\n`;
+      judgmentMd += `## GPT (high thinking)\n\n`;
+      judgmentMd += `- **Winner**: ${gptWinner}\n`;
+      judgmentMd += `- **Reasoning**: ${gptResult.reasoning}\n\n`;
+      judgmentMd += `## Final Result\n\n`;
+      if (matchResult.isDraw) {
+        judgmentMd += `**DRAW** - Judges disagreed (0.5 pts each)\n`;
+      } else {
+        judgmentMd += `**${matchResult.winner}** wins (1 pt)\n`;
+      }
+      await writeFile(judgmentFile, judgmentMd, "utf-8");
+
+      // Update scores
+      const resultA = playoffResults.get(idA)!;
+      const resultB = playoffResults.get(idB)!;
+
+      if (matchResult.isDraw) {
+        resultA.points += 0.5;
+        resultA.draws++;
+        resultB.points += 0.5;
+        resultB.draws++;
+        console.log(`    = ${idA} drew ${idB}`);
+      } else if (matchResult.winner === idA) {
+        resultA.points += 1;
+        resultA.wins++;
+        resultB.losses++;
+        console.log(`    ✓ ${idA} beat ${idB}`);
+      } else {
+        resultB.points += 1;
+        resultB.wins++;
+        resultA.losses++;
+        console.log(`    ✓ ${idB} beat ${idA}`);
+      }
+
+      // Write immediately
+      await appendFile(playoffLogPath, logEntry, "utf-8");
+
+      return matchResult;
+    });
+
+    await Promise.all(playoffPromises);
+  }
 
   // Add playoff summary to log
-  await appendFile(playoffLogPath, "\n## Playoff Standings\n\n", "utf-8");
-  await appendFile(playoffLogPath, "| Rank | ID | Points | W | D | L |\n", "utf-8");
-  await appendFile(playoffLogPath, "|------|----|--------|---|---|---|\n", "utf-8");
+  if (!DRY_RUN) {
+    await appendFile(playoffLogPath, "\n## Playoff Standings\n\n", "utf-8");
+    await appendFile(playoffLogPath, "| Rank | ID | Points | W | D | L |\n", "utf-8");
+    await appendFile(playoffLogPath, "|------|----|--------|---|---|---|\n", "utf-8");
 
-  const playoffSorted = [...playoffResults.entries()].sort((a, b) => b[1].points - a[1].points);
-  for (let i = 0; i < playoffSorted.length; i++) {
-    const [id, result] = playoffSorted[i]!;
-    const medal = i < 3 ? ["🥇", "🥈", "🥉"][i] : "  ";
-    await appendFile(playoffLogPath, `| ${medal} ${i + 1} | ${id} | ${result.points} | ${result.wins} | ${result.draws} | ${result.losses} |\n`, "utf-8");
+    const playoffSorted = [...playoffResults.entries()].sort((a, b) => b[1].points - a[1].points);
+    for (let i = 0; i < playoffSorted.length; i++) {
+      const [id, result] = playoffSorted[i]!;
+      const medal = i < 3 ? ["🥇", "🥈", "🥉"][i] : "  ";
+      await appendFile(playoffLogPath, `| ${medal} ${i + 1} | ${id} | ${result.points} | ${result.wins} | ${result.draws} | ${result.losses} |\n`, "utf-8");
+    }
   }
 
   console.log("");
@@ -662,13 +832,20 @@ async function runCrossReviewPipeline(): Promise<void> {
   // === Finalize: Write leaderboard ===
   const leaderboard = computeLeaderboard(contestants, allSwissMatches, playoffResults);
   const leaderboardPath = join(runDir, "leaderboard.md");
-  await writeFile(leaderboardPath, leaderboard, "utf-8");
-  console.log(`  ✓ Wrote ${leaderboardPath}`);
+  if (!DRY_RUN) {
+    await writeFile(leaderboardPath, leaderboard, "utf-8");
+    console.log(`  ✓ Wrote ${leaderboardPath}`);
+  } else {
+    console.log(`  ✓ Leaderboard computed (dry run - not written)`);
+  }
 
   // Print summary stats
   console.log("\n" + "=".repeat(60));
   console.log("📊 TOURNAMENT SUMMARY");
   console.log("=".repeat(60));
+  if (DRY_RUN) {
+    console.log("🧪 DRY RUN - No API calls were made");
+  }
   console.log(`Swiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
   console.log(`Swiss Matches: ${allSwissMatches.length}`);
   console.log(`Playoff Matches: ${playoffPairs.length * 2} (${playoffPairs.length} pairs × 2 positions)`);
@@ -689,7 +866,7 @@ async function runCrossReviewPipeline(): Promise<void> {
     console.log(`  ${["🥇", "🥈", "🥉"][i]} ${c.id} (${c.points} Swiss${playoffStr})`);
   }
   console.log("=".repeat(60));
-  console.log(`\n✨ Pipeline complete! Output in: ${runDir}`);
+  console.log(`\n✨ Pipeline complete! ${DRY_RUN ? "(dry run)" : `Output in: ${runDir}`}`);
 }
 
 // Run the pipeline
