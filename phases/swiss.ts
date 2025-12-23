@@ -165,19 +165,19 @@ export async function runSwissPhase(
 	// Initialize contestants
 	const contestants: SwissContestant[] = resumeSwiss
 		? (state.contestants as StoredSwissContestant[]).map((c) => ({
-				id: c.id,
-				text: revisionsById.get(c.id)?.result.text ?? "",
-				points: c.points,
-				opponents: new Set(c.opponents),
-				placements: c.placements,
-			}))
+			id: c.id,
+			text: revisionsById.get(c.id)?.result.text ?? "",
+			points: c.points,
+			opponents: new Set(c.opponents),
+			placements: c.placements,
+		}))
 		: Array.from(revisionsById.entries()).map(([id, data]) => ({
-				id,
-				text: data.result.text,
-				points: 0,
-				opponents: new Set<string>(),
-				placements: { first: 0, second: 0, third: 0 },
-			}));
+			id,
+			text: data.result.text,
+			points: 0,
+			opponents: new Set<string>(),
+			placements: { first: 0, second: 0, third: 0 },
+		}));
 
 	const allSwissMatches: SwissMatch[] = resumeSwiss
 		? [...(state.swissMatches as StoredSwissMatch[])]
@@ -258,16 +258,8 @@ export async function runSwissPhase(
 
 					return {
 						round,
-						ids: [idA, idB, "BYE"], // Use "BYE" or similar to fit 3-tuple type if strict, or we need to update types?
-						// Wait, StoredSwissMatch expects [string, string, string].
-						// We should probably update the type or just use null/empty for 3rd.
-						// Let's check SwissMatch definition in leaderboard.ts or state.ts.
-						// It is defined in leaderboard.ts as `ids: string[]` usually? No, state.ts says `ids: z.tuple([z.string(), z.string(), z.string()])`.
-						// This is a constraint. I should probably update state.ts schema to allow 2 or 3.
-						// BUT simplifying, I can just put "N/A" for the 3rd slot for 1v1.
-						// Let's do that for now to avoid breaking schema changes if possible, or I should update schema.
-						// The schema says `ids: [string, string, string]`.
-						// I will use "N/A" for now.
+						// Use "N/A" as a placeholder for the third slot in 1v1 matches to satisfy the tuple schema.
+						ids: [idA, idB, "N/A"],
 						first: winnerId,
 						second: _loserId,
 						third: "N/A",
