@@ -2,11 +2,11 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type GenerateResult,
-	type ModelName,
+	type ModelSlug,
 	type ReviewResult,
 	reviewStatblock,
 } from "../aiClient";
-import { getConfig, getModelsForRole } from "../config";
+import { getConfig, getRoleEntries } from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -14,7 +14,7 @@ import {
 	type StoredReviewResult,
 	saveState,
 } from "../state";
-import { createMockReview } from "../utils";
+import { createMockReview, getShortModelName } from "../utils";
 
 // ============================================================================
 // Review Phase
@@ -26,18 +26,17 @@ export interface ReviewPhaseResult {
 
 /**
  * Phase 3: Cross-review statblocks.
- * Each model reviews ALL models' selected drafts (including self-review).
+ * Each reviewer reviews ALL generator models' selected drafts (including self-review if same model).
  */
 export async function runReviewPhase(
 	runDir: string,
 	reviewsDir: string,
 	state: PipelineState,
-	selectedByModel: Map<ModelName, GenerateResult>,
+	selectedByModel: Map<ModelSlug, GenerateResult>,
 	dryRun: boolean,
 	isResuming: boolean,
 ): Promise<ReviewPhaseResult> {
-	const config = getConfig();
-	const REVIEWER_MODELS = getModelsForRole("reviewers") as ModelName[];
+	const reviewers = getRoleEntries("reviewers");
 	const draftModels = Array.from(selectedByModel.keys());
 
 	console.log(
@@ -46,7 +45,7 @@ export async function runReviewPhase(
 
 	const reviews: ReviewResult[] = [];
 	let reviewCount = 0;
-	const totalReviews = REVIEWER_MODELS.length * draftModels.length;
+	const totalReviews = reviewers.length * draftModels.length;
 
 	// Resume from state if available
 	const resumeReviews =
@@ -62,45 +61,57 @@ export async function runReviewPhase(
 
 	if (dryRun) {
 		// Mock reviews
-		for (const reviewer of REVIEWER_MODELS) {
-			for (const reviewed of draftModels) {
+		for (const reviewer of reviewers) {
+			const reviewerShort = getShortModelName(reviewer.model);
+			for (const reviewedSlug of draftModels) {
+				const reviewedShort = getShortModelName(reviewedSlug);
 				const review: ReviewResult = {
 					text: createMockReview(),
-					reviewer,
-					reviewed,
+					reviewer: reviewer.model,
+					reviewed: reviewedSlug,
 				};
 				reviews.push(review);
 				reviewCount++;
-				const selfTag = reviewer === reviewed ? " (self)" : "";
+				const selfTag = reviewer.model === reviewedSlug ? " (self)" : "";
 				console.log(
-					`  ✓ ${reviewer} reviewed ${reviewed}'s statblock${selfTag} (mock) (${reviewCount}/${totalReviews})`,
+					`  ✓ ${reviewerShort} reviewed ${reviewedShort}'s statblock${selfTag} (mock) (${reviewCount}/${totalReviews})`,
 				);
 			}
 		}
 	} else {
 		// Real API calls
 		const reviewPromises: Promise<void>[] = [];
-		for (const reviewer of REVIEWER_MODELS) {
-			for (const reviewed of draftModels) {
-				const statblock = selectedByModel.get(reviewed)!.text;
+		for (const reviewer of reviewers) {
+			const reviewerShort = getShortModelName(reviewer.model);
+			for (const reviewedSlug of draftModels) {
+				const reviewedShort = getShortModelName(reviewedSlug);
+				const statblock = selectedByModel.get(reviewedSlug)!.text;
 				reviewPromises.push(
 					(async () => {
-						const review = await reviewStatblock(reviewer, reviewed, statblock);
+						const review = await reviewStatblock(
+							reviewer.model,
+							reviewedSlug,
+							statblock,
+							reviewer.effort ?? "medium",
+							reviewer.temperature,
+						);
 						reviews.push(review);
 						reviewCount++;
 						const selfTag =
 							review.reviewer === review.reviewed ? " (self)" : "";
 						console.log(
-							`  ✓ ${review.reviewer} reviewed ${review.reviewed}'s statblock${selfTag} (${reviewCount}/${totalReviews})`,
+							`  ✓ ${reviewerShort} reviewed ${reviewedShort}'s statblock${selfTag} (${reviewCount}/${totalReviews})`,
 						);
 						// Write immediately
+						const safeReviewer = reviewerShort.replace(/[^a-zA-Z0-9-_]/g, "_");
+						const safeReviewed = reviewedShort.replace(/[^a-zA-Z0-9-_]/g, "_");
 						const path = join(
 							reviewsDir,
-							`${review.reviewer}_reviews_${review.reviewed}.md`,
+							`${safeReviewer}_reviews_${safeReviewed}.md`,
 						);
 						await writeFile(
 							path,
-							`# ${review.reviewer} reviews ${review.reviewed}\n\n${review.text}`,
+							`# ${reviewerShort} reviews ${reviewedShort}\n\n${review.text}`,
 							"utf-8",
 						);
 					})(),

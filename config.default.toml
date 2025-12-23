@@ -1,0 +1,98 @@
+# =============================================================================
+# Draftbench Default Configuration
+# =============================================================================
+# This file shows ALL default settings for reference.
+# You don't need to copy this - just override what you want in config.toml
+
+# -----------------------------------------------------------------------------
+# ROLES: Which models perform each role
+# -----------------------------------------------------------------------------
+
+[roles]
+
+# Generators: Create initial drafts
+[[roles.generators]]
+model = "anthropic/claude-sonnet-4"
+effort = "high"
+
+[[roles.generators]]
+model = "openai/gpt-4.1"
+effort = "high"
+
+[[roles.generators]]
+model = "google/gemini-2.5-pro-preview"
+effort = "high"
+
+# Reviewers: Critique and provide feedback
+[[roles.reviewers]]
+model = "anthropic/claude-sonnet-4"
+effort = "medium"
+
+[[roles.reviewers]]
+model = "openai/gpt-4.1"
+effort = "medium"
+
+[[roles.reviewers]]
+model = "google/gemini-2.5-pro-preview"
+effort = "medium"
+
+# Revisers: Improve drafts based on feedback
+[[roles.revisers]]
+model = "anthropic/claude-sonnet-4"
+effort = "high"
+
+[[roles.revisers]]
+model = "openai/gpt-4.1"
+effort = "high"
+
+[[roles.revisers]]
+model = "google/gemini-2.5-pro-preview"
+effort = "high"
+
+# Swiss Tournament Judge (single model for efficiency)
+[roles.swissJudge]
+model = "anthropic/claude-sonnet-4"
+effort = "low"
+
+# Playoff Judges (dual-judge voting for fairness)
+[[roles.playoffJudges]]
+model = "anthropic/claude-sonnet-4"
+effort = "low"
+
+[[roles.playoffJudges]]
+model = "openai/gpt-4.1"
+effort = "high"
+
+# -----------------------------------------------------------------------------
+# TOURNAMENT SETTINGS
+# -----------------------------------------------------------------------------
+
+[tournament]
+initialGenerations = 1      # Drafts per generator model
+swissRounds = 7             # Number of Swiss tournament rounds
+playoffSize = 8             # Top N contestants advance to playoffs
+swissFormat = "1v1v1"       # "1v1" (pairwise) or "1v1v1" (three-way)
+
+[tournament.initialLeaderboard]
+enabled = false             # Run round-robin to pick best draft per model
+
+# -----------------------------------------------------------------------------
+# CONCURRENCY
+# -----------------------------------------------------------------------------
+# Omit this section for unlimited parallel API calls
+
+# [concurrency]
+# maxParallel = 5           # Limit parallel API calls
+
+# -----------------------------------------------------------------------------
+# OUTPUT
+# -----------------------------------------------------------------------------
+
+[output]
+runsDirectory = "runs"      # Where run outputs are saved
+
+# -----------------------------------------------------------------------------
+# PROMPTS
+# -----------------------------------------------------------------------------
+# See prompts.toml for customizable prompts, or override inline below.
+# Use --prompts <file.toml> CLI flag to load a different prompts file.

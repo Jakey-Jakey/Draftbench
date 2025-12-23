@@ -48,119 +48,107 @@
 ### Configuration Files
 | File | Purpose |
 |------|---------|
-| `config.json` | User overrides (gitignored). Merged with defaults at runtime. |
-| `config.draft-leaderboard.json` | Pre-made config: 3 generations + initial leaderboard enabled. |
+| `config.toml` | **Main config**. User customizations (edit this). |
+| `config.default.toml` | Reference: all defaults with full documentation. |
+| `config.example.toml` | Example config with comments. |
+| `config.1v1-swiss.toml` | Preset: Swiss 1v1 format (pairwise matches). |
+| `config.draft-leaderboard.toml` | Preset: 3 generations + initial leaderboard enabled. |
+| `prompts.toml` | Customizable prompts. Load with `--prompts` flag. |
+
+### Tests
+| File | Purpose |
+|------|---------|
+| `tests/config.test.ts` | Config loading, CLI parsing, prompts tests. |
+| `tests/utils.test.ts` | Helper function tests. |
+| `tests/swiss.test.ts` | Swiss pairing algorithm tests. |
 
 ---
 
 
 ## ⚙️ Configuration System
 
+**Format**: TOML (supports comments with `#`)
+
 **Priority Order** (highest first):
 1. `--config <path>` CLI argument
-2. `config.json` (project root)
+2. `config.toml` (project root)
 3. Internal defaults in `config.ts`
 
-### Critical Config Fields
+### Role-Centric Configuration
 
-```jsonc
-{
-  "models": {
-    "claude": { "slug": "anthropic/claude-4.5-opus", "reasoningEffort": "high" }
-    // Add/modify models here
-  },
-  "tournament": {
-    "initialGenerations": 1,      // Drafts per model
-    "initialLeaderboard": {
-      "enabled": false,           // Enable seed selection
-      "judges": []                // Empty = use playoffJudges
-    },
-    "swissRounds": 7,
-    "playoffSize": 8,
-    "swissJudge": { "model": "claude", "effort": "low" },
-    "playoffJudges": [
-      { "model": "claude", "effort": "low" },
-      { "model": "gpt", "effort": "high" }
-    ]
-  },
-  "prompts": {
-    "generate": { "system": "...", "user": "..." },
-    "review": { "system": "...", "userTemplate": "...{statblock}..." },
-    "revise": { "system": "...", "userTemplate": "...{statblock}...{feedback}..." },
-    "judgePairwise": { "system": "...", "userTemplate": "...{idA}...{textA}..." },
-    "judgeThreeWay": { "system": "...", "userTemplate": "...{idA}...{idB}...{idC}..." }
-  }
-}
+Models are defined **per role** with their settings. This makes it easy to:
+- Use different models for different roles
+- Set reasoning effort per model per role
+- Have asymmetric setups (e.g., 2 generators, 5 reviewers)
+
+```toml
+# config.toml - Example with comments
+
+[roles]
+# Generators: Models that create initial drafts
+[[roles.generators]]
+model = "anthropic/claude-sonnet-4"
+effort = "high"
+
+[[roles.generators]]
+model = "openai/gpt-4.1"
+effort = "high"
+
+# Reviewers: Models that critique drafts
+[[roles.reviewers]]
+model = "google/gemini-2.5-pro-preview"
+effort = "medium"
+
+# Revisers: Models that improve drafts based on feedback
+[[roles.revisers]]
+model = "anthropic/claude-sonnet-4"
+effort = "xhigh"
+
+# Swiss Tournament Judge
+[roles.swissJudge]
+model = "anthropic/claude-sonnet-4"
+effort = "low"
+
+# Playoff Judges (dual-judge voting)
+[[roles.playoffJudges]]
+model = "anthropic/claude-sonnet-4"
+effort = "low"
+
+[[roles.playoffJudges]]
+model = "openai/gpt-4.1"
+effort = "high"
+
+[tournament]
+initialGenerations = 1
+swissRounds = 7
+playoffSize = 8
+swissFormat = "1v1v1"  # "1v1" or "1v1v1"
+
+[tournament.initialLeaderboard]
+enabled = false
+
+[concurrency]
+maxParallel = 5  # Limit parallel API calls
+
+[output]
+runsDirectory = "runs"
 ```
 
-### Per-Phase Model Roles (Optional)
+### Role Entry Fields
 
-Control which models participate in each pipeline phase:
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | string | *required* | OpenRouter slug (e.g., `"anthropic/claude-sonnet-4"`) |
+| `effort` | string | `"high"` | Reasoning effort: `"xhigh"`, `"high"`, `"medium"`, `"low"`, `"minimal"`, `"none"` |
+| `temperature` | number | *none* | Optional temperature override |
 
-```jsonc
-{
-  "roles": {
-    "generators": ["claude", "gpt"],           // Only these generate drafts
-    "reviewers": ["gemini", "llama", "mistral"], // Only these review
-    "revisers": ["claude", "gpt", "gemini"],   // Only these revise
-    "judges": ["claude", "gpt"]                // Only these can judge
-  }
-}
+### Swiss Match Format
+
+```toml
+[tournament]
+swissFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
+# swissFormat = "1v1"  # Alternative: pairwise matches
 ```
-
-| Role | Effect | Default |
-|------|--------|---------|
-| `generators` | Models that create initial drafts | All models |
-| `reviewers` | Models that review drafts | All models |
-| `revisers` | Models that revise based on reviews | All models |
-| `judges` | Allowed judge models (validates `swissJudge`, `playoffJudges`) | All models |
-
-If `roles` is omitted or a specific role list is empty, **all models** in `config.models` participate in that phase (backward compatible).
-
-> **Note**: When `roles.judges` is set, all judge configurations (`swissJudge`, `playoffJudges`, `initialLeaderboard.judges`) must reference models in that list or config loading will fail.
-
-### Concurrency Limits (Optional)
-
-Limit parallel API calls to avoid rate limiting:
-
-```jsonc
-{ "concurrency": { "maxParallel": 5 } }
-```
-
-If omitted, all calls run in parallel (unlimited).
-
-### Per-Model Phase Settings (Optional)
-
-Fine-tune effort and temperature per model and phase:
-
-```jsonc
-{
-  "models": {
-    "claude": {
-      "slug": "anthropic/claude-4.5-opus",
-      "reasoningEffort": "high",
-      "temperature": 0.7,
-      "phases": {
-        "generate": { "effort": "xhigh", "temperature": 0.9 },
-        "judge": { "effort": "low" }
-      }
-    }
-  }
-}
-```
-
-**Resolution order** (highest priority first):
-1. `models[model].phases[phase]`
-2. `models[model].reasoningEffort / temperature`
-3. Default: `"high"`
-
-### Swiss Match Format (Optional)
-
-```jsonc
-{ "tournament": { "swissFormat": "1v1" | "1v1v1" } }
-```
-
-Default: `"1v1v1"` (three-way ranking: 2/1/0 points)
 
 ---
 
@@ -185,13 +173,22 @@ bun run index.ts
 bun run index.ts --dry-run
 
 # Custom config
-bun run index.ts --config config.draft-leaderboard.json
+bun run index.ts --config config.1v1-swiss.toml
+
+# Custom prompts (for different benchmarks)
+bun run index.ts --prompts my-prompts.toml
 
 # Combined
-bun run index.ts --config my-config.json --dry-run
+bun run index.ts --config my-config.toml --prompts my-prompts.toml --dry-run
+
+# Resume interrupted run
+bun run index.ts --resume runs/2024-01-01T12-00-00
 
 # Linting
 bun run lint
+
+# Testing
+bun test
 ```
 
 ---
@@ -218,12 +215,13 @@ runs/<timestamp>/
 ## ⚠️ Common Pitfalls & Development Notes
 
 1. **Missing API Key**: Set `OPENROUTER_API_KEY` env var before running.
-2. **Config Not Loading**: Ensure valid JSON. Check for trailing commas.
-3. **Adding Models**: New models must be added to `config.models` with a valid OpenRouter slug.
-4. **Prompt Templates**: Use `{varname}` syntax. Available vars depend on phase (see `config.ts` types).
+2. **Config Not Loading**: Ensure valid TOML syntax. Run `bun test` to validate.
+3. **Adding Models**: Use full OpenRouter slugs (e.g., `anthropic/claude-sonnet-4`).
+4. **Prompt Templates**: Use `{varname}` syntax. Available vars depend on phase (see `prompts.toml`).
 5. **Cost Control**: Use `--dry-run` liberally. Full runs cost ~$15-20 in API calls.
-6. **Incremental Writes**: Files are written as each phase completes—safe to interrupt and resume manually.
+6. **Incremental Writes**: Files are written as each phase completes—safe to interrupt and resume.
 7. **Linting**: Use `bun run lint` to check for code style and potential errors using Biome.
+8. **Testing**: Use `bun test` to run the test suite (31 tests).
 
 ---
 

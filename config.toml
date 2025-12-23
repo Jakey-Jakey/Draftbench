@@ -1,0 +1,92 @@
+# =============================================================================
+# Draftbench Configuration
+# =============================================================================
+# This is the main config file. Customize settings here.
+# See config.default.toml for all available options with documentation.
+# See prompts.toml to customize prompts (load with --prompts flag).
+
+# -----------------------------------------------------------------------------
+# ROLES: Which models perform each role
+# -----------------------------------------------------------------------------
+
+[roles]
+
+# Generators: Create initial drafts
+[[roles.generators]]
+model = "anthropic/claude-sonnet-4"
+effort = "high"
+
+[[roles.generators]]
+model = "openai/gpt-4.1"
+effort = "high"
+
+[[roles.generators]]
+model = "google/gemini-2.5-pro-preview"
+effort = "high"
+
+# Reviewers: Critique and provide feedback
+[[roles.reviewers]]
+model = "anthropic/claude-sonnet-4"
+effort = "medium"
+
+[[roles.reviewers]]
+model = "openai/gpt-4.1"
+effort = "medium"
+
+[[roles.reviewers]]
+model = "google/gemini-2.5-pro-preview"
+effort = "medium"
+
+# Revisers: Improve drafts based on feedback
+[[roles.revisers]]
+model = "anthropic/claude-sonnet-4"
+effort = "high"
+
+[[roles.revisers]]
+model = "openai/gpt-4.1"
+effort = "high"
+
+[[roles.revisers]]
+model = "google/gemini-2.5-pro-preview"
+effort = "high"
+
+# Swiss Tournament Judge
+[roles.swissJudge]
+model = "anthropic/claude-sonnet-4"
+effort = "low"
+
+# Playoff Judges (dual-judge voting)
+[[roles.playoffJudges]]
+model = "anthropic/claude-sonnet-4"
+effort = "low"
+
+[[roles.playoffJudges]]
+model = "openai/gpt-4.1"
+effort = "high"
+
+# -----------------------------------------------------------------------------
+# TOURNAMENT
+# -----------------------------------------------------------------------------
+
+[tournament]
+initialGenerations = 1
+swissRounds = 7
+playoffSize = 8
+swissFormat = "1v1v1"
+
+[tournament.initialLeaderboard]
+enabled = false
+
+# -----------------------------------------------------------------------------
+# CONCURRENCY (uncomment to limit parallel API calls)
+# -----------------------------------------------------------------------------
+
+# [concurrency]
+# maxParallel = 5
+
+# -----------------------------------------------------------------------------
+# OUTPUT
+# -----------------------------------------------------------------------------
+
+[output]
+runsDirectory = "runs"

@@ -7,6 +7,7 @@
       "dependencies": {
         "@openrouter/ai-sdk-provider": "^1.0.0",
         "ai": "^5.0.0",
+        "smol-toml": "^1.6.0",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -45,6 +46,8 @@
     "eventsource-parser": ["eventsource-parser@3.0.6", "", {}, ""],
 
     "json-schema": ["json-schema@0.4.0", "", {}, ""],
+
+    "smol-toml": ["smol-toml@1.6.0", "", {}, "sha512-4zemZi0HvTnYwLfrpk/CF9LOd9Lt87kAt50GnqhMpyF9U3poDAP2+iukq2bZsO/ufegbYehBkqINbsWxj4l4cw=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, ""],
 

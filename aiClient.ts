@@ -1,11 +1,15 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
-import { getCallSettings, type Phase } from "./callSettings";
+import {
+	type CallSettings,
+	getCallSettings,
+	getJudgeSettings,
+} from "./callSettings";
 import {
 	getConfig,
 	interpolate,
-	type ModelName,
 	type ReasoningEffort,
+	type RoleEntry,
 } from "./config";
 import {
 	JudgeStatblocksResponseSchema,
@@ -15,8 +19,8 @@ import {
 } from "./schemas";
 import { withConcurrencyLimit } from "./semaphore";
 
-// Re-export ModelName type
-export type { ModelName } from "./config";
+// Model slug is now the identifier (OpenRouter format: "provider/model-name")
+export type ModelSlug = string;
 
 // Lazily initialize the OpenRouter provider to allow dry-run without a key
 let openrouter: ReturnType<typeof createOpenRouter> | null = null;
@@ -34,163 +38,135 @@ function getOpenRouter() {
 	return openrouter;
 }
 
-/**
- * Get the model slug map from config.
- * This is called dynamically to support runtime config loading.
- */
-export function getModels(): Record<string, string> {
-	const config = getConfig();
-	return Object.fromEntries(
-		Object.entries(config.models).map(([key, value]) => [key, value.slug]),
-	);
-}
-
-/**
- * Legacy MODELS export for backwards compatibility.
- * @deprecated Use getModels() instead
- */
-export const MODELS = new Proxy({} as Record<string, string>, {
-	get(_, prop: string) {
-		return getModels()[prop];
-	},
-	ownKeys() {
-		return Object.keys(getModels());
-	},
-	getOwnPropertyDescriptor() {
-		return { enumerable: true, configurable: true };
-	},
-});
-
 export interface GenerateResult {
 	text: string;
-	model: ModelName;
+	model: ModelSlug;
 }
 
 export interface ReviewResult {
 	text: string;
-	reviewer: ModelName;
-	reviewed: ModelName;
+	reviewer: ModelSlug;
+	reviewed: ModelSlug;
 }
 
 export interface ReviseResult {
 	text: string;
-	model: ModelName;
-}
-
-function getReasoningConfig(model: ModelName, phase: Phase = "generate") {
-	const settings = getCallSettings(model, phase);
-	return { effort: settings.effort ?? "high" };
+	model: ModelSlug;
 }
 
 /**
- * Generates a D&D 5e monster statblock using specified model.
+ * Generates a D&D 5e monster statblock using specified model slug.
+ * @param modelSlug - OpenRouter model slug (e.g., "anthropic/claude-sonnet-4")
+ * @param effort - Reasoning effort level
+ * @param temperature - Optional temperature override
  */
 export async function generateStatblock(
-	model: ModelName,
+	modelSlug: ModelSlug,
+	effort: ReasoningEffort = "high",
+	temperature?: number,
 ): Promise<GenerateResult> {
 	return withConcurrencyLimit(async () => {
 		const config = getConfig();
-		const modelSlug = config.models[model]?.slug;
-		if (!modelSlug) {
-			throw new Error(`Unknown model: ${model} `);
-		}
 
-		const settings = getCallSettings(model, "generate");
 		const result = await generateText({
 			model: getOpenRouter()(modelSlug),
 			system: config.prompts.generate.system,
 			prompt: config.prompts.generate.user,
-			temperature: settings.temperature,
+			temperature,
 			providerOptions: {
 				openrouter: {
-					reasoning: { effort: settings.effort ?? "high" },
+					reasoning: { effort },
 				},
 			},
 		});
 
 		return {
 			text: result.text,
-			model,
+			model: modelSlug,
 		};
 	});
 }
 
 /**
- * Reviews a statblock using specified model.
+ * Reviews a statblock using specified model slug.
+ * @param reviewerSlug - OpenRouter model slug for the reviewer
+ * @param reviewedSlug - OpenRouter model slug of the original generator (for tracking)
+ * @param statblock - The statblock text to review
+ * @param effort - Reasoning effort level
+ * @param temperature - Optional temperature override
  */
 export async function reviewStatblock(
-	reviewer: ModelName,
-	reviewed: ModelName,
+	reviewerSlug: ModelSlug,
+	reviewedSlug: ModelSlug,
 	statblock: string,
+	effort: ReasoningEffort = "medium",
+	temperature?: number,
 ): Promise<ReviewResult> {
 	return withConcurrencyLimit(async () => {
 		const config = getConfig();
-		const modelSlug = config.models[reviewer]?.slug;
-		if (!modelSlug) {
-			throw new Error(`Unknown model: ${reviewer} `);
-		}
 
 		const prompt = interpolate(config.prompts.review.userTemplate, {
 			statblock,
 		});
-		const settings = getCallSettings(reviewer, "review");
 
 		const result = await generateText({
-			model: getOpenRouter()(modelSlug),
+			model: getOpenRouter()(reviewerSlug),
 			system: config.prompts.review.system,
 			prompt,
-			temperature: settings.temperature,
+			temperature,
 			providerOptions: {
 				openrouter: {
-					reasoning: { effort: settings.effort ?? "high" },
+					reasoning: { effort },
 				},
 			},
 		});
 
 		return {
 			text: result.text,
-			reviewer,
-			reviewed,
+			reviewer: reviewerSlug,
+			reviewed: reviewedSlug,
 		};
 	});
 }
 
 /**
- * Revises a statblock based on feedback using specified model.
+ * Revises a statblock based on feedback using specified model slug.
+ * @param modelSlug - OpenRouter model slug for the reviser
+ * @param originalStatblock - The original statblock text
+ * @param feedback - Review feedback to incorporate
+ * @param effort - Reasoning effort level
+ * @param temperature - Optional temperature override
  */
 export async function reviseStatblock(
-	model: ModelName,
+	modelSlug: ModelSlug,
 	originalStatblock: string,
 	feedback: string,
+	effort: ReasoningEffort = "high",
+	temperature?: number,
 ): Promise<ReviseResult> {
 	return withConcurrencyLimit(async () => {
 		const config = getConfig();
-		const modelSlug = config.models[model]?.slug;
-		if (!modelSlug) {
-			throw new Error(`Unknown model: ${model} `);
-		}
 
 		const prompt = interpolate(config.prompts.revise.userTemplate, {
 			statblock: originalStatblock,
 			feedback,
 		});
-		const settings = getCallSettings(model, "revise");
 
 		const result = await generateText({
 			model: getOpenRouter()(modelSlug),
 			system: config.prompts.revise.system,
 			prompt,
-			temperature: settings.temperature,
+			temperature,
 			providerOptions: {
 				openrouter: {
-					reasoning: { effort: settings.effort ?? "high" },
+					reasoning: { effort },
 				},
 			},
 		});
 
 		return {
 			text: result.text,
-			model,
+			model: modelSlug,
 		};
 	});
 }
@@ -202,7 +178,7 @@ export interface StatblockRanking {
 }
 
 export interface JudgeResult {
-	judge: ModelName;
+	judge: ModelSlug;
 	rankings: StatblockRanking[];
 	reasoning: string;
 	raw: string;
@@ -211,28 +187,29 @@ export interface JudgeResult {
 /**
  * Judges all statblocks comparatively and returns rankings.
  * Statblocks are passed with anonymous IDs to prevent bias.
+ * @param judgeSlug - OpenRouter model slug for the judge
+ * @param statblocks - Map of anonymous IDs to statblock text
+ * @param effort - Reasoning effort level
+ * @param temperature - Optional temperature override
  */
 export async function judgeStatblocks(
-	judge: ModelName,
+	judgeSlug: ModelSlug,
 	statblocks: Map<string, string>,
+	effort: ReasoningEffort = "high",
+	temperature?: number,
 ): Promise<JudgeResult> {
 	return withConcurrencyLimit(async () => {
 		const config = getConfig();
-		const modelSlug = config.models[judge]?.slug;
-		if (!modelSlug) {
-			throw new Error(`Unknown model: ${judge} `);
-		}
 
 		const statblockEntries = Array.from(statblocks.entries())
-			.map(([id, text]) => `## Statblock ID: ${id} \n\n${text} `)
+			.map(([id, text]) => `## Statblock ID: ${id}\n\n${text}`)
 			.join("\n\n---\n\n");
 
 		const allIds = Array.from(statblocks.keys());
-		const settings = getCallSettings(judge, "judge");
 
 		const result = await generateText({
-			model: getOpenRouter()(modelSlug),
-			system: `You are an expert D & D 5e game designer judging monster statblocks.Compare ALL the statblocks provided and rank them from best to worst.Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
+			model: getOpenRouter()(judgeSlug),
+			system: `You are an expert D&D 5e game designer judging monster statblocks. Compare ALL the statblocks provided and rank them from best to worst. Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
 
 You MUST respond with ONLY a valid JSON object in this exact format, no other text:
 {
@@ -241,15 +218,15 @@ You MUST respond with ONLY a valid JSON object in this exact format, no other te
 		{ "id": "statblock_id", "rank": 2, "score": 90 },
 		... (include ALL ${allIds.length} statblocks)
 	],
-		"reasoning": "One sentence summary of your ranking decision."
+	"reasoning": "One sentence summary of your ranking decision."
 }
 
-Use scores from 0 - 100. IDs must exactly match the provided Statblock IDs: ${allIds.join(", ")} `,
-			prompt: `Compare and rank ALL ${allIds.length} D & D 5e Doctor Doom statblocks: \n\n${statblockEntries} `,
-			temperature: settings.temperature,
+Use scores from 0-100. IDs must exactly match the provided Statblock IDs: ${allIds.join(", ")}`,
+			prompt: `Compare and rank ALL ${allIds.length} D&D 5e Doctor Doom statblocks:\n\n${statblockEntries}`,
+			temperature,
 			providerOptions: {
 				openrouter: {
-					reasoning: { effort: settings.effort ?? "high" },
+					reasoning: { effort },
 				},
 			},
 		});
@@ -266,13 +243,13 @@ Use scores from 0 - 100. IDs must exactly match the provided Statblock IDs: ${al
 		);
 		if (!parseResult.success) {
 			console.error(
-				`Failed to parse judge response from ${judge}: ${parseResult.error} `,
+				`Failed to parse judge response from ${judgeSlug}: ${parseResult.error}`,
 			);
 		}
 		const parsed = parseResult.data;
 
 		return {
-			judge,
+			judge: judgeSlug,
 			rankings: parsed.rankings,
 			reasoning: parsed.reasoning,
 			raw: result.text,
@@ -284,32 +261,31 @@ export interface PairwiseResult {
 	winner: string;
 	loser: string;
 	reasoning: string;
-	judge: ModelName;
+	judge: ModelSlug;
 }
 
 /**
  * Pairwise comparison of two statblocks.
  * Returns the winner ID, reasoning, and which judge was used.
- * @param judge - Which model to use as judge (default: claude)
- * @param effort - Reasoning effort level (default: from callSettings)
+ * @param idA - Anonymous ID for first statblock
+ * @param textA - Text of first statblock
+ * @param idB - Anonymous ID for second statblock
+ * @param textB - Text of second statblock
+ * @param judgeSlug - OpenRouter model slug for the judge
+ * @param effort - Reasoning effort level
+ * @param temperature - Optional temperature override
  */
 export async function pairwiseJudge(
 	idA: string,
 	textA: string,
 	idB: string,
 	textB: string,
-	judge: ModelName = "claude",
-	effort?: ReasoningEffort,
+	judgeSlug: ModelSlug,
+	effort: ReasoningEffort = "low",
+	temperature?: number,
 ): Promise<PairwiseResult> {
 	return withConcurrencyLimit(async () => {
 		const config = getConfig();
-		const modelSlug = config.models[judge]?.slug;
-		if (!modelSlug) {
-			throw new Error(`Unknown model: ${judge} `);
-		}
-
-		const settings = getCallSettings(judge, "judge");
-		const reasoningEffort = effort ?? settings.effort ?? "high";
 
 		const systemPrompt = interpolate(config.prompts.judgePairwise.system, {
 			idA,
@@ -323,13 +299,13 @@ export async function pairwiseJudge(
 		});
 
 		const result = await generateText({
-			model: getOpenRouter()(modelSlug),
+			model: getOpenRouter()(judgeSlug),
 			system: systemPrompt,
 			prompt: userPrompt,
-			temperature: settings.temperature,
+			temperature,
 			providerOptions: {
 				openrouter: {
-					reasoning: { effort: reasoningEffort },
+					reasoning: { effort },
 				},
 			},
 		});
@@ -346,7 +322,7 @@ export async function pairwiseJudge(
 		);
 		if (!parseResult.success) {
 			console.error(
-				`Failed to parse pairwise judge response(${judge}): ${parseResult.error} `,
+				`Failed to parse pairwise judge response (${judgeSlug}): ${parseResult.error}`,
 			);
 		}
 		const parsed = parseResult.data;
@@ -355,7 +331,7 @@ export async function pairwiseJudge(
 			winner: parsed.winner,
 			loser: parsed.winner === idA ? idB : idA,
 			reasoning: parsed.reasoning,
-			judge,
+			judge: judgeSlug,
 		};
 	});
 }
@@ -368,9 +344,17 @@ export interface ThreeWayResult {
 }
 
 /**
- * Three-way comparison of statblocks. Uses the first configured model
- * and its reasoning effort (unless overridden).
+ * Three-way comparison of statblocks.
  * Returns 1st, 2nd, 3rd place rankings with reasoning.
+ * @param idA - Anonymous ID for first statblock
+ * @param textA - Text of first statblock
+ * @param idB - Anonymous ID for second statblock
+ * @param textB - Text of second statblock
+ * @param idC - Anonymous ID for third statblock
+ * @param textC - Text of third statblock
+ * @param judgeSlug - OpenRouter model slug for the judge
+ * @param effort - Reasoning effort level
+ * @param temperature - Optional temperature override
  */
 export async function threeWayJudge(
 	idA: string,
@@ -379,23 +363,12 @@ export async function threeWayJudge(
 	textB: string,
 	idC: string,
 	textC: string,
-	judge: ModelName | null = null,
-	effort?: ReasoningEffort,
+	judgeSlug: ModelSlug,
+	effort: ReasoningEffort = "low",
+	temperature?: number,
 ): Promise<ThreeWayResult> {
 	return withConcurrencyLimit(async () => {
 		const config = getConfig();
-		const modelKeys = Object.keys(config.models);
-		if (modelKeys.length === 0) {
-			throw new Error("No models configured");
-		}
-		const judgeModel = judge ?? modelKeys[0]!;
-		const modelSlug = config.models[judgeModel]?.slug;
-		if (!modelSlug) {
-			throw new Error("No models configured");
-		}
-
-		const settings = getCallSettings(judgeModel, "judge");
-		const reasoningEffort = effort ?? settings.effort ?? "high";
 
 		const systemPrompt = interpolate(config.prompts.judgeThreeWay.system, {
 			idA,
@@ -412,13 +385,13 @@ export async function threeWayJudge(
 		});
 
 		const result = await generateText({
-			model: getOpenRouter()(modelSlug),
+			model: getOpenRouter()(judgeSlug),
 			system: systemPrompt,
 			prompt: userPrompt,
-			temperature: settings.temperature,
+			temperature,
 			providerOptions: {
 				openrouter: {
-					reasoning: { effort: reasoningEffort },
+					reasoning: { effort },
 				},
 			},
 		});
@@ -438,7 +411,7 @@ export async function threeWayJudge(
 		);
 		if (!parseResult.success) {
 			console.error(
-				`Failed to parse three - way judge response: ${parseResult.error} `,
+				`Failed to parse three-way judge response: ${parseResult.error}`,
 			);
 		}
 		const parsed = parseResult.data;

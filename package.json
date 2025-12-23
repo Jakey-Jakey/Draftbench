@@ -4,11 +4,13 @@
 	"type": "module",
 	"private": true,
 	"scripts": {
-		"lint": "bun x @biomejs/biome check ."
+		"lint": "bun x @biomejs/biome check .",
+		"test": "bun test"
 	},
 	"dependencies": {
 		"@openrouter/ai-sdk-provider": "^1.0.0",
 		"ai": "^5.0.0",
+		"smol-toml": "^1.6.0",
 		"zod": "^4.2.1"
 	},
 	"devDependencies": {

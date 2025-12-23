@@ -1,5 +1,6 @@
-import { getConfig } from "./config";
+import { getConfig, getPlayoffJudges, getSwissJudge } from "./config";
 import type { StoredSwissContestant, StoredSwissMatch } from "./state";
+import { getShortModelName } from "./utils";
 
 // ============================================================================
 // Leaderboard Types
@@ -54,8 +55,8 @@ export function computeLeaderboard(
 	const config = getConfig();
 	const SWISS_ROUNDS = config.tournament.swissRounds;
 	const TOP_N_PLAYOFF = config.tournament.playoffSize;
-	const SWISS_JUDGE = config.tournament.swissJudge;
-	const PLAYOFF_JUDGES = config.tournament.playoffJudges;
+	const SWISS_JUDGE = getSwissJudge();
+	const PLAYOFF_JUDGES = getPlayoffJudges();
 
 	// Combine Swiss and Playoff scores for top-8
 	const finalScores = new Map<string, number>();
@@ -144,24 +145,24 @@ export function computeLeaderboard(
 	// Build markdown
 	let md = "# 🏆 Tournament Leaderboard\n\n";
 	md += `> **${SWISS_ROUNDS} Swiss rounds (1v1v1)** + **Top-${TOP_N_PLAYOFF} Round Robin playoff**\n>\n`;
-	md += `> Swiss Judge: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort}) | Playoff Judges: ${PLAYOFF_JUDGES.map((j) => `${j.model} (${j.effort})`).join(" + ")}\n>\n`;
+	md += `> Swiss Judge: ${getShortModelName(SWISS_JUDGE.model)} (${SWISS_JUDGE.effort ?? "low"}) | Playoff Judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(" + ")}\n>\n`;
 	md += `> Tiebreaker: Playoff performance → Swiss placements\n\n`;
 
 	// Model Performance Summary
 	md += "## 📊 Model Performance Summary\n\n";
 	md += "### By Role\n\n";
-	md += "| Role | Claude | GPT | Gemini |\n";
-	md += "|------|--------|-----|--------|\n";
+	md += "| Role | Model Stats |\n";
+	md += "|------|-------------|\n";
 
 	for (const role of ["generator", "reviewer", "reviser"] as const) {
 		const stats = modelStats[role];
-		const claudeStats = stats.get("claude");
-		const gptStats = stats.get("gpt");
-		const geminiStats = stats.get("gemini");
-		md += `| **${role.charAt(0).toUpperCase() + role.slice(1)}** | `;
-		md += `Avg: #${claudeStats?.avgRank.toFixed(1) ?? "-"} (${claudeStats?.top8 ?? 0} in T8) | `;
-		md += `Avg: #${gptStats?.avgRank.toFixed(1) ?? "-"} (${gptStats?.top8 ?? 0} in T8) | `;
-		md += `Avg: #${geminiStats?.avgRank.toFixed(1) ?? "-"} (${geminiStats?.top8 ?? 0} in T8) |\n`;
+		const entries = Array.from(stats.entries())
+			.map(
+				([model, s]) =>
+					`${model}: Avg #${s.avgRank.toFixed(1)} (${s.top8} in T8)`,
+			)
+			.join(", ");
+		md += `| **${role.charAt(0).toUpperCase() + role.slice(1)}** | ${entries} |\n`;
 	}
 
 	// Winner breakdown

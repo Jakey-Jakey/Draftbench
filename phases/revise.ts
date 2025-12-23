@@ -2,12 +2,12 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type GenerateResult,
-	type ModelName,
+	type ModelSlug,
 	type ReviewResult,
 	type ReviseResult,
 	reviseStatblock,
 } from "../aiClient";
-import { getConfig, getModelsForRole } from "../config";
+import { getConfig, getRoleEntries } from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -15,16 +15,18 @@ import {
 	type StoredRevisionResult,
 	saveState,
 } from "../state";
-import { createMockStatblock } from "../utils";
+import { createMockStatblock, getShortModelName } from "../utils";
 
 // ============================================================================
 // Revise Phase Types
 // ============================================================================
 
 interface RevisionTask {
-	generator: ModelName;
-	reviewer: ModelName;
-	reviser: ModelName;
+	generator: ModelSlug;
+	reviewer: ModelSlug;
+	reviser: ModelSlug;
+	reviserEffort: string;
+	reviserTemperature?: number;
 	id: string;
 }
 
@@ -44,31 +46,35 @@ export interface RevisePhaseResult {
 
 /**
  * Phase 4: Revise statblocks based on reviews.
- * ALL models revise each original based on each review (27 revisions for 3 models).
+ * ALL reviser models revise each original based on each review.
  */
 export async function runRevisePhase(
 	runDir: string,
 	revisionsDir: string,
 	state: PipelineState,
-	selectedByModel: Map<ModelName, GenerateResult>,
+	selectedByModel: Map<ModelSlug, GenerateResult>,
 	reviews: ReviewResult[],
 	dryRun: boolean,
 	isResuming: boolean,
 ): Promise<RevisePhaseResult> {
-	const config = getConfig();
-	const REVISER_MODELS = getModelsForRole("revisers") as ModelName[];
+	const revisers = getRoleEntries("revisers");
 
 	console.log("Phase 4/6: Revising statblocks...");
 
 	// Build revision tasks
 	const revisionTasks: RevisionTask[] = [];
 	for (const review of reviews) {
-		for (const reviser of REVISER_MODELS) {
+		for (const reviser of revisers) {
+			const genShort = getShortModelName(review.reviewed);
+			const revShort = getShortModelName(review.reviewer);
+			const reviserShort = getShortModelName(reviser.model);
 			revisionTasks.push({
 				generator: review.reviewed,
 				reviewer: review.reviewer,
-				reviser: reviser,
-				id: `${review.reviewed}_${review.reviewer}_${reviser}`,
+				reviser: reviser.model,
+				reviserEffort: reviser.effort ?? "high",
+				reviserTemperature: reviser.temperature,
+				id: `${genShort}_${revShort}_${reviserShort}`,
 			});
 		}
 	}
@@ -90,9 +96,10 @@ export async function runRevisePhase(
 				result: { text: stored.text, model: stored.reviser },
 				task: {
 					id: stored.id,
-					generator: stored.generator as ModelName,
-					reviewer: stored.reviewer as ModelName,
-					reviser: stored.reviser as ModelName,
+					generator: stored.generator as ModelSlug,
+					reviewer: stored.reviewer as ModelSlug,
+					reviser: stored.reviser as ModelSlug,
+					reviserEffort: "high",
 				},
 			});
 		}
@@ -107,7 +114,7 @@ export async function runRevisePhase(
 		// Mock revisions
 		for (const task of revisionTasks) {
 			const result: ReviseResult = {
-				text: createMockStatblock(task.reviser),
+				text: createMockStatblock(task.id),
 				model: task.reviser,
 			};
 			revisionsById.set(task.id, { result, task });
@@ -126,15 +133,26 @@ export async function runRevisePhase(
 				task.reviser,
 				originalStatblock,
 				feedback,
+				task.reviserEffort as
+					| "high"
+					| "medium"
+					| "low"
+					| "xhigh"
+					| "minimal"
+					| "none",
+				task.reviserTemperature,
 			);
 			revisionsById.set(task.id, { result, task });
 			reviseCount++;
 			console.log(`  ✓ ${task.id} (${reviseCount}/${totalRevisions})`);
 			// Write immediately
 			const path = join(revisionsDir, `${task.id}.md`);
+			const genShort = getShortModelName(task.generator);
+			const revShort = getShortModelName(task.reviewer);
+			const reviserShort = getShortModelName(task.reviser);
 			await writeFile(
 				path,
-				`# ${task.generator}'s Statblock\n\n**Reviewed by:** ${task.reviewer}\n**Revised by:** ${task.reviser}\n\n${result.text}`,
+				`# ${genShort}'s Statblock\n\n**Reviewed by:** ${revShort}\n**Revised by:** ${reviserShort}\n\n${result.text}`,
 				"utf-8",
 			);
 			return { task, result };

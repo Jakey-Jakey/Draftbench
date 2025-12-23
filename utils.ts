@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { getConfig, getModelsForRole } from "./config";
+import { getConfig, getRoleEntries } from "./config";
 
 // ============================================================================
 // Directory & File Utilities
@@ -31,6 +31,19 @@ export async function ensureRunsDirectory(
 export function getTimestamp(): string {
 	const now = new Date();
 	return now.toISOString().replace(/[:.]/g, "-").slice(0, -5);
+}
+
+// ============================================================================
+// Model Name Utilities
+// ============================================================================
+
+/**
+ * Extracts a short, human-readable name from an OpenRouter model slug.
+ * e.g., "anthropic/claude-sonnet-4" -> "claude-sonnet-4"
+ */
+export function getShortModelName(slug: string): string {
+	const parts = slug.split("/");
+	return parts[parts.length - 1] ?? slug;
 }
 
 // ============================================================================
@@ -90,9 +103,9 @@ export function printDryRunConfig(): void {
 	const RUNS_DIR = config.output.runsDirectory;
 
 	// Calculate total contestants dynamically
-	const generatorCount = getModelsForRole("generators").length;
-	const reviewerCount = getModelsForRole("reviewers").length;
-	const reviserCount = getModelsForRole("revisers").length;
+	const generatorCount = getRoleEntries("generators").length;
+	const reviewerCount = getRoleEntries("reviewers").length;
+	const reviserCount = getRoleEntries("revisers").length;
 	// Calculate based on standard flow: generators * initialGenerations (or 1) * reviewers * revisers
 	const draftsPerGenerator = INITIAL_LEADERBOARD.enabled
 		? 1
@@ -101,10 +114,34 @@ export function printDryRunConfig(): void {
 		generatorCount * draftsPerGenerator * reviewerCount * reviserCount;
 
 	console.log("\n📋 DRY RUN - Configuration Details:\n");
-	console.log("Models:");
-	for (const [name, model] of Object.entries(config.models)) {
+	console.log("Roles:");
+	console.log(`  Generators (${generatorCount}):`);
+	for (const entry of getRoleEntries("generators")) {
 		console.log(
-			`  ${name}: ${model.slug} (reasoning: ${model.reasoningEffort})`,
+			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
+		);
+	}
+	console.log(`  Reviewers (${reviewerCount}):`);
+	for (const entry of getRoleEntries("reviewers")) {
+		console.log(
+			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "medium"})`,
+		);
+	}
+	console.log(`  Revisers (${reviserCount}):`);
+	for (const entry of getRoleEntries("revisers")) {
+		console.log(
+			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
+		);
+	}
+	console.log(`  Swiss Judge:`);
+	const swissJudge = config.roles.swissJudge;
+	console.log(
+		`    - ${getShortModelName(swissJudge.model)} (effort: ${swissJudge.effort ?? "low"})`,
+	);
+	console.log(`  Playoff Judges (${config.roles.playoffJudges.length}):`);
+	for (const entry of config.roles.playoffJudges) {
+		console.log(
+			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
 	console.log(`\nTournament:`);
