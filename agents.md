@@ -18,17 +18,41 @@
 
 ---
 
-## � Key Files
+## 📂 Key Files
 
+### Core
 | File | Purpose |
 |------|---------|
-| `index.ts` | **Entry point**. Pipeline orchestration, tournament logic, file I/O. |
+| `index.ts` | **Entry point**. Thin orchestrator that imports and runs phases. |
 | `config.ts` | Type definitions, defaults, config loading/merging, CLI parsing. |
 | `aiClient.ts` | OpenRouter integration. API calls, prompt interpolation, JSON response parsing. |
+| `state.ts` | Pipeline state management for resume functionality. |
+| `schemas.ts` | Zod schemas for LLM response validation. |
+
+### Phase Modules (`phases/`)
+| File | Purpose |
+|------|---------|
+| `phases/generate.ts` | Phase 1: Generate initial statblocks from all models. |
+| `phases/initialLeaderboard.ts` | Phase 2: Optional round robin to select best draft per model. |
+| `phases/review.ts` | Phase 3: Cross-review statblocks (including self-review). |
+| `phases/revise.ts` | Phase 4: Revise statblocks based on reviews. |
+| `phases/swiss.ts` | Phase 5: Swiss tournament with 1v1v1 format. |
+| `phases/playoff.ts` | Phase 6: Top-N Round Robin playoff with dual judges. |
+
+### Utilities
+| File | Purpose |
+|------|---------|
+| `utils.ts` | Shared utilities: directory creation, timestamps, shuffle, dry-run helpers. |
+| `leaderboard.ts` | Leaderboard computation and Swiss/Playoff type definitions. |
+
+### Configuration Files
+| File | Purpose |
+|------|---------|
 | `config.json` | User overrides (gitignored). Merged with defaults at runtime. |
 | `config.draft-leaderboard.json` | Pre-made config: 3 generations + initial leaderboard enabled. |
 
 ---
+
 
 ## ⚙️ Configuration System
 
