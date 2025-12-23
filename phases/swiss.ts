@@ -93,15 +93,16 @@ export function generateSwissTriples(
  * Avoids pairing contestants who have already faced each other.
  */
 export function generateSwissPairs(contestants: SwissContestant[]): {
-	pairs: [string, string][];
+        pairs: [string, string][];
+        bye: string | null;
 } {
-	const sorted = [...contestants].sort((a, b) => b.points - a.points);
-	const pairs: [string, string][] = [];
-	const used = new Set<string>();
+        const sorted = [...contestants].sort((a, b) => b.points - a.points);
+        const pairs: [string, string][] = [];
+        const used = new Set<string>();
 
-	while (used.size < sorted.length - 1) {
-		const available = sorted.filter((c) => !used.has(c.id));
-		if (available.length < 2) break;
+        while (used.size < sorted.length - 1) {
+                const available = sorted.filter((c) => !used.has(c.id));
+                if (available.length < 2) break;
 
 		const first = available[0]!;
 		used.add(first.id);
@@ -118,10 +119,13 @@ export function generateSwissPairs(contestants: SwissContestant[]): {
 		const second = available[secondIdx]!;
 		used.add(second.id);
 
-		pairs.push([first.id, second.id]);
-	}
+                pairs.push([first.id, second.id]);
+        }
 
-	return { pairs };
+        const remaining = sorted.filter((c) => !used.has(c.id));
+        const bye = remaining.length === 1 ? remaining[0]!.id : null;
+
+        return { pairs, bye };
 }
 
 // ============================================================================
@@ -194,10 +198,10 @@ export async function runSwissPhase(
 
 		if (SWISS_FORMAT === "1v1") {
 			// === 1v1 PAIRWISE FORMAT ===
-			const { pairs } = generateSwissPairs(contestants);
-			const pairPromises = pairs.map(
-				async ([idA, idB]): Promise<SwissMatch> => {
-					const entries: [string, string][] = [
+                        const { pairs, bye } = generateSwissPairs(contestants);
+                        const pairPromises = pairs.map(
+                                async ([idA, idB]): Promise<SwissMatch> => {
+                                        const entries: [string, string][] = [
 						[idA, revisionsById.get(idA)!.result.text],
 						[idB, revisionsById.get(idB)!.result.text],
 					];
@@ -271,11 +275,11 @@ export async function runSwissPhase(
 				},
 			);
 
-			const roundMatches = await Promise.all(pairPromises);
+                        const roundMatches = await Promise.all(pairPromises);
 
-			for (const match of roundMatches) {
-				const winner = contestants.find((c) => c.id === match.first);
-				const loser = contestants.find((c) => c.id === match.second);
+                        for (const match of roundMatches) {
+                                const winner = contestants.find((c) => c.id === match.first);
+                                const loser = contestants.find((c) => c.id === match.second);
 
 				if (winner && loser) {
 					winner.points += 1;
@@ -288,12 +292,41 @@ export async function runSwissPhase(
 				}
 				if (!dryRun) {
 					console.log(`    ✓ Winner: ${match.first} | Loser: ${match.second}`);
-				}
-				allSwissMatches.push(match);
-			}
-			if (!dryRun) await appendFile(swissLogPath, "\n", "utf-8");
-			console.log(`    ✓ Round ${round} complete (${pairs.length} matches)`);
-		} else {
+                                }
+                                allSwissMatches.push(match);
+                        }
+
+                        if (bye) {
+                                const byeContestant = contestants.find((c) => c.id === bye);
+                                if (byeContestant) {
+                                        byeContestant.points += 1;
+                                        byeContestant.placements.first++;
+                                }
+
+                                const byeMatch: SwissMatch = {
+                                        round,
+                                        ids: [bye, "BYE", "N/A"],
+                                        first: bye,
+                                        second: "BYE",
+                                        third: "N/A",
+                                        reasoning: "Bye (no opponent available this round).",
+                                };
+
+                                if (!dryRun) {
+                                        await appendFile(
+                                                swissLogPath,
+                                                `- **Winner: ${bye}** (bye)\n  - *${byeMatch.reasoning}*\n`,
+                                                "utf-8",
+                                        );
+                                }
+
+                                console.log(`    ✓ ${bye} receives a bye (1 point awarded)`);
+                                allSwissMatches.push(byeMatch);
+                        }
+                        if (!dryRun) await appendFile(swissLogPath, "\n", "utf-8");
+                        const matchCount = pairs.length + (bye ? 1 : 0);
+                        console.log(`    ✓ Round ${round} complete (${matchCount} matches)`);
+                } else {
 			// === 1v1v1 TRIPLE FORMAT (Original) ===
 			const { triples } = generateSwissTriples(contestants, round);
 

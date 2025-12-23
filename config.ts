@@ -298,16 +298,21 @@ function deepMerge(
 		result.output = { ...target.output, ...source.output };
 	}
 
-	// Merge roles
-	if (source.roles) {
-		result.roles = { ...target.roles, ...source.roles };
-	}
+        // Merge roles
+        if (source.roles) {
+                result.roles = { ...target.roles, ...source.roles };
+        }
 
-	// Merge prompts (nested)
-	if (source.prompts) {
-		result.prompts = {
-			generate: { ...target.prompts.generate, ...source.prompts.generate },
-			review: { ...target.prompts.review, ...source.prompts.review },
+        // Merge concurrency
+        if (source.concurrency) {
+                result.concurrency = { ...target.concurrency, ...source.concurrency };
+        }
+
+        // Merge prompts (nested)
+        if (source.prompts) {
+                result.prompts = {
+                        generate: { ...target.prompts.generate, ...source.prompts.generate },
+                        review: { ...target.prompts.review, ...source.prompts.review },
 			revise: { ...target.prompts.revise, ...source.prompts.revise },
 			judgePairwise: {
 				...target.prompts.judgePairwise,
