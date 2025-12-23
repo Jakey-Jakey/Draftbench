@@ -1,4 +1,4 @@
-# auto-draftify
+# Draftbench
 
 An AI-powered D&D 5e statblock benchmark using cross-model generation, review, and revision with Swiss tournament judging.
 
