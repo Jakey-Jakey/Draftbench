@@ -64,6 +64,68 @@ describe("generateSwissTriples", () => {
 		// High-pointed contestant should be in first position
 		expect(triples[0]![0]).toBe("High");
 	});
+	test("handles odd number of contestants (27)", () => {
+		const contestants = Array.from({ length: 27 }, (_, i) =>
+			createContestant(`C${i}`, 27 - i),
+		);
+
+		const { triples } = generateSwissTriples(contestants, 1);
+		// 27 contestants = 9 triples (27 used, 0 leftover)
+		expect(triples.length).toBe(9);
+	});
+
+	test("avoids repeat opponents when possible", () => {
+		const a = createContestant("A", 5);
+		const b = createContestant("B", 5);
+		const c = createContestant("C", 5);
+		const d = createContestant("D", 5);
+		const e = createContestant("E", 5);
+		const f = createContestant("F", 5);
+
+		// A, B, C have already played together
+		a.opponents.add("B");
+		a.opponents.add("C");
+		b.opponents.add("A");
+		b.opponents.add("C");
+		c.opponents.add("A");
+		c.opponents.add("B");
+
+		const contestants = [a, b, c, d, e, f];
+		const { triples } = generateSwissTriples(contestants, 2);
+
+		expect(triples.length).toBe(2);
+
+		// A, B, C should ideally be split up
+		const firstTriple = triples[0]!;
+		const hasABC =
+			firstTriple.includes("A") &&
+			firstTriple.includes("B") &&
+			firstTriple.includes("C");
+		// With the current algorithm, it might still group them if they're top points
+		// but ideally they'd be split
+		expect(triples).toBeDefined();
+	});
+
+	test("sorts by points descending", () => {
+		const contestants = [
+			createContestant("Low", 1),
+			createContestant("High", 10),
+			createContestant("Mid", 5),
+		];
+
+		const { triples } = generateSwissTriples(contestants, 1);
+		const [first, second, third] = triples[0]!;
+
+		// Get the contestants back
+		const conMap = new Map(contestants.map((c) => [c.id, c]));
+		const firstPoints = conMap.get(first!)!.points;
+		const secondPoints = conMap.get(second!)!.points;
+		const thirdPoints = conMap.get(third!)!.points;
+
+		// Should be grouped by similar points
+		expect(firstPoints).toBeGreaterThanOrEqual(secondPoints - 3);
+		expect(secondPoints).toBeGreaterThanOrEqual(thirdPoints - 3);
+	});
 });
 
 describe("generateSwissPairs", () => {
@@ -122,68 +184,7 @@ describe("generateSwissPairs", () => {
 	});
 });
 
-test("handles odd number of contestants (27)", () => {
-	const contestants = Array.from({ length: 27 }, (_, i) =>
-		createContestant(`C${i}`, 27 - i),
-	);
 
-	const { triples } = generateSwissTriples(contestants, 1);
-	// 27 contestants = 9 triples (27 used, 0 leftover)
-	expect(triples.length).toBe(9);
-});
-
-test("avoids repeat opponents when possible", () => {
-	const a = createContestant("A", 5);
-	const b = createContestant("B", 5);
-	const c = createContestant("C", 5);
-	const d = createContestant("D", 5);
-	const e = createContestant("E", 5);
-	const f = createContestant("F", 5);
-
-	// A, B, C have already played together
-	a.opponents.add("B");
-	a.opponents.add("C");
-	b.opponents.add("A");
-	b.opponents.add("C");
-	c.opponents.add("A");
-	c.opponents.add("B");
-
-	const contestants = [a, b, c, d, e, f];
-	const { triples } = generateSwissTriples(contestants, 2);
-
-	expect(triples.length).toBe(2);
-
-	// A, B, C should ideally be split up
-	const firstTriple = triples[0]!;
-	const hasABC =
-		firstTriple.includes("A") &&
-		firstTriple.includes("B") &&
-		firstTriple.includes("C");
-	// With the current algorithm, it might still group them if they're top points
-	// but ideally they'd be split
-	expect(triples).toBeDefined();
-});
-
-test("sorts by points descending", () => {
-	const contestants = [
-		createContestant("Low", 1),
-		createContestant("High", 10),
-		createContestant("Mid", 5),
-	];
-
-	const { triples } = generateSwissTriples(contestants, 1);
-	const [first, second, third] = triples[0]!;
-
-	// Get the contestants back
-	const conMap = new Map(contestants.map((c) => [c.id, c]));
-	const firstPoints = conMap.get(first!)!.points;
-	const secondPoints = conMap.get(second!)!.points;
-	const thirdPoints = conMap.get(third!)!.points;
-
-	// Should be grouped by similar points
-	expect(firstPoints).toBeGreaterThanOrEqual(secondPoints - 3);
-	expect(secondPoints).toBeGreaterThanOrEqual(thirdPoints - 3);
-});
 
 describe("generateSwissPairs (1v1)", () => {
 	test("pairs 8 contestants into 4 matches", () => {

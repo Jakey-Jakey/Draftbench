@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { parse as parseTOML } from "smol-toml";
 
 // ============================================================================
@@ -443,8 +444,8 @@ export function loadPrompts(promptsPath: string): Partial<PromptsConfig> {
  * @param configPath Path to config TOML file
  * @param promptsPath Optional path to separate prompts TOML file
  */
-// Track which paths were used to load the current config
-let loadedPaths: { configPath?: string; promptsPath?: string } | null = null;
+// Track which paths were used to load the current config (stores absolute paths)
+let loadedPaths: { configPath: string; promptsPath: string } | null = null;
 
 /**
  * Loads configuration from a TOML file, merging with defaults.
@@ -457,10 +458,15 @@ export function loadConfig(
 	configPath?: string,
 	promptsPath?: string,
 ): PipelineConfig {
+	// Resolve paths to absolute to ensure consistent caching
+	// Default to "config.toml" / "prompts.toml" if undefined, just like the loading logic below effectively does
+	const effectiveConfigPath = resolve(configPath ?? "config.toml");
+	const effectivePromptsPath = resolve(promptsPath ?? "prompts.toml");
+
 	// If we have a cached config, check if the requested paths match what we loaded
 	if (loadedConfig && loadedPaths) {
-		const configPathMatch = loadedPaths.configPath === configPath;
-		const promptsPathMatch = loadedPaths.promptsPath === promptsPath;
+		const configPathMatch = loadedPaths.configPath === effectiveConfigPath;
+		const promptsPathMatch = loadedPaths.promptsPath === effectivePromptsPath;
 
 		if (configPathMatch && promptsPathMatch) {
 			return loadedConfig;
@@ -525,7 +531,12 @@ export function loadConfig(
 
 	validateConfig(mergedConfig);
 	loadedConfig = mergedConfig;
-	loadedPaths = { configPath, promptsPath };
+	loadedConfig = mergedConfig;
+	loadedPaths = {
+		configPath: effectiveConfigPath,
+		promptsPath: effectivePromptsPath
+	};
+	return mergedConfig;
 	return mergedConfig;
 }
 
@@ -544,6 +555,7 @@ export function getConfig(): PipelineConfig {
  */
 export function resetConfig(): void {
 	loadedConfig = null;
+	loadedPaths = null;
 }
 
 /**

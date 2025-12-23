@@ -47,6 +47,34 @@ describe("config loading", () => {
 	});
 });
 
+
+describe("config caching", () => {
+	beforeEach(() => {
+		resetConfig();
+	});
+
+	test("caches loaded config for same path", () => {
+		const config1 = loadConfig("config.example.toml");
+		const config2 = loadConfig("config.example.toml");
+		expect(config1).toBe(config2);
+	});
+
+	test("reloads config when path changes", () => {
+		const config1 = loadConfig("config.example.toml");
+		// Use a different config file (defaults) or mock logic
+		// For simplicity, just use undefined (defaults) which is different from "config.example.toml"
+		const config2 = loadConfig(undefined);
+		expect(config1).not.toBe(config2); // Should be different object instance
+	});
+
+	test("handles equivalent paths (normalization)", () => {
+		// 1v1-swiss.toml vs ./1v1-swiss.toml
+		const config1 = loadConfig("config.1v1-swiss.toml");
+		const config2 = loadConfig("./config.1v1-swiss.toml");
+		expect(config1).toBe(config2);
+	});
+});
+
 describe("CLI argument parsing", () => {
 	test("parses --config flag", () => {
 		const args = parseArgs(["node", "index.ts", "--config", "test.toml"]);
