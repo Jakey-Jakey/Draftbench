@@ -50,6 +50,7 @@ const SWISS_JUDGE = getSwissJudge();
 const PLAYOFF_JUDGES = getPlayoffJudges();
 const GENERATOR_COUNT = getRoleEntries("generators").length;
 const DRY_RUN = cliArgs.dryRun;
+const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 
 // ============================================================================
 // Main Pipeline
@@ -84,13 +85,12 @@ async function runCrossReviewPipeline(): Promise<void> {
 			`  - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
-	console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
+	console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`);
 	console.log(
 		`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`,
 	);
 	console.log(
-		`Swiss Judge: ${getShortModelName(SWISS_JUDGE.model)} (${SWISS_JUDGE.effort ?? "low"}) | Initial Leaderboard: ${
-			INITIAL_LEADERBOARD.enabled ? "enabled" : "disabled"
+		`Swiss Judge: ${getShortModelName(SWISS_JUDGE.model)} (${SWISS_JUDGE.effort ?? "low"}) | Initial Leaderboard: ${INITIAL_LEADERBOARD.enabled ? "enabled" : "disabled"
 		}\n`,
 	);
 
@@ -144,9 +144,9 @@ async function runCrossReviewPipeline(): Promise<void> {
 	);
 	const initialLeaderboardDir = INITIAL_LEADERBOARD.enabled
 		? await ensureRunsDirectory(
-				join(relRunPath, "initial_leaderboard"),
-				DRY_RUN,
-			)
+			join(relRunPath, "initial_leaderboard"),
+			DRY_RUN,
+		)
 		: null;
 	const swissJudgmentsDir = await ensureRunsDirectory(
 		join(relRunPath, "swiss_judgments"),
@@ -168,7 +168,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 	if (!DRY_RUN && !isResuming) {
 		await writeFile(
 			swissLogPath,
-			"# Swiss Tournament Log (1v1v1)\n\n",
+			`# Swiss Tournament Log (${SWISS_FORMAT})\n\n`,
 			"utf-8",
 		);
 		if (initialLeaderboardLogPath) {
@@ -266,7 +266,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 	if (DRY_RUN) {
 		console.log("🧪 DRY RUN - No API calls were made");
 	}
-	console.log(`Swiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
+	console.log(`Swiss Rounds: ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`);
 	console.log(`Swiss Matches: ${allSwissMatches.length}`);
 	console.log(
 		`Playoff Judgments: ${playoffPairCount * PLAYOFF_JUDGES.length} (${playoffPairCount} pairs × ${PLAYOFF_JUDGES.length} judges)`,

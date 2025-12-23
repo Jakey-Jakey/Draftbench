@@ -144,7 +144,8 @@ export function computeLeaderboard(
 
 	// Build markdown
 	let md = "# 🏆 Tournament Leaderboard\n\n";
-	md += `> **${SWISS_ROUNDS} Swiss rounds (1v1v1)** + **Top-${TOP_N_PLAYOFF} Round Robin playoff**\n>\n`;
+	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
+	md += `> **${SWISS_ROUNDS} Swiss rounds (${SWISS_FORMAT})** + **Top-${TOP_N_PLAYOFF} Round Robin playoff**\n>\n`;
 	md += `> Swiss Judge: ${getShortModelName(SWISS_JUDGE.model)} (${SWISS_JUDGE.effort ?? "low"}) | Playoff Judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(" + ")}\n>\n`;
 	md += `> Tiebreaker: Playoff performance → Swiss placements\n\n`;
 

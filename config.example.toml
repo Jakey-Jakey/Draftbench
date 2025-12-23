@@ -15,56 +15,56 @@
 
 # Generators: Create initial drafts
 [[roles.generators]]
-model = "anthropic/claude-sonnet-4"
+model = "openai/gpt-5.2"
 effort = "high"
 
 [[roles.generators]]
-model = "openai/gpt-4.1"
+model = "anthropic/claude-opus-4.5"
 effort = "high"
 
 [[roles.generators]]
-model = "google/gemini-2.5-pro-preview"
+model = "google/gemini-3-pro-preview"
 effort = "high"
 
 # Reviewers: Critique drafts and provide feedback
 [[roles.reviewers]]
-model = "anthropic/claude-sonnet-4"
-effort = "medium"
+model = "openai/gpt-5.2"
+effort = "high"
 
 [[roles.reviewers]]
-model = "openai/gpt-4.1"
-effort = "medium"
+model = "anthropic/claude-opus-4.5"
+effort = "high"
 
 [[roles.reviewers]]
-model = "google/gemini-2.5-pro-preview"
-effort = "medium"
+model = "google/gemini-3-pro-preview"
+effort = "high"
 
 # Revisers: Improve drafts based on review feedback
 [[roles.revisers]]
-model = "anthropic/claude-sonnet-4"
+model = "openai/gpt-5.2"
 effort = "high"
 
 [[roles.revisers]]
-model = "openai/gpt-4.1"
+model = "anthropic/claude-opus-4.5"
 effort = "high"
 
 [[roles.revisers]]
-model = "google/gemini-2.5-pro-preview"
+model = "google/gemini-3-pro-preview"
 effort = "high"
 
 # Swiss Tournament Judge (single model for efficiency)
 [roles.swissJudge]
-model = "anthropic/claude-sonnet-4"
+model = "anthropic/claude-opus-4.5"
 effort = "low"
 
 # Playoff Judges (dual-judge voting for fairness)
 [[roles.playoffJudges]]
-model = "anthropic/claude-sonnet-4"
+model = "anthropic/claude-opus-4.5"
 effort = "low"
 
 [[roles.playoffJudges]]
-model = "openai/gpt-4.1"
-effort = "high"
+model = "openai/gpt-5.2"
+effort = "medium"
 
 # -----------------------------------------------------------------------------
 # TOURNAMENT SETTINGS
