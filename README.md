@@ -1,23 +1,23 @@
 # Draftbench
 
-An AI-powered D&D 5e statblock benchmark using cross-model generation, review, and revision with Swiss tournament judging.
+An AI-powered artifact benchmark that asks multiple models to create, review, and refine creative artifacts—essays, short stories, game statblocks, and more—before ranking the results with Swiss tournament judging.
 
 ## Overview
 
-This pipeline benchmarks AI models on creating D&D 5th Edition monster statblocks:
+This pipeline benchmarks AI models on creating arbitrary artifacts end-to-end:
 
-1. **Generate**: 3 models (Claude, GPT, Gemini) each create a Doctor Doom statblock
-2. **Review**: Each model reviews all 3 statblocks (9 reviews total)
-3. **Revise**: All 3 models revise each statblock based on each review (27 revisions)
+1. **Generate**: 3 models (Claude, GPT, Gemini) each create an artifact from the same brief (defaults to a D&D statblock)
+2. **Review**: Each model reviews all 3 artifacts (9 reviews total)
+3. **Revise**: All 3 models revise each artifact based on each review (27 revisions)
 4. **Swiss Tournament**: 7 rounds of 1v1v1 judging to rank all 27 revisions
 5. **Playoff**: Top-8 Round Robin with dual-judge voting for final rankings
 
 ## Features
 
-- **1v1v1 Format**: Each Swiss match compares 3 statblocks simultaneously for 3× data efficiency
+- **1v1v1 Format**: Each Swiss match compares 3 artifacts simultaneously for 3× data efficiency
 - **Position Randomization**: All matches randomize presentation order to eliminate position bias
 - **Dual-Judge Playoff**: Claude (low thinking) + GPT 5.2 (high thinking) vote on each match
-- **Anonymized Judging**: All statblocks are presented with anonymous IDs (S1, S2, S3)
+- **Anonymized Judging**: All artifacts are presented with anonymous IDs (S1, S2, S3)
 - **Incremental Writes**: Results are written immediately as they complete
 - **~97% Accuracy**: Optimized for high ranking accuracy through judge diversity
 
@@ -57,7 +57,7 @@ Key configuration knobs include:
 - **models**: Override provider slugs or reasoning effort per model.
 - **tournament**: Adjust Swiss round count or playoff size.
 - **output**: Change the destination for generated run folders.
-- **prompts**: Swap in custom system prompts or user templates.
+- **prompts**: Swap in custom system prompts or user templates to change the artifact type (essay, short story, D&D statblock, etc.).
 
 ## Usage
 
@@ -79,14 +79,14 @@ Each run creates a timestamped directory in `runs/`:
 
 ```
 runs/YYYY-MM-DDTHH-MM-SS/
-├── claude_original.md       # Original statblock from Claude
-├── gpt_original.md          # Original statblock from GPT
-├── gemini_original.md       # Original statblock from Gemini
+├── claude_original.md       # Original artifact from Claude
+├── gpt_original.md          # Original artifact from GPT
+├── gemini_original.md       # Original artifact from Gemini
 ├── reviews/                 # 9 cross-review files
 │   ├── claude_reviews_claude.md
 │   ├── claude_reviews_gpt.md
 │   └── ...
-├── revisions/               # 27 revised statblocks
+├── revisions/               # 27 revised artifacts
 │   ├── claude_claude_claude.md  # generator_reviewer_reviser
 │   └── ...
 ├── swiss_rounds.md          # Swiss tournament log
