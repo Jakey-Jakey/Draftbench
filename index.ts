@@ -90,7 +90,8 @@ async function runCrossReviewPipeline(): Promise<void> {
 		`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`,
 	);
 	console.log(
-		`Swiss Judge: ${getShortModelName(SWISS_JUDGE.model)} (${SWISS_JUDGE.effort ?? "low"}) | Initial Leaderboard: ${INITIAL_LEADERBOARD.enabled ? "enabled" : "disabled"
+		`Swiss Judge: ${getShortModelName(SWISS_JUDGE.model)} (${SWISS_JUDGE.effort ?? "low"}) | Initial Leaderboard: ${
+			INITIAL_LEADERBOARD.enabled ? "enabled" : "disabled"
 		}\n`,
 	);
 
@@ -144,9 +145,9 @@ async function runCrossReviewPipeline(): Promise<void> {
 	);
 	const initialLeaderboardDir = INITIAL_LEADERBOARD.enabled
 		? await ensureRunsDirectory(
-			join(relRunPath, "initial_leaderboard"),
-			DRY_RUN,
-		)
+				join(relRunPath, "initial_leaderboard"),
+				DRY_RUN,
+			)
 		: null;
 	const swissJudgmentsDir = await ensureRunsDirectory(
 		join(relRunPath, "swiss_judgments"),

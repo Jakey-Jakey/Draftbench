@@ -1,10 +1,6 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
-import {
-	type CallSettings,
-	getCallSettings,
-	getJudgeSettings,
-} from "./callSettings";
+
 import {
 	getConfig,
 	interpolate,

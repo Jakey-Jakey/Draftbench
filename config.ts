@@ -443,12 +443,30 @@ export function loadPrompts(promptsPath: string): Partial<PromptsConfig> {
  * @param configPath Path to config TOML file
  * @param promptsPath Optional path to separate prompts TOML file
  */
+// Track which paths were used to load the current config
+let loadedPaths: { configPath?: string; promptsPath?: string } | null = null;
+
+/**
+ * Loads configuration from a TOML file, merging with defaults.
+ * If no path provided, looks for config.toml in current directory.
+ * If file doesn't exist, uses defaults.
+ * @param configPath Path to config TOML file
+ * @param promptsPath Optional path to separate prompts TOML file
+ */
 export function loadConfig(
 	configPath?: string,
 	promptsPath?: string,
 ): PipelineConfig {
-	if (loadedConfig) {
-		return loadedConfig;
+	// If we have a cached config, check if the requested paths match what we loaded
+	if (loadedConfig && loadedPaths) {
+		const configPathMatch = loadedPaths.configPath === configPath;
+		const promptsPathMatch = loadedPaths.promptsPath === promptsPath;
+
+		if (configPathMatch && promptsPathMatch) {
+			return loadedConfig;
+		}
+		// Paths changed, reload
+		console.log("🔄 Config paths changed, reloading...");
 	}
 
 	const path = configPath ?? "config.toml";
@@ -493,7 +511,10 @@ export function loadConfig(
 			};
 			console.log(`📝 Loaded prompts from: ${resolvedPromptsPath}`);
 		} catch (e) {
-			console.error(`⚠️ Failed to parse prompts file ${resolvedPromptsPath}:`, e);
+			console.error(
+				`⚠️ Failed to parse prompts file ${resolvedPromptsPath}:`,
+				e,
+			);
 			console.log("   Using default prompts.");
 		}
 	} else if (promptsPath) {
@@ -504,6 +525,7 @@ export function loadConfig(
 
 	validateConfig(mergedConfig);
 	loadedConfig = mergedConfig;
+	loadedPaths = { configPath, promptsPath };
 	return mergedConfig;
 }
 

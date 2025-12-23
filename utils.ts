@@ -124,7 +124,7 @@ export function printDryRunConfig(): void {
 	console.log(`  Reviewers (${reviewerCount}):`);
 	for (const entry of getRoleEntries("reviewers")) {
 		console.log(
-			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "medium"})`,
+			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
 	console.log(`  Revisers (${reviserCount}):`);
@@ -136,7 +136,7 @@ export function printDryRunConfig(): void {
 	console.log(`  Swiss Judge:`);
 	const swissJudge = config.roles.swissJudge;
 	console.log(
-		`    - ${getShortModelName(swissJudge.model)} (effort: ${swissJudge.effort ?? "low"})`,
+		`    - ${getShortModelName(swissJudge.model)} (effort: ${swissJudge.effort ?? "high"})`,
 	);
 	console.log(`  Playoff Judges (${config.roles.playoffJudges.length}):`);
 	for (const entry of config.roles.playoffJudges) {

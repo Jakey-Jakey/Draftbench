@@ -31,7 +31,7 @@ describe("shuffleArray", () => {
 		// Original should be unchanged
 		expect(original).toEqual(originalCopy);
 		// Shuffled should have same elements
-		expect(shuffled.sort()).toEqual(original.sort());
+		expect([...shuffled].sort()).toEqual([...original].sort());
 	});
 
 	test("returns same length array", () => {
