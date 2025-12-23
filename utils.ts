@@ -74,9 +74,6 @@ export function shuffleArray<T>(array: T[]): T[] {
 /**
  * Creates mock data for dry run mode.
  */
-/**
- * Creates mock data for dry run mode.
- */
 export function createMockStatblock(
 	modelOrLabel: string,
 	phase?: string,

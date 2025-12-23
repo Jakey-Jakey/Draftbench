@@ -184,8 +184,6 @@ describe("generateSwissPairs", () => {
 	});
 });
 
-
-
 describe("generateSwissPairs (1v1)", () => {
 	test("pairs 8 contestants into 4 matches", () => {
 		const contestants = Array.from({ length: 8 }, (_, i) =>

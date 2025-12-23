@@ -232,9 +232,7 @@ export async function runPlayoffPhase(
 				resultA.losses++;
 			}
 
-			if (!dryRun) {
-				await appendFile(playoffLogPath, logEntry, "utf-8");
-			}
+			await appendFile(playoffLogPath, logEntry, "utf-8");
 		});
 
 		await Promise.all(playoffPromises);

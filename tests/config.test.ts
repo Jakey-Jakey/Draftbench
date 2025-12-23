@@ -47,7 +47,6 @@ describe("config loading", () => {
 	});
 });
 
-
 describe("config caching", () => {
 	beforeEach(() => {
 		resetConfig();

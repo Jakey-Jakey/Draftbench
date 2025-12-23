@@ -531,12 +531,10 @@ export function loadConfig(
 
 	validateConfig(mergedConfig);
 	loadedConfig = mergedConfig;
-	loadedConfig = mergedConfig;
 	loadedPaths = {
 		configPath: effectiveConfigPath,
-		promptsPath: effectivePromptsPath
+		promptsPath: effectivePromptsPath,
 	};
-	return mergedConfig;
 	return mergedConfig;
 }
 
