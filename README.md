@@ -21,7 +21,14 @@ This pipeline benchmarks AI models on creating D&D 5th Edition monster statblock
 - **Incremental Writes**: Results are written immediately as they complete
 - **~97% Accuracy**: Optimized for high ranking accuracy through judge diversity
 
+## Prerequisites
+
+- [Bun](https://bun.sh/) runtime installed (used for scripts and package management)
+- An [OpenRouter](https://openrouter.ai/) API key with access to the configured models
+
 ## Setup
+
+Install dependencies with Bun:
 
 ```bash
 bun install
@@ -29,22 +36,41 @@ bun install
 
 ## Configuration
 
-Set the `OPENROUTER_API_KEY` environment variable:
+Authentication is provided via the `OPENROUTER_API_KEY` environment variable. You can export
+it directly or place it in a `.env` file:
 
 ```bash
 export OPENROUTER_API_KEY=your_api_key_here
 ```
 
-Or create a `.env` file:
+Run-time settings can be customized with a JSON config file. The pipeline loads `config.json`
+by default and merges it with [`config.default.json`](./config.default.json). A test variant
+is available in [`config.test.json`](./config.test.json). You can point to an alternate file
+with `--config`:
 
+```bash
+bun run index.ts --config path/to/override.json
 ```
-OPENROUTER_API_KEY=your_api_key_here
-```
+
+Key configuration knobs include:
+
+- **models**: Override provider slugs or reasoning effort per model.
+- **tournament**: Adjust Swiss round count or playoff size.
+- **output**: Change the destination for generated run folders.
+- **prompts**: Swap in custom system prompts or user templates.
 
 ## Usage
 
+Run the full pipeline:
+
 ```bash
 bun run index.ts
+```
+
+To test the flow without writing files or making API calls, use dry-run mode:
+
+```bash
+bun run index.ts --dry-run
 ```
 
 ## Output Structure
