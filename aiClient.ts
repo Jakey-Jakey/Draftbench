@@ -1,9 +1,14 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
 
-// Model IDs - easily changeable constants
-const ESSAY_MODEL = "anthropic/claude-opus-4.5";
-const REVIEW_MODEL = "moonshotai/kimi-k2-thinking";
+// Model IDs - 3 models being tested
+export const MODELS = {
+  claude: "anthropic/claude-4.5-opus:thinking:high",
+  gpt: "openai/gpt-5.2-xhigh",
+  gemini: "google/gemini-3.0-pro:high",
+} as const;
+
+export type ModelName = keyof typeof MODELS;
 
 // Initialize the OpenRouter provider
 if (!process.env.OPENROUTER_API_KEY) {
@@ -16,67 +21,147 @@ const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-export interface EssayResult {
+export interface GenerateResult {
   text: string;
+  model: ModelName;
 }
 
 export interface ReviewResult {
   text: string;
+  reviewer: ModelName;
+  reviewed: ModelName;
 }
 
-export interface RevisionResult {
+export interface ReviseResult {
   text: string;
+  model: ModelName;
 }
 
 /**
- * Generates an essay based on the given topic prompt.
+ * Generates a D&D 5e monster statblock for Doctor Doom using specified model.
  */
-export async function generateEssay(topic: string): Promise<EssayResult> {
+export async function generateStatblock(model: ModelName): Promise<GenerateResult> {
   const result = await generateText({
-    model: openrouter(ESSAY_MODEL),
-    system: `You are an expert essay writer. Write a well-structured, thoughtful essay on the given topic. 
-The essay should be clear, engaging, and demonstrate strong writing skills.`,
-    prompt: `Write an essay on the following topic:\n\n${topic}`,
+    model: openrouter(MODELS[model]),
+    system: `You are an expert TTRPG designer specializing in D&D 5th Edition. Create detailed, balanced monster statblocks that follow official 5e formatting conventions. Include all standard statblock components: size/type/alignment, AC, HP, speed, ability scores, saving throws, skills, damage immunities/resistances/vulnerabilities, senses, languages, challenge rating, and special abilities/actions.`,
+    prompt: `Create a D&D 5e monster statblock for Doctor Doom (Marvel Comics). This should be a powerful villain suitable for high-level play.`,
   });
 
   return {
     text: result.text,
+    model,
   };
 }
 
 /**
- * Reviews an essay and provides constructive feedback.
+ * Reviews a statblock using specified model.
  */
-export async function reviewEssay(essay: string): Promise<ReviewResult> {
+export async function reviewStatblock(
+  reviewer: ModelName,
+  reviewed: ModelName,
+  statblock: string
+): Promise<ReviewResult> {
   const result = await generateText({
-    model: openrouter(REVIEW_MODEL),
-    system: `You are an expert writing tutor and editor. Review the essay provided and give constructive, 
-specific feedback on areas such as structure, clarity, argumentation, style, and areas for improvement. 
-Be thorough but encouraging.`,
-    prompt: `Please review the following essay and provide detailed feedback:\n\n${essay}`,
+    model: openrouter(MODELS[reviewer]),
+    system: `You are an expert D&D 5e game designer and balance consultant. Review the monster statblock provided and give constructive feedback on: mechanical balance, CR accuracy, thematic representation of the character, adherence to 5e formatting conventions, action economy, and potential gameplay issues. Be thorough but constructive.`,
+    prompt: `Please review the following D&D 5e monster statblock and provide detailed feedback:\n\n${statblock}`,
   });
 
   return {
     text: result.text,
+    reviewer,
+    reviewed,
   };
 }
 
 /**
- * Revises an essay based on the original topic, original essay, and review feedback.
+ * Revises a statblock based on feedback using specified model.
  */
-export async function reviseEssay(
-  topic: string,
-  originalEssay: string,
+export async function reviseStatblock(
+  model: ModelName,
+  originalStatblock: string,
   feedback: string
-): Promise<RevisionResult> {
+): Promise<ReviseResult> {
   const result = await generateText({
-    model: openrouter(ESSAY_MODEL),
-    system: `You are an expert essay writer. Revise the provided essay based on the feedback given, 
-while maintaining the core message and improving the areas identified.`,
-    prompt: `Original topic: ${topic}\n\nOriginal essay:\n${originalEssay}\n\nReview feedback:\n${feedback}\n\nPlease revise the essay based on the feedback above.`,
+    model: openrouter(MODELS[model]),
+    system: `You are an expert TTRPG designer specializing in D&D 5th Edition. Revise the provided monster statblock based on the feedback given, while maintaining the core character concept and improving balance and mechanics.`,
+    prompt: `Original statblock:\n${originalStatblock}\n\nReview feedback:\n${feedback}\n\nPlease revise the statblock based on the feedback above.`,
   });
 
   return {
     text: result.text,
+    model,
+  };
+}
+
+export interface StatblockRanking {
+  id: string; // format: "generator_reviewer" e.g., "claude_gpt"
+  rank: number;
+  score: number;
+}
+
+export interface JudgeResult {
+  judge: ModelName;
+  rankings: StatblockRanking[];
+  reasoning: string;
+  raw: string;
+}
+
+/**
+ * Judges all 9 statblocks comparatively and returns rankings.
+ * Each statblock is identified as "generator_reviewer" (e.g., claude_gpt = claude's statblock revised by gpt's feedback)
+ */
+export async function judgeStatblocks(
+  judge: ModelName,
+  statblocks: Map<string, string> // key format: "generator_reviewer"
+): Promise<JudgeResult> {
+  const statblockEntries = Array.from(statblocks.entries())
+    .map(([id, text]) => `## Statblock: ${id}\n(Generator's statblock revised by reviewer's feedback)\n\n${text}`)
+    .join("\n\n---\n\n");
+
+  const allIds = Array.from(statblocks.keys());
+
+  const result = await generateText({
+    model: openrouter(MODELS[judge]),
+    system: `You are an expert D&D 5e game designer judging monster statblocks. Compare ALL the statblocks provided and rank them from best to worst. Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
+
+Each statblock ID is in format "generator_reviewer" meaning the generator model's statblock revised based on the reviewer model's feedback.
+
+You MUST respond with ONLY a valid JSON object in this exact format, no other text:
+{
+  "rankings": [
+    { "id": "generator_reviewer", "rank": 1, "score": 95 },
+    { "id": "generator_reviewer", "rank": 2, "score": 90 },
+    ... (include ALL ${allIds.length} statblocks)
+  ],
+  "reasoning": "Brief explanation of your ranking decision"
+}
+
+Use scores from 0-100. IDs must exactly match: ${allIds.join(", ")}`,
+    prompt: `Compare and rank ALL ${allIds.length} D&D 5e Doctor Doom statblocks:\n\n${statblockEntries}`,
+  });
+
+  // Parse the JSON response
+  let parsed: { rankings: StatblockRanking[]; reasoning: string };
+  try {
+    const jsonMatch = result.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("No JSON found in response");
+    }
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    console.error(`Failed to parse judge response from ${judge}:`, e);
+    // Return a fallback with equal scores
+    parsed = {
+      rankings: allIds.map((id, i) => ({ id, rank: i + 1, score: 50 })),
+      reasoning: "Failed to parse response",
+    };
+  }
+
+  return {
+    judge,
+    rankings: parsed.rankings,
+    reasoning: parsed.reasoning,
+    raw: result.text,
   };
 }
