@@ -263,7 +263,7 @@ export interface PairwiseResult {
  * Pairwise comparison of two statblocks.
  * Returns the winner ID, reasoning, and which judge was used.
  * @param judge - Which model to use as judge (default: claude)
- * @param effort - Reasoning effort level (default: low)
+ * @param effort - Reasoning effort level (default: model config)
  */
 export async function pairwiseJudge(
   idA: string,
@@ -271,13 +271,15 @@ export async function pairwiseJudge(
   idB: string,
   textB: string,
   judge: ModelName = "claude",
-  effort: "low" | "medium" | "high" = "low"
+  effort?: "low" | "medium" | "high"
 ): Promise<PairwiseResult> {
   const config = getConfig();
   const modelSlug = config.models[judge]?.slug;
   if (!modelSlug) {
     throw new Error(`Unknown model: ${judge}`);
   }
+
+  const reasoningEffort = effort ?? config.models[judge]?.reasoningEffort ?? "high";
 
   const systemPrompt = interpolate(config.prompts.judgePairwise.system, { idA, idB });
   const userPrompt = interpolate(config.prompts.judgePairwise.userTemplate, {
@@ -293,7 +295,7 @@ export async function pairwiseJudge(
     prompt: userPrompt,
     providerOptions: {
       openrouter: {
-        reasoning: { effort },
+        reasoning: { effort: reasoningEffort },
       },
     },
   });
@@ -331,7 +333,8 @@ export interface ThreeWayResult {
 }
 
 /**
- * Three-way comparison of statblocks. Uses first model in config (low thinking).
+ * Three-way comparison of statblocks. Uses the first configured model
+ * and its reasoning effort (unless overridden).
  * Returns 1st, 2nd, 3rd place rankings with reasoning.
  */
 export async function threeWayJudge(
@@ -342,7 +345,7 @@ export async function threeWayJudge(
   idC: string,
   textC: string,
   judge: ModelName | null = null,
-  effort: "low" | "medium" | "high" = "low"
+  effort?: "low" | "medium" | "high"
 ): Promise<ThreeWayResult> {
   const config = getConfig();
   const modelKeys = Object.keys(config.models);
@@ -354,6 +357,8 @@ export async function threeWayJudge(
   if (!modelSlug) {
     throw new Error("No models configured");
   }
+
+  const reasoningEffort = effort ?? config.models[judgeModel]?.reasoningEffort ?? "high";
 
   const systemPrompt = interpolate(config.prompts.judgeThreeWay.system, { idA, idB, idC });
   const userPrompt = interpolate(config.prompts.judgeThreeWay.userTemplate, {
@@ -371,7 +376,7 @@ export async function threeWayJudge(
     prompt: userPrompt,
     providerOptions: {
       openrouter: {
-        reasoning: { effort },
+        reasoning: { effort: reasoningEffort },
       },
     },
   });
