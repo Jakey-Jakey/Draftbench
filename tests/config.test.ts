@@ -305,7 +305,7 @@ describe("interpolate function", () => {
 	});
 
 	test("handles missing variables", () => {
-		const result = interpolate("Hello {name}", {});
+		const result = interpolate("Hello {name}", { other: "x" });
 		expect(result).toBe("Hello {name}");
 	});
 

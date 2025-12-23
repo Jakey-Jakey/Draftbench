@@ -94,10 +94,18 @@ effort = "high"
 model = "openai/gpt-4.1"
 effort = "high"
 
+[[roles.generators]]
+model = "google/gemini-2.5-flash"
+effort = "none"  # Example: No reasoning effort
+
 # Reviewers: Models that critique drafts
 [[roles.reviewers]]
 model = "google/gemini-2.5-pro-preview"
 effort = "medium"
+
+[[roles.reviewers]]
+model = "meta-llama/llama-3.3-70b-instruct"
+effort = "minimal"
 
 # Revisers: Models that improve drafts based on feedback
 [[roles.revisers]]
@@ -139,7 +147,7 @@ runsDirectory = "runs"
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `model` | string | *required* | OpenRouter slug (e.g., `"anthropic/claude-sonnet-4"`) |
-| `effort` | string | `"high"` | Reasoning effort: `"xhigh"`, `"high"`, `"medium"`, `"low"`, `"minimal"`, `"none"` |
+| `effort` | string | `"high"` | Reasoning effort: `"xhigh"`, `"high"`, `"medium"`, `"low"`, `"minimal"`, `"none"`. Optional. |
 | `temperature` | number | *none* | Optional temperature override |
 
 ### Swiss Match Format
