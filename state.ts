@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import type { ModelName } from "./config";
 
@@ -55,6 +55,9 @@ export interface StoredSwissContestant {
 	points: number;
 	opponents: string[]; // Stored as array, converted to Set at runtime
 	placements: { first: number; second: number; third: number };
+	wins?: number;
+	losses?: number;
+	draws?: number;
 }
 
 /**
@@ -189,6 +192,9 @@ const StoredSwissContestantSchema = z.object({
 		second: z.number(),
 		third: z.number(),
 	}),
+	wins: z.number().optional(),
+	losses: z.number().optional(),
+	draws: z.number().optional(),
 });
 
 const StoredPlayoffResultSchema = z.object({
@@ -246,6 +252,11 @@ export function createInitialState(): PipelineState {
  * Saves pipeline state to the run directory.
  */
 export function saveState(runDir: string, state: PipelineState): void {
+	// Ensure directory exists
+	if (!existsSync(runDir)) {
+		const { mkdirSync } = require("node:fs");
+		mkdirSync(runDir, { recursive: true });
+	}
 	const statePath = join(runDir, STATE_FILENAME);
 	const serialized = serializeState({
 		...state,

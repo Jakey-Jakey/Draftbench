@@ -1,7 +1,7 @@
-import { appendFile, writeFile } from "fs/promises";
-import { join } from "path";
-import { type ModelName, pairwiseJudge } from "../aiClient";
-import { getConfig } from "../config";
+import { appendFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { type ModelSlug, pairwiseJudge } from "../aiClient";
+import { getConfig, getPlayoffJudges } from "../config";
 import type { PlayoffResult, SwissContestant } from "../leaderboard";
 import {
 	isPhaseCompleted,
@@ -10,6 +10,7 @@ import {
 	type StoredPlayoffResult,
 	saveState,
 } from "../state";
+import { getShortModelName } from "../utils";
 import type { RevisionEntry } from "./revise";
 
 // ============================================================================
@@ -38,15 +39,21 @@ export async function runPlayoffPhase(
 ): Promise<PlayoffPhaseResult> {
 	const config = getConfig();
 	const TOP_N_PLAYOFF = config.tournament.playoffSize;
-	const PLAYOFF_JUDGES = config.tournament.playoffJudges;
+	const PLAYOFF_JUDGES = getPlayoffJudges();
 
 	console.log(
-		`Phase 6/6: Top-${TOP_N_PLAYOFF} Round Robin Playoff (judges: ${PLAYOFF_JUDGES.map((j) => `${j.model} (${j.effort})`).join(", ")})...`,
+		`Phase 6/6: Top-${TOP_N_PLAYOFF} Round Robin Playoff (judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})...`,
 	);
 
 	// Get top N by Swiss points
 	const sortedBySwiss = [...contestants].sort((a, b) => {
 		if (b.points !== a.points) return b.points - a.points;
+		// Tiebreaker for 1v1: wins
+		const winsA = a.wins ?? 0;
+		const winsB = b.wins ?? 0;
+		if (winsB !== winsA) return winsB - winsA;
+
+		// Tiebreaker for multi-player: placements
 		if (b.placements.first !== a.placements.first)
 			return b.placements.first - a.placements.first;
 		return b.placements.second - a.placements.second;
@@ -147,8 +154,8 @@ export async function runPlayoffPhase(
 						firstText,
 						"S2",
 						secondText,
-						judge.model as ModelName,
-						judge.effort,
+						judge.model,
+						judge.effort ?? "high",
 					),
 				),
 			);
@@ -225,9 +232,7 @@ export async function runPlayoffPhase(
 				resultA.losses++;
 			}
 
-			if (!dryRun) {
-				await appendFile(playoffLogPath, logEntry, "utf-8");
-			}
+			await appendFile(playoffLogPath, logEntry, "utf-8");
 		});
 
 		await Promise.all(playoffPromises);

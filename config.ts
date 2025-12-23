@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { parse as parseTOML } from "smol-toml";
 
 // ============================================================================
 // Configuration Types
@@ -7,19 +8,43 @@ import { join } from "path";
 
 export type ModelName = string;
 
-export interface ModelConfig {
-	slug: string;
-	reasoningEffort: "low" | "medium" | "high";
+/** Reasoning effort levels for LLM calls */
+export type ReasoningEffort =
+	| "xhigh"
+	| "high"
+	| "medium"
+	| "low"
+	| "minimal"
+	| "none";
+
+/** A role entry defines a model and its settings for that role */
+export interface RoleEntry {
+	/** OpenRouter model slug (e.g., "anthropic/claude-4.5-opus") */
+	model: string;
+	/** Reasoning effort for this role */
+	effort?: ReasoningEffort;
+	/** Optional temperature override */
+	temperature?: number;
 }
 
-export interface JudgeConfig {
-	model: ModelName;
-	effort: "low" | "medium" | "high";
+/** Role configuration - each role is an array of model entries */
+export interface RolesConfig {
+	/** Models that generate initial drafts */
+	generators: RoleEntry[];
+	/** Models that review drafts */
+	reviewers: RoleEntry[];
+	/** Models that revise drafts */
+	revisers: RoleEntry[];
+	/** Swiss tournament judge */
+	swissJudge: RoleEntry;
+	/** Playoff judges (dual-judge voting) */
+	playoffJudges: RoleEntry[];
+	/** Initial leaderboard judges (optional, defaults to playoffJudges) */
+	initialLeaderboardJudges?: RoleEntry[];
 }
 
 export interface InitialLeaderboardConfig {
 	enabled: boolean;
-	judges: JudgeConfig[];
 }
 
 export interface TournamentConfig {
@@ -27,12 +52,17 @@ export interface TournamentConfig {
 	playoffSize: number;
 	initialGenerations: number;
 	initialLeaderboard: InitialLeaderboardConfig;
-	swissJudge: JudgeConfig;
-	playoffJudges: JudgeConfig[];
+	/** Swiss match format: 1v1 (pairwise) or 1v1v1 (three-way). Default: 1v1v1 */
+	swissFormat?: "1v1" | "1v1v1";
 }
 
 export interface OutputConfig {
 	runsDirectory: string;
+}
+
+export interface ConcurrencyConfig {
+	/** Maximum parallel API calls. Null or omitted = unlimited. */
+	maxParallel?: number | null;
 }
 
 export interface PromptsConfig {
@@ -59,7 +89,8 @@ export interface PromptsConfig {
 }
 
 export interface PipelineConfig {
-	models: Record<string, ModelConfig>;
+	roles: RolesConfig;
+	concurrency?: ConcurrencyConfig;
 	tournament: TournamentConfig;
 	output: OutputConfig;
 	prompts: PromptsConfig;
@@ -70,19 +101,27 @@ export interface PipelineConfig {
 // ============================================================================
 
 const DEFAULT_CONFIG: PipelineConfig = {
-	models: {
-		claude: {
-			slug: "anthropic/claude-4.5-opus",
-			reasoningEffort: "high",
-		},
-		gpt: {
-			slug: "openai/gpt-5.2",
-			reasoningEffort: "high",
-		},
-		gemini: {
-			slug: "google/gemini-3-pro-preview",
-			reasoningEffort: "high",
-		},
+	roles: {
+		generators: [
+			{ model: "anthropic/claude-sonnet-4", effort: "high" },
+			{ model: "openai/gpt-4.1", effort: "high" },
+			{ model: "google/gemini-2.5-pro-preview", effort: "high" },
+		],
+		reviewers: [
+			{ model: "anthropic/claude-sonnet-4", effort: "medium" },
+			{ model: "openai/gpt-4.1", effort: "medium" },
+			{ model: "google/gemini-2.5-pro-preview", effort: "medium" },
+		],
+		revisers: [
+			{ model: "anthropic/claude-sonnet-4", effort: "high" },
+			{ model: "openai/gpt-4.1", effort: "high" },
+			{ model: "google/gemini-2.5-pro-preview", effort: "high" },
+		],
+		swissJudge: { model: "anthropic/claude-sonnet-4", effort: "low" },
+		playoffJudges: [
+			{ model: "anthropic/claude-sonnet-4", effort: "low" },
+			{ model: "openai/gpt-4.1", effort: "high" },
+		],
 	},
 	tournament: {
 		swissRounds: 7,
@@ -90,16 +129,7 @@ const DEFAULT_CONFIG: PipelineConfig = {
 		initialGenerations: 1,
 		initialLeaderboard: {
 			enabled: false,
-			judges: [],
 		},
-		swissJudge: {
-			model: "claude",
-			effort: "low",
-		},
-		playoffJudges: [
-			{ model: "claude", effort: "low" },
-			{ model: "gpt", effort: "high" },
-		],
 	},
 	output: {
 		runsDirectory: "runs",
@@ -178,20 +208,6 @@ The IDs are: "{idA}", "{idB}", "{idC}". Rank all three.`,
 
 let loadedConfig: PipelineConfig | null = null;
 
-function mergeJudge(
-	defaultJudge: JudgeConfig,
-	override?: Partial<JudgeConfig>,
-): JudgeConfig {
-	if (!override) {
-		return defaultJudge;
-	}
-
-	return {
-		...defaultJudge,
-		...override,
-	};
-}
-
 /**
  * Deep merge two objects, with source overwriting target for matching keys.
  */
@@ -201,57 +217,34 @@ function deepMerge(
 ): PipelineConfig {
 	const result = { ...target };
 
-	// Merge models
-	if (source.models) {
-		result.models = { ...target.models, ...source.models };
+	// Merge roles (replace arrays entirely if provided)
+	if (source.roles) {
+		result.roles = {
+			...target.roles,
+			...source.roles,
+		};
 	}
 
 	// Merge tournament
 	if (source.tournament) {
-		const mergedTournament = { ...target.tournament, ...source.tournament };
-
-		if (source.tournament.swissJudge) {
-			mergedTournament.swissJudge = mergeJudge(
-				target.tournament.swissJudge,
-				source.tournament.swissJudge,
-			);
-		}
-
-		if (source.tournament.playoffJudges) {
-			mergedTournament.playoffJudges = source.tournament.playoffJudges.map(
-				(judge, index) =>
-					mergeJudge(
-						target.tournament.playoffJudges[index] ??
-							target.tournament.swissJudge,
-						judge,
-					),
-			);
-		}
-
-		if (source.tournament.initialLeaderboard) {
-			mergedTournament.initialLeaderboard = {
+		result.tournament = {
+			...target.tournament,
+			...source.tournament,
+			initialLeaderboard: {
 				...target.tournament.initialLeaderboard,
 				...source.tournament.initialLeaderboard,
-			};
-
-			if (source.tournament.initialLeaderboard.judges) {
-				mergedTournament.initialLeaderboard.judges =
-					source.tournament.initialLeaderboard.judges.map((judge, index) =>
-						mergeJudge(
-							target.tournament.initialLeaderboard.judges[index] ??
-								target.tournament.swissJudge,
-							judge,
-						),
-					);
-			}
-		}
-
-		result.tournament = mergedTournament;
+			},
+		};
 	}
 
 	// Merge output
 	if (source.output) {
 		result.output = { ...target.output, ...source.output };
+	}
+
+	// Merge concurrency
+	if (source.concurrency) {
+		result.concurrency = { ...target.concurrency, ...source.concurrency };
 	}
 
 	// Merge prompts (nested)
@@ -275,22 +268,220 @@ function deepMerge(
 }
 
 /**
- * Loads configuration from a JSON file, merging with defaults.
- * If no path provided, looks for config.json in current directory.
- * If file doesn't exist, uses defaults.
+ * Parse TOML config file and convert to PipelineConfig.
  */
-export function loadConfig(configPath?: string): PipelineConfig {
-	if (loadedConfig) {
-		return loadedConfig;
+function parseTOMLConfig(content: string): Partial<PipelineConfig> {
+	const raw = parseTOML(content) as Record<string, unknown>;
+	const result: Partial<PipelineConfig> = {};
+
+	// Parse roles
+	if (raw.roles) {
+		const rolesRaw = raw.roles as Record<string, unknown>;
+		result.roles = {} as RolesConfig;
+
+		if (rolesRaw.generators) {
+			result.roles.generators = rolesRaw.generators as RoleEntry[];
+		}
+		if (rolesRaw.reviewers) {
+			result.roles.reviewers = rolesRaw.reviewers as RoleEntry[];
+		}
+		if (rolesRaw.revisers) {
+			result.roles.revisers = rolesRaw.revisers as RoleEntry[];
+		}
+		if (rolesRaw.swissJudge) {
+			result.roles.swissJudge = rolesRaw.swissJudge as RoleEntry;
+		}
+		if (rolesRaw.playoffJudges) {
+			result.roles.playoffJudges = rolesRaw.playoffJudges as RoleEntry[];
+		}
+		if (rolesRaw.initialLeaderboardJudges) {
+			result.roles.initialLeaderboardJudges =
+				rolesRaw.initialLeaderboardJudges as RoleEntry[];
+		}
 	}
 
-	const path = configPath ?? "config.json";
+	// Parse tournament
+	if (raw.tournament) {
+		const tournamentRaw = raw.tournament as Record<string, unknown>;
+		result.tournament = {} as TournamentConfig;
+
+		if (tournamentRaw.swissRounds !== undefined) {
+			result.tournament.swissRounds = tournamentRaw.swissRounds as number;
+		}
+		if (tournamentRaw.playoffSize !== undefined) {
+			result.tournament.playoffSize = tournamentRaw.playoffSize as number;
+		}
+		if (tournamentRaw.initialGenerations !== undefined) {
+			result.tournament.initialGenerations =
+				tournamentRaw.initialGenerations as number;
+		}
+		if (tournamentRaw.swissFormat !== undefined) {
+			result.tournament.swissFormat = tournamentRaw.swissFormat as
+				| "1v1"
+				| "1v1v1";
+		}
+		if (tournamentRaw.initialLeaderboard) {
+			const ilRaw = tournamentRaw.initialLeaderboard as Record<string, unknown>;
+			result.tournament.initialLeaderboard = {
+				enabled: ilRaw.enabled as boolean,
+			};
+		}
+	}
+
+	// Parse output
+	if (raw.output) {
+		const outputRaw = raw.output as Record<string, unknown>;
+		result.output = {
+			runsDirectory: outputRaw.runsDirectory as string,
+		};
+	}
+
+	// Parse concurrency
+	if (raw.concurrency) {
+		const concurrencyRaw = raw.concurrency as Record<string, unknown>;
+		result.concurrency = {
+			maxParallel: concurrencyRaw.maxParallel as number | null,
+		};
+	}
+
+	// Parse prompts (nested structure)
+	if (raw.prompts) {
+		const promptsRaw = raw.prompts as Record<string, Record<string, string>>;
+		result.prompts = {} as PromptsConfig;
+
+		if (promptsRaw.generate) {
+			result.prompts.generate = promptsRaw.generate as {
+				system: string;
+				user: string;
+			};
+		}
+		if (promptsRaw.review) {
+			result.prompts.review = promptsRaw.review as {
+				system: string;
+				userTemplate: string;
+			};
+		}
+		if (promptsRaw.revise) {
+			result.prompts.revise = promptsRaw.revise as {
+				system: string;
+				userTemplate: string;
+			};
+		}
+		if (promptsRaw.judgePairwise) {
+			result.prompts.judgePairwise = promptsRaw.judgePairwise as {
+				system: string;
+				userTemplate: string;
+			};
+		}
+		if (promptsRaw.judgeThreeWay) {
+			result.prompts.judgeThreeWay = promptsRaw.judgeThreeWay as {
+				system: string;
+				userTemplate: string;
+			};
+		}
+	}
+
+	return result;
+}
+
+/**
+ * Parses prompts from a TOML file.
+ */
+function parsePromptsTOML(content: string): Partial<PromptsConfig> {
+	const raw = parseTOML(content) as Record<string, Record<string, string>>;
+	const result: Partial<PromptsConfig> = {};
+
+	if (raw.generate) {
+		result.generate = {
+			system: raw.generate.system ?? "",
+			user: raw.generate.user ?? "",
+		};
+	}
+	if (raw.review) {
+		result.review = {
+			system: raw.review.system ?? "",
+			userTemplate: raw.review.userTemplate ?? "",
+		};
+	}
+	if (raw.revise) {
+		result.revise = {
+			system: raw.revise.system ?? "",
+			userTemplate: raw.revise.userTemplate ?? "",
+		};
+	}
+	if (raw.judgePairwise) {
+		result.judgePairwise = {
+			system: raw.judgePairwise.system ?? "",
+			userTemplate: raw.judgePairwise.userTemplate ?? "",
+		};
+	}
+	if (raw.judgeThreeWay) {
+		result.judgeThreeWay = {
+			system: raw.judgeThreeWay.system ?? "",
+			userTemplate: raw.judgeThreeWay.userTemplate ?? "",
+		};
+	}
+
+	return result;
+}
+
+/**
+ * Loads prompts from a separate TOML file.
+ */
+export function loadPrompts(promptsPath: string): Partial<PromptsConfig> {
+	if (!existsSync(promptsPath)) {
+		throw new Error(`Prompts file not found: ${promptsPath}`);
+	}
+
+	const content = readFileSync(promptsPath, "utf-8");
+	return parsePromptsTOML(content);
+}
+
+/**
+ * Loads configuration from a TOML file, merging with defaults.
+ * If no path provided, looks for config.toml in current directory.
+ * If file doesn't exist, uses defaults.
+ * @param configPath Path to config TOML file
+ * @param promptsPath Optional path to separate prompts TOML file
+ */
+// Track which paths were used to load the current config (stores absolute paths)
+let loadedPaths: { configPath: string; promptsPath: string } | null = null;
+
+/**
+ * Loads configuration from a TOML file, merging with defaults.
+ * If no path provided, looks for config.toml in current directory.
+ * If file doesn't exist, uses defaults.
+ * @param configPath Path to config TOML file
+ * @param promptsPath Optional path to separate prompts TOML file
+ */
+export function loadConfig(
+	configPath?: string,
+	promptsPath?: string,
+): PipelineConfig {
+	// Resolve paths to absolute to ensure consistent caching
+	// Default to "config.toml" / "prompts.toml" if undefined, just like the loading logic below effectively does
+	const effectiveConfigPath = resolve(configPath ?? "config.toml");
+	const effectivePromptsPath = resolve(promptsPath ?? "prompts.toml");
+
+	// If we have a cached config, check if the requested paths match what we loaded
+	if (loadedConfig && loadedPaths) {
+		const configPathMatch = loadedPaths.configPath === effectiveConfigPath;
+		const promptsPathMatch = loadedPaths.promptsPath === effectivePromptsPath;
+
+		if (configPathMatch && promptsPathMatch) {
+			return loadedConfig;
+		}
+		// Paths changed, reload
+		console.log("🔄 Config paths changed, reloading...");
+	}
+
+	const path = configPath ?? "config.toml";
 	let userConfig: Partial<PipelineConfig> = {};
 
 	if (existsSync(path)) {
 		try {
 			const content = readFileSync(path, "utf-8");
-			userConfig = JSON.parse(content);
+			userConfig = parseTOMLConfig(content);
 			console.log(`📁 Loaded config from: ${path}`);
 		} catch (e) {
 			console.error(`⚠️ Failed to parse config file ${path}:`, e);
@@ -300,11 +491,50 @@ export function loadConfig(configPath?: string): PipelineConfig {
 		// User explicitly specified a config that doesn't exist
 		throw new Error(`Config file not found: ${configPath}`);
 	} else {
-		console.log("📁 No config.json found, using defaults.");
+		console.log("📁 No config.toml found, using defaults.");
 	}
 
 	const mergedConfig = deepMerge(DEFAULT_CONFIG, userConfig);
+
+	// Load prompts from separate file
+	// Priority: --prompts flag > prompts.toml in cwd > defaults
+	const resolvedPromptsPath = promptsPath ?? "prompts.toml";
+	if (existsSync(resolvedPromptsPath)) {
+		try {
+			const prompts = loadPrompts(resolvedPromptsPath);
+			mergedConfig.prompts = {
+				generate: { ...mergedConfig.prompts.generate, ...prompts.generate },
+				review: { ...mergedConfig.prompts.review, ...prompts.review },
+				revise: { ...mergedConfig.prompts.revise, ...prompts.revise },
+				judgePairwise: {
+					...mergedConfig.prompts.judgePairwise,
+					...prompts.judgePairwise,
+				},
+				judgeThreeWay: {
+					...mergedConfig.prompts.judgeThreeWay,
+					...prompts.judgeThreeWay,
+				},
+			};
+			console.log(`📝 Loaded prompts from: ${resolvedPromptsPath}`);
+		} catch (e) {
+			console.error(
+				`⚠️ Failed to parse prompts file ${resolvedPromptsPath}:`,
+				e,
+			);
+			console.log("   Using default prompts.");
+		}
+	} else if (promptsPath) {
+		// User explicitly specified a prompts file that doesn't exist
+		throw new Error(`Prompts file not found: ${promptsPath}`);
+	}
+	// If no prompts.toml found and no --prompts flag, silently use defaults
+
+	validateConfig(mergedConfig);
 	loadedConfig = mergedConfig;
+	loadedPaths = {
+		configPath: effectiveConfigPath,
+		promptsPath: effectivePromptsPath,
+	};
 	return mergedConfig;
 }
 
@@ -323,6 +553,7 @@ export function getConfig(): PipelineConfig {
  */
 export function resetConfig(): void {
 	loadedConfig = null;
+	loadedPaths = null;
 }
 
 /**
@@ -336,19 +567,136 @@ export function interpolate(
 	return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
 }
 
+/**
+ * Gets role entries for a specific role.
+ * Returns an array of RoleEntry objects with model slugs and effort.
+ */
+export function getRoleEntries(
+	role: "generators" | "reviewers" | "revisers",
+): RoleEntry[] {
+	const config = getConfig();
+	return config.roles[role];
+}
+
+/**
+ * Gets model slugs for a specific role (for backward compatibility).
+ * Returns just the model slug strings.
+ */
+export function getModelsForRole(
+	role: "generators" | "reviewers" | "revisers",
+): string[] {
+	return getRoleEntries(role).map((e) => e.model);
+}
+
+/**
+ * Gets the effort for a specific model in a specific role.
+ * Returns the first matching entry's effort, or "high" as default.
+ */
+export function getEffortForRole(
+	role:
+		| "generators"
+		| "reviewers"
+		| "revisers"
+		| "swissJudge"
+		| "playoffJudges",
+	modelSlug: string,
+): ReasoningEffort {
+	const config = getConfig();
+
+	if (role === "swissJudge") {
+		return config.roles.swissJudge.effort ?? "high";
+	}
+
+	if (role === "playoffJudges") {
+		const entry = config.roles.playoffJudges.find((e) => e.model === modelSlug);
+		return entry?.effort ?? "high";
+	}
+
+	const entries = config.roles[role];
+	const entry = entries.find((e) => e.model === modelSlug);
+	return entry?.effort ?? "high";
+}
+
+/**
+ * Gets the Swiss judge configuration.
+ */
+export function getSwissJudge(): RoleEntry {
+	return getConfig().roles.swissJudge;
+}
+
+/**
+ * Gets the playoff judges configuration.
+ */
+export function getPlayoffJudges(): RoleEntry[] {
+	return getConfig().roles.playoffJudges;
+}
+
+/**
+ * Gets the initial leaderboard judges (falls back to playoff judges if not set).
+ */
+export function getInitialLeaderboardJudges(): RoleEntry[] {
+	const config = getConfig();
+	return config.roles.initialLeaderboardJudges ?? config.roles.playoffJudges;
+}
+
+/**
+ * Validates the loaded configuration for consistency.
+ */
+function validateConfig(config: PipelineConfig): void {
+	// Validate that role arrays are non-empty
+	if (!config.roles.generators || config.roles.generators.length === 0) {
+		throw new Error("roles.generators must have at least one entry");
+	}
+	if (!config.roles.reviewers || config.roles.reviewers.length === 0) {
+		throw new Error("roles.reviewers must have at least one entry");
+	}
+	if (!config.roles.revisers || config.roles.revisers.length === 0) {
+		throw new Error("roles.revisers must have at least one entry");
+	}
+	if (!config.roles.swissJudge || !config.roles.swissJudge.model) {
+		throw new Error("roles.swissJudge must be defined with a model");
+	}
+	if (!config.roles.playoffJudges || config.roles.playoffJudges.length === 0) {
+		throw new Error("roles.playoffJudges must have at least one entry");
+	}
+
+	// Validate that all role entries have valid model slugs
+	const allEntries = [
+		...config.roles.generators,
+		...config.roles.reviewers,
+		...config.roles.revisers,
+		config.roles.swissJudge,
+		...config.roles.playoffJudges,
+		...(config.roles.initialLeaderboardJudges ?? []),
+	];
+
+	for (const entry of allEntries) {
+		if (!entry.model || typeof entry.model !== "string") {
+			throw new Error(`Invalid role entry: missing or invalid 'model' field`);
+		}
+		// Basic OpenRouter slug validation (should contain a /)
+		if (!entry.model.includes("/")) {
+			throw new Error(
+				`Invalid model slug "${entry.model}": OpenRouter slugs should be in format "provider/model-name"`,
+			);
+		}
+	}
+}
+
 // ============================================================================
 // CLI Argument Parsing
 // ============================================================================
 
 export interface CLIArgs {
 	configPath?: string;
+	promptsPath?: string;
 	resumeDir?: string;
 	dryRun: boolean;
 }
 
 /**
  * Parses command line arguments.
- * Supports: --config <path>, --resume <run-dir>, --dry-run
+ * Supports: --config <path>, --prompts <path>, --resume <run-dir>, --dry-run
  */
 export function parseArgs(argv: string[] = process.argv): CLIArgs {
 	const args: CLIArgs = {
@@ -359,6 +707,9 @@ export function parseArgs(argv: string[] = process.argv): CLIArgs {
 		const arg = argv[i];
 		if (arg === "--config" && argv[i + 1]) {
 			args.configPath = argv[i + 1];
+			i++; // Skip next arg
+		} else if (arg === "--prompts" && argv[i + 1]) {
+			args.promptsPath = argv[i + 1];
 			i++; // Skip next arg
 		} else if (arg === "--resume" && argv[i + 1]) {
 			args.resumeDir = argv[i + 1];

@@ -1,9 +1,0 @@
-{
-	"tournament": {
-		"initialGenerations": 3,
-		"initialLeaderboard": {
-			"enabled": true,
-			"judges": []
-		}
-	}
-}

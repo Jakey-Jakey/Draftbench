@@ -5,11 +5,16 @@
  * Each phase is implemented in its own module under `phases/`.
  */
 
-import { existsSync } from "fs";
-import { writeFile } from "fs/promises";
-import { join } from "path";
-import { getModels } from "./aiClient";
-import { loadConfig, parseArgs } from "./config";
+import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import {
+	getPlayoffJudges,
+	getRoleEntries,
+	getSwissJudge,
+	loadConfig,
+	parseArgs,
+} from "./config";
 import { computeLeaderboard } from "./leaderboard";
 // Phase imports
 import { runGeneratePhase } from "./phases/generate";
@@ -18,24 +23,34 @@ import { runPlayoffPhase } from "./phases/playoff";
 import { runReviewPhase } from "./phases/review";
 import { runRevisePhase } from "./phases/revise";
 import { runSwissPhase } from "./phases/swiss";
+import { initConcurrencyLimiter } from "./semaphore";
 import { createInitialState, loadState, type PipelineState } from "./state";
-import { ensureRunsDirectory, getTimestamp, printDryRunConfig } from "./utils";
+import {
+	ensureRunsDirectory,
+	getShortModelName,
+	getTimestamp,
+	printDryRunConfig,
+} from "./utils";
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
 const cliArgs = parseArgs();
-const config = loadConfig(cliArgs.configPath);
+const config = loadConfig(cliArgs.configPath, cliArgs.promptsPath);
+
+// Initialize concurrency limiter if configured
+initConcurrencyLimiter(config.concurrency?.maxParallel);
 
 const RUNS_DIR = config.output.runsDirectory;
-const MODEL_NAMES = Object.keys(config.models);
 const SWISS_ROUNDS = config.tournament.swissRounds;
 const TOP_N_PLAYOFF = config.tournament.playoffSize;
 const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
-const SWISS_JUDGE = config.tournament.swissJudge;
-const PLAYOFF_JUDGES = config.tournament.playoffJudges;
+const SWISS_JUDGE = getSwissJudge();
+const PLAYOFF_JUDGES = getPlayoffJudges();
+const GENERATOR_COUNT = getRoleEntries("generators").length;
 const DRY_RUN = cliArgs.dryRun;
+const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 
 // ============================================================================
 // Main Pipeline
@@ -62,26 +77,21 @@ async function runCrossReviewPipeline(): Promise<void> {
 	}
 
 	console.log("📝 Creating: Monster Statblock\n");
+
+	// Display roles
+	console.log("Generators:");
+	for (const entry of getRoleEntries("generators")) {
+		console.log(
+			`  - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
+		);
+	}
+	console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`);
 	console.log(
-		"Models:",
-		Object.entries(getModels())
-			.map(([k, v]) => `${k}: ${v}`)
-			.join("\n        "),
+		`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`,
 	);
-	console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
 	console.log(
-		`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${j.model} (${j.effort})`).join(", ")})`,
-	);
-	console.log(
-		`Swiss Judge: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort}) | Initial Leaderboard: ${
-			INITIAL_LEADERBOARD.enabled
-				? (INITIAL_LEADERBOARD.judges.length
-						? INITIAL_LEADERBOARD.judges
-						: PLAYOFF_JUDGES
-					)
-						.map((j) => `${j.model} (${j.effort})`)
-						.join(", ")
-				: "disabled"
+		`Swiss Judge: ${getShortModelName(SWISS_JUDGE.model)} (${SWISS_JUDGE.effort ?? "low"}) | Initial Leaderboard: ${
+			INITIAL_LEADERBOARD.enabled ? "enabled" : "disabled"
 		}\n`,
 	);
 
@@ -159,7 +169,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 	if (!DRY_RUN && !isResuming) {
 		await writeFile(
 			swissLogPath,
-			"# Swiss Tournament Log (1v1v1)\n\n",
+			`# Swiss Tournament Log (${SWISS_FORMAT})\n\n`,
 			"utf-8",
 		);
 		if (initialLeaderboardLogPath) {
@@ -250,16 +260,6 @@ async function runCrossReviewPipeline(): Promise<void> {
 
 	// Print summary stats
 	const playoffPairCount = (TOP_N_PLAYOFF * (TOP_N_PLAYOFF - 1)) / 2;
-	const leaderboardJudges = INITIAL_LEADERBOARD.judges.length
-		? INITIAL_LEADERBOARD.judges
-		: PLAYOFF_JUDGES;
-	const initialLeaderboardPairs =
-		INITIAL_LEADERBOARD.enabled && leaderboardJudges.length > 0
-			? (MODEL_NAMES.length *
-					config.tournament.initialGenerations *
-					(MODEL_NAMES.length * config.tournament.initialGenerations - 1)) /
-				2
-			: 0;
 
 	console.log("\n" + "=".repeat(60));
 	console.log("📊 TOURNAMENT SUMMARY");
@@ -267,13 +267,10 @@ async function runCrossReviewPipeline(): Promise<void> {
 	if (DRY_RUN) {
 		console.log("🧪 DRY RUN - No API calls were made");
 	}
-	console.log(`Swiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
+	console.log(`Swiss Rounds: ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`);
 	console.log(`Swiss Matches: ${allSwissMatches.length}`);
 	console.log(
 		`Playoff Judgments: ${playoffPairCount * PLAYOFF_JUDGES.length} (${playoffPairCount} pairs × ${PLAYOFF_JUDGES.length} judges)`,
-	);
-	console.log(
-		`Total Judge Calls: ${allSwissMatches.length + playoffPairCount * PLAYOFF_JUDGES.length + initialLeaderboardPairs * leaderboardJudges.length}`,
 	);
 	console.log("");
 	console.log("🏆 TOP 3 (Final Rankings):");

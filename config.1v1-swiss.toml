@@ -1,0 +1,5 @@
+# Swiss 1v1 format (pairwise matches instead of default 3-way)
+
+[tournament]
+swissFormat = "1v1"
+swissRounds = 5

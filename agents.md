@@ -48,49 +48,114 @@
 ### Configuration Files
 | File | Purpose |
 |------|---------|
-| `config.json` | User overrides (gitignored). Merged with defaults at runtime. |
-| `config.draft-leaderboard.json` | Pre-made config: 3 generations + initial leaderboard enabled. |
+| `config.toml` | **Main config**. User customizations (edit this). |
+| `config.default.toml` | Reference: all defaults with full documentation. |
+| `config.example.toml` | Example config with comments. |
+| `config.1v1-swiss.toml` | Preset: Swiss 1v1 format (pairwise matches). |
+| `config.draft-leaderboard.toml` | Preset: 3 generations + initial leaderboard enabled. |
+| `prompts.toml` | Customizable prompts. Load with `--prompts` flag. |
+
+### Tests
+| File | Purpose |
+|------|---------|
+| `tests/config.test.ts` | Config loading, CLI parsing, prompts tests. |
+| `tests/utils.test.ts` | Helper function tests. |
+| `tests/swiss.test.ts` | Swiss pairing algorithm tests. |
 
 ---
 
 
 ## ⚙️ Configuration System
 
+**Format**: TOML (supports comments with `#`)
+
 **Priority Order** (highest first):
 1. `--config <path>` CLI argument
-2. `config.json` (project root)
+2. `config.toml` (project root)
 3. Internal defaults in `config.ts`
 
-### Critical Config Fields
+### Role-Centric Configuration
 
-```jsonc
-{
-  "models": {
-    "claude": { "slug": "anthropic/claude-4.5-opus", "reasoningEffort": "high" }
-    // Add/modify models here
-  },
-  "tournament": {
-    "initialGenerations": 1,      // Drafts per model
-    "initialLeaderboard": {
-      "enabled": false,           // Enable seed selection
-      "judges": []                // Empty = use playoffJudges
-    },
-    "swissRounds": 7,
-    "playoffSize": 8,
-    "swissJudge": { "model": "claude", "effort": "low" },
-    "playoffJudges": [
-      { "model": "claude", "effort": "low" },
-      { "model": "gpt", "effort": "high" }
-    ]
-  },
-  "prompts": {
-    "generate": { "system": "...", "user": "..." },
-    "review": { "system": "...", "userTemplate": "...{statblock}..." },
-    "revise": { "system": "...", "userTemplate": "...{statblock}...{feedback}..." },
-    "judgePairwise": { "system": "...", "userTemplate": "...{idA}...{textA}..." },
-    "judgeThreeWay": { "system": "...", "userTemplate": "...{idA}...{idB}...{idC}..." }
-  }
-}
+Models are defined **per role** with their settings. This makes it easy to:
+- Use different models for different roles
+- Set reasoning effort per model per role
+- Have asymmetric setups (e.g., 2 generators, 5 reviewers)
+
+```toml
+# config.toml - Example with comments
+
+[roles]
+# Generators: Models that create initial drafts
+[[roles.generators]]
+model = "anthropic/claude-opus-4.5"
+effort = "high"
+
+[[roles.generators]]
+model = "openai/gpt-5.2"
+effort = "high"
+
+[[roles.generators]]
+model = "google/gemini-3-pro-preview"
+effort = "high"
+
+# Reviewers: Models that critique drafts
+[[roles.reviewers]]
+model = "anthropic/claude-opus-4.5"
+effort = "medium"
+
+[[roles.reviewers]]
+model = "openai/gpt-5.2"
+effort = "medium"
+
+# Revisers: Models that improve drafts based on feedback
+[[roles.revisers]]
+model = "anthropic/claude-opus-4.5"
+effort = "high"
+
+# Swiss Tournament Judge
+[roles.swissJudge]
+model = "anthropic/claude-opus-4.5"
+effort = "low"
+
+# Playoff Judges (dual-judge voting)
+[[roles.playoffJudges]]
+model = "anthropic/claude-opus-4.5"
+effort = "low"
+
+[[roles.playoffJudges]]
+model = "openai/gpt-5.2"
+effort = "high"
+
+[tournament]
+initialGenerations = 1
+swissRounds = 7
+playoffSize = 8
+swissFormat = "1v1v1"  # "1v1" or "1v1v1"
+
+[tournament.initialLeaderboard]
+enabled = false
+
+[concurrency]
+maxParallel = 5  # Limit parallel API calls
+
+[output]
+runsDirectory = "runs"
+```
+
+### Role Entry Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | string | *required* | OpenRouter slug (e.g., `"anthropic/claude-sonnet-4"`) |
+| `effort` | string | `"high"` | Reasoning effort: `"xhigh"`, `"high"`, `"medium"`, `"low"`, `"minimal"`, `"none"`. Optional. |
+| `temperature` | number | *none* | Optional temperature override |
+
+### Swiss Match Format
+
+```toml
+[tournament]
+swissFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
+# swissFormat = "1v1"  # Alternative: pairwise matches
 ```
 
 ---
@@ -116,13 +181,22 @@ bun run index.ts
 bun run index.ts --dry-run
 
 # Custom config
-bun run index.ts --config config.draft-leaderboard.json
+bun run index.ts --config config.1v1-swiss.toml
+
+# Custom prompts (for different benchmarks)
+bun run index.ts --prompts my-prompts.toml
 
 # Combined
-bun run index.ts --config my-config.json --dry-run
+bun run index.ts --config my-config.toml --prompts my-prompts.toml --dry-run
+
+# Resume interrupted run
+bun run index.ts --resume runs/2024-01-01T12-00-00
 
 # Linting
 bun run lint
+
+# Testing
+bun test
 ```
 
 ---
@@ -149,12 +223,13 @@ runs/<timestamp>/
 ## ⚠️ Common Pitfalls & Development Notes
 
 1. **Missing API Key**: Set `OPENROUTER_API_KEY` env var before running.
-2. **Config Not Loading**: Ensure valid JSON. Check for trailing commas.
-3. **Adding Models**: New models must be added to `config.models` with a valid OpenRouter slug.
-4. **Prompt Templates**: Use `{varname}` syntax. Available vars depend on phase (see `config.ts` types).
+2. **Config Not Loading**: Ensure valid TOML syntax. Run `bun test` to validate.
+3. **Adding Models**: Use full OpenRouter slugs (e.g., `anthropic/claude-sonnet-4`).
+4. **Prompt Templates**: Use `{varname}` syntax. Available vars depend on phase (see `prompts.toml`).
 5. **Cost Control**: Use `--dry-run` liberally. Full runs cost ~$15-20 in API calls.
-6. **Incremental Writes**: Files are written as each phase completes—safe to interrupt and resume manually.
+6. **Incremental Writes**: Files are written as each phase completes—safe to interrupt and resume.
 7. **Linting**: Use `bun run lint` to check for code style and potential errors using Biome.
+8. **Testing**: Use `bun test` to run the test suite (31 tests).
 
 ---
 
@@ -164,3 +239,38 @@ runs/<timestamp>/
 - **Randomization**: Presentation order is shuffled for every match.
 - **Dual Judging**: Playoff uses two judges with different reasoning efforts to reduce single-model bias.
 - **Incremental I/O**: Results are persisted immediately to handle crashes gracefully.
+
+---
+
+## 🧪 Test Coverage
+
+The test suite now includes comprehensive coverage for:
+
+### New Test Files
+- `tests/callSettings.test.ts` - Tests for the new callSettings module (effort/temperature resolution)
+- `tests/semaphore.test.ts` - Tests for the new concurrency limiter
+- `tests/state.test.ts` - Tests for state management and persistence
+- `tests/leaderboard.test.ts` - Tests for leaderboard computation and ranking logic
+
+### Enhanced Existing Tests
+- `tests/config.test.ts` - Added TOML parsing, role configuration, prompt interpolation tests
+- `tests/swiss.test.ts` - Added pairwise pairing, opponent tracking, edge case tests
+- `tests/utils.test.ts` - Added timestamp, directory management, mock generation tests
+
+### Test Statistics
+- **Total Test Files**: 7
+- **Test Suites**: 50+
+- **Individual Tests**: 150+
+- **Coverage Areas**: Config loading, TOML parsing, concurrency control, state persistence, tournament logic, leaderboard computation, utility functions
+
+Run tests with:
+```bash
+bun test
+```
+
+Run specific test file:
+```bash
+bun test tests/semaphore.test.ts
+```
+
+---

@@ -1,0 +1,9 @@
+# Enable initial draft leaderboard to pick best seed per model
+# Generates multiple drafts per model, then runs round-robin to select the best
+
+[tournament]
+initialGenerations = 3  # Generate 3 drafts per model
+
+[tournament.initialLeaderboard]
+enabled = true
+# judges = [] means use playoffJudges by default

@@ -4,31 +4,29 @@ An AI-powered artifact benchmark that asks multiple models to create, review, an
 
 ## Overview
 
-This pipeline benchmarks AI models on creating arbitrary artifacts end-to-end:
+This pipeline benchmarks AI models on creative artifact generation end-to-end:
 
-1. **Generate**: 3 models (Claude, GPT, Gemini) each create an artifact from the same brief (defaults to a D&D statblock)
-2. **Review**: Each model reviews all 3 artifacts (9 reviews total)
-3. **Revise**: All 3 models revise each artifact based on each review (27 revisions)
-4. **Swiss Tournament**: 7 rounds of 1v1v1 judging to rank all 27 revisions
-5. **Playoff**: Top-8 Round Robin with dual-judge voting for final rankings
+1. **Generate**: Multiple models each create an artifact from the same brief
+2. **Review**: Each model reviews all generated artifacts
+3. **Revise**: All models revise each artifact based on each review
+4. **Swiss Tournament**: 7 rounds of 1v1v1 judging to rank all revisions
+5. **Playoff**: Top-8 Round Robin with multi-judge voting for final rankings
 
 ## Features
 
 - **1v1v1 Format**: Each Swiss match compares 3 artifacts simultaneously for 3× data efficiency
 - **Position Randomization**: All matches randomize presentation order to eliminate position bias
-- **Dual-Judge Playoff**: Claude (low thinking) + GPT 5.2 (high thinking) vote on each match
+- **Multi-Judge Playoff**: Configurable judges vote on each playoff match
 - **Anonymized Judging**: All artifacts are presented with anonymous IDs (S1, S2, S3)
+- **Resumable Runs**: Interrupted pipelines can be resumed with `--resume`
 - **Incremental Writes**: Results are written immediately as they complete
-- **~97% Accuracy**: Optimized for high ranking accuracy through judge diversity
 
 ## Prerequisites
 
-- [Bun](https://bun.sh/) runtime installed (used for scripts and package management)
+- [Bun](https://bun.sh/) runtime installed
 - An [OpenRouter](https://openrouter.ai/) API key with access to the configured models
 
 ## Setup
-
-Install dependencies with Bun:
 
 ```bash
 bun install
@@ -36,54 +34,123 @@ bun install
 
 ## Configuration
 
-Authentication is provided via the `OPENROUTER_API_KEY` environment variable. You can export
-it directly or place it in a `.env` file:
+### API Key
+
+Set the `OPENROUTER_API_KEY` environment variable (Bun auto-loads `.env` files):
 
 ```bash
 export OPENROUTER_API_KEY=your_api_key_here
 ```
 
-Run-time settings can be customized with a JSON config file. The pipeline loads `config.json`
-by default and merges it with [`config.default.json`](./config.default.json). A test variant
-is available in [`config.test.json`](./config.test.json). You can point to an alternate file
-with `--config`:
+### Config Files (TOML)
 
-```bash
-bun run index.ts --config path/to/override.json
+The pipeline uses TOML configuration with this priority:
+
+1. `--config <path>` CLI flag (highest priority)
+2. `config.toml` in project root
+3. Built-in defaults in `config.ts`
+
+Reference files:
+- [`config.default.toml`](./config.default.toml) — All defaults with documentation
+- [`config.example.toml`](./config.example.toml) — Commented example
+
+### Role-Centric Schema
+
+Models are assigned to specific roles rather than globally:
+
+```toml
+[roles]
+
+# Generators
+[[roles.generators]]
+model = "anthropic/claude-opus-4.5"
+effort = "high"
+# ... add more generators ...
+
+# Reviewers
+[[roles.reviewers]]
+model = "google/gemini-3-pro-preview"
+effort = "medium"
+# ... add more reviewers ...
+
+# Revisers
+[[roles.revisers]]
+model = "moonshot/kimi-k2-preview"
+effort = "high"
+# ... add more revisers ...
+
+[roles.swissJudge]
+model = "openai/gpt-5.2"
+effort = "low"
+# ... add more judges ...
+
+[[roles.playoffJudges]]
+model = "anthropic/claude-opus-4.5"
+effort = "low"
+
+[[roles.playoffJudges]]
+model = "mistral/mistral-large-2"
+effort = "medium"
+
+[tournament]
+swissFormat = "1v1v1"    # "1v1" or "1v1v1"
+swissRounds = 7
+playoffSize = 8
+
+[concurrency]
+maxParallel = 5          # Limit parallel API calls
 ```
 
-Key configuration knobs include:
+### Custom Prompts
 
-- **models**: Override provider slugs or reasoning effort per model. All models participate in all phases (generate, review, revise).
-- **tournament**: Adjust Swiss round count, playoff size, and judge configuration.
-  - `swissJudge`: Which model judges Swiss rounds (and at what reasoning effort).
-  - `playoffJudges`: Array of models that vote on playoff matches.
-  - `initialLeaderboard.judges`: Judges for seed selection. If empty `[]`, falls back to `playoffJudges`.
-- **output**: Change the destination for generated run folders.
-- **prompts**: Swap in custom system prompts or user templates to change the artifact type (essay, short story, D&D statblock, etc.).
+Override prompts via a separate TOML file:
+
+```bash
+bun run index.ts --prompts my-prompts.toml
+```
+
+See [`prompts.toml`](./prompts.toml) for the default prompt templates.
 
 ### Customization
 
-The best way to tailor Draftbench to your own purposes is to **create your own config file**. You can:
+To tailor Draftbench for your own artifact types:
 
-1. Copy `config.default.json` and modify the `prompts` section to test any artifact type.
-2. Ask an LLM to generate a config for you—just describe what you want to benchmark (e.g., "Generate a config for testing code review quality" or "Create prompts for comparing short story writing").
+1. Copy `config.default.toml` and modify the `[prompts]` section
+2. Or create a `prompts.toml` file and use `--prompts prompts.toml`
+3. Ask an LLM to generate a config—describe what you want to benchmark
 
-See [`agents.md`](./agents.md) for a full config schema reference.
-
+See [`agents.md`](./agents.md) for full schema reference.
 
 ## Usage
 
-Run the full pipeline:
-
 ```bash
+# Run full pipeline
 bun run index.ts
+
+# Dry run (no API calls, no file writes)
+bun run index.ts --dry-run
+
+# Custom config
+bun run index.ts --config config.1v1-swiss.toml
+
+# Custom prompts
+bun run index.ts --prompts my-prompts.toml
+
+# Resume interrupted run
+bun run index.ts --resume runs/<timestamp>
 ```
 
-To test the flow without writing files or making API calls, use dry-run mode:
+## Development
 
 ```bash
-bun run index.ts --dry-run
+# Run tests
+bun test
+
+# Lint
+bun run lint
+
+# Lint with auto-fix
+bun x @biomejs/biome check --write
 ```
 
 ## Output Structure
@@ -92,19 +159,15 @@ Each run creates a timestamped directory in `runs/`:
 
 ```
 runs/YYYY-MM-DDTHH-MM-SS/
-├── claude_original.md       # Original artifact from Claude
-├── gpt_original.md          # Original artifact from GPT
-├── gemini_original.md       # Original artifact from Gemini
-├── reviews/                 # 9 cross-review files
-│   ├── claude_reviews_claude.md
-│   ├── claude_reviews_gpt.md
-│   └── ...
-├── revisions/               # 27 revised artifacts
-│   ├── claude_claude_claude.md  # generator_reviewer_reviser
-│   └── ...
+├── *_original.md            # Original artifacts from each generator
+├── reviews/                 # Cross-review files
+│   └── <reviewer>_reviews_<generator>.md
+├── revisions/               # Revised artifacts
+│   └── <generator>_<reviewer>_<reviser>.md
 ├── swiss_rounds.md          # Swiss tournament log
-├── playoff_rounds.md        # Top-8 Round Robin log (dual-judge votes)
-└── leaderboard.md           # Final rankings
+├── playoff_rounds.md        # Playoff round robin log
+├── leaderboard.md           # Final rankings
+└── state.json               # Pipeline state (for resume)
 ```
 
 ## Cost Estimate
@@ -118,6 +181,8 @@ runs/YYYY-MM-DDTHH-MM-SS/
 | Playoff (28 × 2 judges) | 56 | ~$5.80 |
 | **Total** | **158** | **~$15** |
 
+*Costs vary based on model selection and reasoning effort.*
+
 ## Scoring
 
 ### Swiss Rounds (1v1v1)
@@ -126,13 +191,12 @@ runs/YYYY-MM-DDTHH-MM-SS/
 - 3rd place: 0 points
 - Positions are randomized each match
 
-### Playoff (Dual-Judge Round Robin)
-- **Claude (low thinking)** + **GPT 5.2 (high thinking)** judge each match
+### Playoff (Multi-Judge Round Robin)
+- Configurable judges vote on each match
 - Both agree (2-0): 1 point to winner
 - Disagree (1-1): 0.5 points each (draw)
 - Positions are randomized each match
 
 ---
 
-This project was created using `bun init`. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
-
+Built with [Bun](https://bun.sh).

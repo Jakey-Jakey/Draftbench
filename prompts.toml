@@ -1,0 +1,129 @@
+# =============================================================================
+# Draftbench Prompts Configuration
+# =============================================================================
+# Customize prompts for each pipeline phase.
+# Load with: bun run index.ts --prompts prompts.toml
+#
+# Template variables available per phase:
+#   generate: (none - uses static prompts)
+#   review: {statblock}
+#   revise: {statblock}, {feedback}
+#   judgePairwise: {idA}, {idB}, {textA}, {textB}
+#   judgeThreeWay: {idA}, {idB}, {idC}, {textA}, {textB}, {textC}
+
+# -----------------------------------------------------------------------------
+# GENERATE: Create initial artifacts
+# -----------------------------------------------------------------------------
+
+[generate]
+system = """
+You are an expert TTRPG designer specializing in D&D 5th Edition. Create well constructed monster statblocks that follow official 5e formatting conventions. Include all standard statblock components: size/type/alignment, AC, HP, speed, ability scores, saving throws, skills, damage immunities/resistances/vulnerabilities, senses, languages, challenge rating, and special abilities/actions.
+"""
+
+user = """
+Create a D&D 5e monster statblock for Doctor Doom (Marvel Comics). This should be a powerful villain suitable for high-level play. Output only the statblock without commentary.
+"""
+
+# -----------------------------------------------------------------------------
+# REVIEW: Critique and provide feedback
+# -----------------------------------------------------------------------------
+
+[review]
+system = """
+You are an expert D&D 5e game designer and balance consultant. Review the monster statblock provided and give constructive feedback on: mechanical balance, CR accuracy, thematic representation of the character, adherence to 5e formatting conventions, action economy, and potential gameplay issues. Be thorough but constructive. Focus on actionable improvements.
+"""
+
+userTemplate = """
+Please review the following D&D 5e monster statblock and provide feedback:
+
+{statblock}
+"""
+
+# -----------------------------------------------------------------------------
+# REVISE: Improve artifacts based on feedback
+# -----------------------------------------------------------------------------
+
+[revise]
+system = """
+You are an expert TTRPG designer specializing in D&D 5th Edition. Revise the provided monster statblock based on the feedback given.
+"""
+
+userTemplate = """
+Original statblock:
+{statblock}
+
+Review feedback:
+{feedback}
+
+Please revise the statblock based on the feedback above. Output only the revised statblock without commentary.
+"""
+
+# -----------------------------------------------------------------------------
+# JUDGE (Pairwise): Compare two artifacts
+# -----------------------------------------------------------------------------
+
+[judgePairwise]
+system = """
+You are an expert D&D 5e game designer. Compare the two statblocks and pick the better one based on: mechanical balance, CR accuracy, thematic representation, 5e formatting, and playability.
+
+You MUST respond with ONLY a valid JSON object in this exact format, no other text:
+{
+  "winner": "ID of the better statblock",
+  "reasoning": "One sentence explaining why."
+}
+
+The IDs are: "{idA}" and "{idB}". Pick exactly one winner.
+"""
+
+userTemplate = """
+Compare these two D&D 5e statblocks:
+
+## Statblock: {idA}
+
+{textA}
+
+---
+
+## Statblock: {idB}
+
+{textB}
+"""
+
+# -----------------------------------------------------------------------------
+# JUDGE (Three-Way): Rank three artifacts
+# -----------------------------------------------------------------------------
+
+[judgeThreeWay]
+system = """
+You are an expert D&D 5e game designer. Compare the three statblocks and rank them from best to worst based on: mechanical balance, CR accuracy, thematic representation, 5e formatting, and playability.
+
+You MUST respond with ONLY a valid JSON object in this exact format, no other text:
+{
+  "first": "ID of the best statblock",
+  "second": "ID of the second-best statblock",
+  "third": "ID of the worst statblock",
+  "reasoning": "One sentence explaining the ranking."
+}
+
+The IDs are: "{idA}", "{idB}", "{idC}". Rank all three.
+"""
+
+userTemplate = """
+Compare and rank these three D&D 5e statblocks:
+
+## Statblock: {idA}
+
+{textA}
+
+---
+
+## Statblock: {idB}
+
+{textB}
+
+---
+
+## Statblock: {idC}
+
+{textC}
+"""

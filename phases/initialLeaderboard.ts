@@ -1,10 +1,15 @@
-import { appendFile } from "fs/promises";
+import { appendFile } from "node:fs/promises";
 import {
 	type GenerateResult,
-	type ModelName,
+	type ModelSlug,
 	pairwiseJudge,
 } from "../aiClient";
-import { getConfig } from "../config";
+import {
+	getConfig,
+	getInitialLeaderboardJudges,
+	getModelsForRole,
+	type RoleEntry,
+} from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -12,13 +17,14 @@ import {
 	type StoredGenerateResult,
 	saveState,
 } from "../state";
+import { getShortModelName } from "../utils";
 
 // ============================================================================
 // Initial Leaderboard Phase
 // ============================================================================
 
 interface DraftStanding {
-	model: ModelName;
+	model: ModelSlug;
 	draftIndex: number;
 	text: string;
 	result: GenerateResult;
@@ -30,7 +36,7 @@ interface DraftStanding {
 
 export interface InitialLeaderboardResult {
 	/** Best draft selected for each model */
-	selectedByModel: Map<ModelName, GenerateResult>;
+	selectedByModel: Map<ModelSlug, GenerateResult>;
 }
 
 /**
@@ -40,30 +46,28 @@ export interface InitialLeaderboardResult {
 export async function runInitialLeaderboardPhase(
 	runDir: string,
 	state: PipelineState,
-	draftsByModel: Map<ModelName, GenerateResult[]>,
+	draftsByModel: Map<ModelSlug, GenerateResult[]>,
 	initialLeaderboardLogPath: string | null,
 	dryRun: boolean,
 	isResuming: boolean,
 ): Promise<InitialLeaderboardResult> {
 	const config = getConfig();
-	const MODEL_NAMES = Object.keys(config.models) as ModelName[];
+	const generatorSlugs = getModelsForRole("generators");
 	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
-	const PLAYOFF_JUDGES = config.tournament.playoffJudges;
+	const leaderboardJudges = getInitialLeaderboardJudges();
 
 	console.log("Phase 2/6: Ranking initial drafts for seeding...");
 
-	const leaderboardJudges = INITIAL_LEADERBOARD.judges.length
-		? INITIAL_LEADERBOARD.judges
-		: PLAYOFF_JUDGES;
-	const selectedByModel = new Map<ModelName, GenerateResult>();
+	const selectedByModel = new Map<ModelSlug, GenerateResult>();
 
 	// Build standings map
 	const draftStandings = new Map<string, DraftStanding>();
-	for (const model of MODEL_NAMES) {
-		const drafts = draftsByModel.get(model) ?? [];
+	for (const modelSlug of generatorSlugs) {
+		const drafts = draftsByModel.get(modelSlug) ?? [];
+		const shortName = getShortModelName(modelSlug);
 		drafts.forEach((draft, idx) => {
-			draftStandings.set(`${model}_draft${idx + 1}`, {
-				model,
+			draftStandings.set(`${shortName}_draft${idx + 1}`, {
+				model: modelSlug,
 				draftIndex: idx + 1,
 				text: draft.text,
 				result: draft,
@@ -83,7 +87,7 @@ export async function runInitialLeaderboardPhase(
 
 	if (resumeSelected) {
 		for (const [model, draft] of state.selectedDrafts as Map<
-			ModelName,
+			ModelSlug,
 			StoredGenerateResult
 		>) {
 			selectedByModel.set(model, draft as GenerateResult);
@@ -96,10 +100,10 @@ export async function runInitialLeaderboardPhase(
 
 	// If leaderboard disabled or no judges, just take first draft
 	if (!INITIAL_LEADERBOARD.enabled || leaderboardJudges.length === 0) {
-		for (const model of MODEL_NAMES) {
-			const drafts = draftsByModel.get(model) ?? [];
+		for (const modelSlug of generatorSlugs) {
+			const drafts = draftsByModel.get(modelSlug) ?? [];
 			if (drafts[0]) {
-				selectedByModel.set(model, drafts[0]!);
+				selectedByModel.set(modelSlug, drafts[0]!);
 			}
 		}
 		console.log(
@@ -120,7 +124,7 @@ export async function runInitialLeaderboardPhase(
 		}
 
 		console.log(
-			`  Running ${pairs.length} matchups with judges: ${leaderboardJudges.map((j) => `${j.model} (${j.effort})`).join(", ")}`,
+			`  Running ${pairs.length} matchups with judges: ${leaderboardJudges.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")}`,
 		);
 
 		if (dryRun) {
@@ -161,7 +165,7 @@ export async function runInitialLeaderboardPhase(
 							"S2",
 							secondText,
 							judge.model,
-							judge.effort,
+							judge.effort ?? "high",
 						),
 					),
 				);
@@ -209,7 +213,7 @@ export async function runInitialLeaderboardPhase(
 					logEntry += "\n";
 					for (const result of judgeResults) {
 						const resolvedWinner = result.winner === "S1" ? firstId : secondId;
-						logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
+						logEntry += `  - ${getShortModelName(result.judge)} picked ${resolvedWinner}: *${result.reasoning}*\n`;
 					}
 					await appendFile(initialLeaderboardLogPath, logEntry, "utf-8");
 				}
@@ -227,7 +231,7 @@ export async function runInitialLeaderboardPhase(
 			},
 		);
 
-		const winners = new Map<ModelName, DraftStanding>();
+		const winners = new Map<ModelSlug, DraftStanding>();
 		for (const [, standing] of sortedStandings) {
 			if (!winners.has(standing.model)) {
 				winners.set(standing.model, standing);
@@ -256,16 +260,19 @@ export async function runInitialLeaderboardPhase(
 				const [id, s] = sortedStandings[i]!;
 				await appendFile(
 					initialLeaderboardLogPath,
-					`| ${i + 1} | ${id} | ${s.model} | ${s.points} | ${s.wins} | ${s.draws} | ${s.losses} |\n`,
+					`| ${i + 1} | ${id} | ${getShortModelName(s.model)} | ${s.points} | ${s.wins} | ${s.draws} | ${s.losses} |\n`,
 					"utf-8",
 				);
 			}
 		}
 
 		console.log(
-			`  ✓ Selected winners: ${MODEL_NAMES.map(
-				(m) => `${m} draft ${winners.get(m)?.draftIndex ?? 1}`,
-			).join(", ")}\n`,
+			`  ✓ Selected winners: ${generatorSlugs
+				.map(
+					(m) =>
+						`${getShortModelName(m)} draft ${winners.get(m)?.draftIndex ?? 1}`,
+				)
+				.join(", ")}\n`,
 		);
 	}
 

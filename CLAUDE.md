@@ -14,6 +14,36 @@ Default to using Bun instead of Node.js.
 - Use `bun run lint` to lint the code (using Biome)
 - Bun automatically loads .env, so don't use dotenv.
 
+## Draftbench Project
+
+This is an AI model benchmarking pipeline. Key commands:
+
+```bash
+# Run pipeline
+bun run index.ts
+
+# Dry run (no API calls)
+bun run index.ts --dry-run
+
+# Custom config and prompts
+bun run index.ts --config config.1v1-swiss.toml --prompts my-prompts.toml
+
+# Resume interrupted run
+bun run index.ts --resume runs/<timestamp>
+
+# Run tests
+bun test
+
+# Lint
+bun run lint
+
+# Lint (auto-fix)
+bun x @biomejs/biome check --write
+```
+
+**Configuration is TOML-based** (not JSON). Edit `config.toml` for settings.
+See `agents.md` for full documentation.
+
 ## APIs
 
 - `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
