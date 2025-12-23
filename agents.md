@@ -87,43 +87,43 @@ Models are defined **per role** with their settings. This makes it easy to:
 [roles]
 # Generators: Models that create initial drafts
 [[roles.generators]]
-model = "anthropic/claude-sonnet-4"
+model = "anthropic/claude-opus-4.5"
 effort = "high"
 
 [[roles.generators]]
-model = "openai/gpt-4.1"
+model = "openai/gpt-5.2"
 effort = "high"
 
 [[roles.generators]]
-model = "google/gemini-2.5-flash"
-effort = "none"  # Example: No reasoning effort
+model = "google/gemini-3-pro-preview"
+effort = "high"
 
 # Reviewers: Models that critique drafts
 [[roles.reviewers]]
-model = "google/gemini-2.5-pro-preview"
+model = "anthropic/claude-opus-4.5"
 effort = "medium"
 
 [[roles.reviewers]]
-model = "meta-llama/llama-3.3-70b-instruct"
-effort = "minimal"
+model = "openai/gpt-5.2"
+effort = "medium"
 
 # Revisers: Models that improve drafts based on feedback
 [[roles.revisers]]
-model = "anthropic/claude-sonnet-4"
-effort = "xhigh"
+model = "anthropic/claude-opus-4.5"
+effort = "high"
 
 # Swiss Tournament Judge
 [roles.swissJudge]
-model = "anthropic/claude-sonnet-4"
+model = "anthropic/claude-opus-4.5"
 effort = "low"
 
 # Playoff Judges (dual-judge voting)
 [[roles.playoffJudges]]
-model = "anthropic/claude-sonnet-4"
+model = "anthropic/claude-opus-4.5"
 effort = "low"
 
 [[roles.playoffJudges]]
-model = "openai/gpt-4.1"
+model = "openai/gpt-5.2"
 effort = "high"
 
 [tournament]

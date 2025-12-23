@@ -60,21 +60,45 @@ Models are assigned to specific roles rather than globally:
 
 ```toml
 [roles]
-generators = [
-  { model = "anthropic/claude-sonnet-4", effort = "high" },
-  { model = "openai/gpt-4.1", effort = "high" },
-  { model = "google/gemini-2.5-pro", effort = "high" },
-]
-reviewers = [...]  # Can reuse or specify different models
-revisers = [...]
+
+# Generators
+[[roles.generators]]
+model = "anthropic/claude-opus-4.5"
+effort = "high"
+# ... add more generators ...
+
+# Reviewers
+[[roles.reviewers]]
+model = "google/gemini-3-pro-preview"
+effort = "medium"
+# ... add more reviewers ...
+
+# Revisers
+[[roles.revisers]]
+model = "moonshot/kimi-k2-preview"
+effort = "high"
+# ... add more revisers ...
 
 [roles.swissJudge]
-model = "anthropic/claude-sonnet-4"
+model = "openai/gpt-5.2"
+effort = "low"
+# ... add more judges ...
+
+[[roles.playoffJudges]]
+model = "anthropic/claude-opus-4.5"
 effort = "low"
 
 [[roles.playoffJudges]]
-model = "anthropic/claude-sonnet-4"
-effort = "low"
+model = "mistral/mistral-large-2"
+effort = "medium"
+
+[tournament]
+swissFormat = "1v1v1"    # "1v1" or "1v1v1"
+swissRounds = 7
+playoffSize = 8
+
+[concurrency]
+maxParallel = 5          # Limit parallel API calls
 ```
 
 ### Custom Prompts
