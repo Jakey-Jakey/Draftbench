@@ -72,3 +72,150 @@ describe("interpolate", () => {
 		expect(interpolate("No vars here", { foo: "bar" })).toBe("No vars here");
 	});
 });
+
+describe("getTimestamp", () => {
+	test("returns timestamp in correct format", () => {
+		const { getTimestamp } = require("../utils");
+		const ts = getTimestamp();
+
+		// Format: YYYY-MM-DDTHH-MM-SS
+		expect(ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/);
+	});
+
+	test("different calls produce different timestamps", async () => {
+		const { getTimestamp } = require("../utils");
+		const ts1 = getTimestamp();
+		await new Promise((resolve) => setTimeout(resolve, 1100)); // Wait > 1 second
+		const ts2 = getTimestamp();
+
+		expect(ts1).not.toBe(ts2);
+	});
+
+	test("timestamp is sortable chronologically", () => {
+		const { getTimestamp } = require("../utils");
+		const ts = getTimestamp();
+
+		// Should be lexicographically sortable
+		expect(ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/);
+		expect(ts.charAt(0)).toMatch(/[12]/); // Starts with 1 or 2 (year 1xxx or 2xxx)
+	});
+});
+
+describe("ensureRunsDirectory", () => {
+	test("returns directory path", async () => {
+		const { ensureRunsDirectory, getConfig } = require("../utils");
+		// Don't actually create in dry-run mode
+		const dir = await ensureRunsDirectory(undefined, true);
+		expect(typeof dir).toBe("string");
+		expect(dir).toContain("runs");
+	});
+
+	test("returns subdirectory path when specified", async () => {
+		const { ensureRunsDirectory } = require("../utils");
+		const dir = await ensureRunsDirectory("test-subdir", true);
+		expect(dir).toContain("runs");
+		expect(dir).toContain("test-subdir");
+	});
+
+	test("dry-run mode does not create directory", async () => {
+		const { ensureRunsDirectory } = require("../utils");
+		const { existsSync } = require("node:fs");
+
+		const testDir = `test-dry-run-${Date.now()}`;
+		const dir = await ensureRunsDirectory(testDir, true);
+
+		// Should return path but not create
+		expect(existsSync(dir)).toBe(false);
+	});
+});
+
+describe("createMockStatblock", () => {
+	test("creates mock with model name", () => {
+		const { createMockStatblock } = require("../utils");
+		const mock = createMockStatblock("test-model", "generator");
+
+		expect(mock).toContain("test-model");
+		expect(mock).toContain("generator");
+		expect(mock).toContain("MOCK");
+	});
+
+	test("includes phase in mock", () => {
+		const { createMockStatblock } = require("../utils");
+		const mock = createMockStatblock("model", "revision");
+
+		expect(mock).toContain("revision");
+	});
+
+	test("different models produce different mocks", () => {
+		const { createMockStatblock } = require("../utils");
+		const mock1 = createMockStatblock("model1", "phase");
+		const mock2 = createMockStatblock("model2", "phase");
+
+		expect(mock1).not.toBe(mock2);
+		expect(mock1).toContain("model1");
+		expect(mock2).toContain("model2");
+	});
+});
+
+describe("createMockReview", () => {
+	test("creates mock review with model names", () => {
+		const { createMockReview } = require("../utils");
+		const mock = createMockReview("reviewer-model", "reviewed-model");
+
+		expect(mock).toContain("reviewer-model");
+		expect(mock).toContain("reviewed-model");
+		expect(mock).toContain("MOCK");
+	});
+
+	test("different reviewers produce different mocks", () => {
+		const { createMockReview } = require("../utils");
+		const mock1 = createMockReview("reviewer1", "reviewed");
+		const mock2 = createMockReview("reviewer2", "reviewed");
+
+		expect(mock1).not.toBe(mock2);
+	});
+});
+
+describe("printDryRunConfig", () => {
+	test("prints without throwing", () => {
+		const { printDryRunConfig, getConfig } = require("../utils");
+		const { loadConfig, resetConfig } = require("../config");
+
+		resetConfig();
+		loadConfig("config.example.toml");
+
+		// Should not throw
+		expect(() => printDryRunConfig()).not.toThrow();
+	});
+});
+
+describe("edge case handling", () => {
+	test("shuffleArray handles arrays with duplicates", () => {
+		const arr = [1, 1, 2, 2, 3, 3];
+		const shuffled = shuffleArray(arr);
+
+		expect(shuffled.length).toBe(6);
+		expect(shuffled.filter((x) => x === 1).length).toBe(2);
+		expect(shuffled.filter((x) => x === 2).length).toBe(2);
+		expect(shuffled.filter((x) => x === 3).length).toBe(2);
+	});
+
+	test("getShortModelName handles edge cases", () => {
+		expect(getShortModelName("provider/model-name")).toBe("model-name");
+		expect(getShortModelName("model-name")).toBe("model-name");
+		expect(getShortModelName("a/b/c/d")).toBe("d");
+		expect(getShortModelName("")).toBe("");
+	});
+
+	test("interpolate handles special regex characters", () => {
+		const template = "Price: {price}";
+		const result = interpolate(template, { price: "$10.99" });
+		expect(result).toBe("Price: $10.99");
+	});
+
+	test("interpolate handles braces in values", () => {
+		const template = "Code: {code}";
+		const result = interpolate(template, { code: "{ foo: 'bar' }" });
+		expect(result).toBe("Code: { foo: 'bar' }");
+	});
+});
