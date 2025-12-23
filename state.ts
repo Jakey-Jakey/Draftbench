@@ -128,22 +128,22 @@ function deserializeState(obj: Record<string, unknown>): PipelineState {
 		...obj,
 		generatedDrafts: obj.generatedDrafts
 			? new Map(
-					Object.entries(
-						obj.generatedDrafts as Record<string, StoredGenerateResult[]>,
-					),
-				)
+				Object.entries(
+					obj.generatedDrafts as Record<string, StoredGenerateResult[]>,
+				),
+			)
 			: null,
 		selectedDrafts: obj.selectedDrafts
 			? new Map(
-					Object.entries(
-						obj.selectedDrafts as Record<string, StoredGenerateResult>,
-					),
-				)
+				Object.entries(
+					obj.selectedDrafts as Record<string, StoredGenerateResult>,
+				),
+			)
 			: null,
 		revisions: obj.revisions
 			? new Map(
-					Object.entries(obj.revisions as Record<string, StoredRevisionResult>),
-				)
+				Object.entries(obj.revisions as Record<string, StoredRevisionResult>),
+			)
 			: null,
 	} as PipelineState;
 }
@@ -246,6 +246,11 @@ export function createInitialState(): PipelineState {
  * Saves pipeline state to the run directory.
  */
 export function saveState(runDir: string, state: PipelineState): void {
+	// Ensure directory exists
+	if (!existsSync(runDir)) {
+		const { mkdirSync } = require("node:fs");
+		mkdirSync(runDir, { recursive: true });
+	}
 	const statePath = join(runDir, STATE_FILENAME);
 	const serialized = serializeState({
 		...state,

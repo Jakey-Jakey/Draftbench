@@ -74,21 +74,35 @@ export function shuffleArray<T>(array: T[]): T[] {
 /**
  * Creates mock data for dry run mode.
  */
-export function createMockStatblock(modelOrLabel: string): string {
-	return `# Mock Statblock (${modelOrLabel})
+/**
+ * Creates mock data for dry run mode.
+ */
+export function createMockStatblock(
+	modelOrLabel: string,
+	phase?: string,
+): string {
+	const phaseInfo = phase ? ` [${phase}]` : "";
+	return `# MOCK Statblock (${modelOrLabel})${phaseInfo}
 ---
 **Armor Class** 20
 **Hit Points** 300
 **Speed** 30 ft.
 
-This is a mock statblock for dry-run testing purposes.`;
+This is a MOCK statblock for dry-run testing purposes.`;
 }
 
 /**
  * Creates a mock review for dry run mode.
  */
-export function createMockReview(): string {
-	return "Mock review: The statblock is well-balanced but could use more legendary actions.";
+export function createMockReview(
+	reviewer?: string,
+	reviewed?: string,
+): string {
+	const header =
+		reviewer && reviewed
+			? `Review by ${reviewer} on ${reviewed}`
+			: "Mock review";
+	return `${header}: The statblock is well-balanced but could use more legendary actions. (MOCK)`;
 }
 
 /**

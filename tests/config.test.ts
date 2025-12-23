@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { loadConfig, parseArgs, resetConfig } from "../config";
+import { interpolate, loadConfig, parseArgs, resetConfig } from "../config";
 
 describe("config loading", () => {
 	beforeEach(() => {
@@ -161,7 +161,10 @@ describe("TOML configuration", () => {
 
 	test("swissFormat is valid", () => {
 		const config = loadConfig("config.example.toml");
-		expect(["1v1", "1v1v1"]).toContain(config.tournament.swissFormat);
+		expect(config.tournament.swissFormat).toBeDefined();
+		if (config.tournament.swissFormat) {
+			expect(["1v1", "1v1v1"]).toContain(config.tournament.swissFormat);
+		}
 	});
 
 	test("handles 1v1 swiss format config", () => {
