@@ -432,14 +432,8 @@ export function loadPrompts(promptsPath: string): Partial<PromptsConfig> {
 		throw new Error(`Prompts file not found: ${promptsPath}`);
 	}
 
-	try {
-		const content = readFileSync(promptsPath, "utf-8");
-		const prompts = parsePromptsTOML(content);
-		console.log(`📝 Loaded prompts from: ${promptsPath}`);
-		return prompts;
-	} catch (e) {
-		throw new Error(`Failed to parse prompts file ${promptsPath}: ${e}`);
-	}
+	const content = readFileSync(promptsPath, "utf-8");
+	return parsePromptsTOML(content);
 }
 
 /**
@@ -478,23 +472,35 @@ export function loadConfig(
 
 	const mergedConfig = deepMerge(DEFAULT_CONFIG, userConfig);
 
-	// Load prompts from separate file if specified
-	if (promptsPath) {
-		const prompts = loadPrompts(promptsPath);
-		mergedConfig.prompts = {
-			generate: { ...mergedConfig.prompts.generate, ...prompts.generate },
-			review: { ...mergedConfig.prompts.review, ...prompts.review },
-			revise: { ...mergedConfig.prompts.revise, ...prompts.revise },
-			judgePairwise: {
-				...mergedConfig.prompts.judgePairwise,
-				...prompts.judgePairwise,
-			},
-			judgeThreeWay: {
-				...mergedConfig.prompts.judgeThreeWay,
-				...prompts.judgeThreeWay,
-			},
-		};
+	// Load prompts from separate file
+	// Priority: --prompts flag > prompts.toml in cwd > defaults
+	const resolvedPromptsPath = promptsPath ?? "prompts.toml";
+	if (existsSync(resolvedPromptsPath)) {
+		try {
+			const prompts = loadPrompts(resolvedPromptsPath);
+			mergedConfig.prompts = {
+				generate: { ...mergedConfig.prompts.generate, ...prompts.generate },
+				review: { ...mergedConfig.prompts.review, ...prompts.review },
+				revise: { ...mergedConfig.prompts.revise, ...prompts.revise },
+				judgePairwise: {
+					...mergedConfig.prompts.judgePairwise,
+					...prompts.judgePairwise,
+				},
+				judgeThreeWay: {
+					...mergedConfig.prompts.judgeThreeWay,
+					...prompts.judgeThreeWay,
+				},
+			};
+			console.log(`📝 Loaded prompts from: ${resolvedPromptsPath}`);
+		} catch (e) {
+			console.error(`⚠️ Failed to parse prompts file ${resolvedPromptsPath}:`, e);
+			console.log("   Using default prompts.");
+		}
+	} else if (promptsPath) {
+		// User explicitly specified a prompts file that doesn't exist
+		throw new Error(`Prompts file not found: ${promptsPath}`);
 	}
+	// If no prompts.toml found and no --prompts flag, silently use defaults
 
 	validateConfig(mergedConfig);
 	loadedConfig = mergedConfig;
