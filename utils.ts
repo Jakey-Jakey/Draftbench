@@ -1,6 +1,6 @@
-import { mkdir } from "fs/promises";
-import { join } from "path";
-import { getConfig } from "./config";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { getConfig, getModelsForRole } from "./config";
 
 // ============================================================================
 // Directory & File Utilities
@@ -45,7 +45,11 @@ export function shuffleArray<T>(array: T[]): T[] {
 	const shuffled = [...array];
 	for (let i = shuffled.length - 1; i > 0; i--) {
 		const j = Math.floor(Math.random() * (i + 1));
-		[shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+		if (shuffled[i] !== undefined && shuffled[j] !== undefined) {
+			const temp = shuffled[i]!;
+			shuffled[i] = shuffled[j]!;
+			shuffled[j] = temp;
+		}
 	}
 	return shuffled;
 }
@@ -79,12 +83,22 @@ export function createMockReview(): string {
  */
 export function printDryRunConfig(): void {
 	const config = getConfig();
-	const MODEL_NAMES = Object.keys(config.models);
 	const SWISS_ROUNDS = config.tournament.swissRounds;
 	const TOP_N_PLAYOFF = config.tournament.playoffSize;
 	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
 	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
 	const RUNS_DIR = config.output.runsDirectory;
+
+	// Calculate total contestants dynamically
+	const generatorCount = getModelsForRole("generators").length;
+	const reviewerCount = getModelsForRole("reviewers").length;
+	const reviserCount = getModelsForRole("revisers").length;
+	// Calculate based on standard flow: generators * initialGenerations (or 1) * reviewers * revisers
+	const draftsPerGenerator = INITIAL_LEADERBOARD.enabled
+		? 1
+		: INITIAL_GENERATIONS;
+	const totalContestants =
+		generatorCount * draftsPerGenerator * reviewerCount * reviserCount;
 
 	console.log("\n📋 DRY RUN - Configuration Details:\n");
 	console.log("Models:");
@@ -98,7 +112,7 @@ export function printDryRunConfig(): void {
 	console.log(`  Playoff Size: ${TOP_N_PLAYOFF}`);
 	console.log(`  Initial Generations per Model: ${INITIAL_GENERATIONS}`);
 	console.log(`  Initial Leaderboard Enabled: ${INITIAL_LEADERBOARD.enabled}`);
-	console.log(`  Total Contestants: ${MODEL_NAMES.length ** 3}`);
+	console.log(`  Total Contestants: ${totalContestants}`);
 	console.log(`\nOutput:`);
 	console.log(`  Runs Directory: ${RUNS_DIR}`);
 	console.log(`\nPrompts (first 100 chars):`);

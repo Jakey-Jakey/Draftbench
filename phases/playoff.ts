@@ -1,5 +1,5 @@
-import { appendFile, writeFile } from "fs/promises";
-import { join } from "path";
+import { appendFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { type ModelName, pairwiseJudge } from "../aiClient";
 import { getConfig } from "../config";
 import type { PlayoffResult, SwissContestant } from "../leaderboard";

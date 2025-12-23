@@ -1,0 +1,7 @@
+{
+    "$comment": "Example: Enable 1v1 Swiss format (pairwise matches instead of 3-way)",
+    "tournament": {
+        "swissFormat": "1v1",
+        "swissRounds": 5
+    }
+}

@@ -1,4 +1,4 @@
-import { appendFile } from "fs/promises";
+import { appendFile } from "node:fs/promises";
 import {
 	type GenerateResult,
 	type ModelName,

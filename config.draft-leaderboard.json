@@ -1,4 +1,5 @@
 {
+	"$comment": "Example: Enable initial draft leaderboard to pick best seed per model",
 	"tournament": {
 		"initialGenerations": 3,
 		"initialLeaderboard": {

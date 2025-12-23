@@ -5,9 +5,9 @@
  * Each phase is implemented in its own module under `phases/`.
  */
 
-import { existsSync } from "fs";
-import { writeFile } from "fs/promises";
-import { join } from "path";
+import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { getModels } from "./aiClient";
 import { loadConfig, parseArgs } from "./config";
 import { computeLeaderboard } from "./leaderboard";
@@ -18,6 +18,7 @@ import { runPlayoffPhase } from "./phases/playoff";
 import { runReviewPhase } from "./phases/review";
 import { runRevisePhase } from "./phases/revise";
 import { runSwissPhase } from "./phases/swiss";
+import { initConcurrencyLimiter } from "./semaphore";
 import { createInitialState, loadState, type PipelineState } from "./state";
 import { ensureRunsDirectory, getTimestamp, printDryRunConfig } from "./utils";
 
@@ -27,6 +28,9 @@ import { ensureRunsDirectory, getTimestamp, printDryRunConfig } from "./utils";
 
 const cliArgs = parseArgs();
 const config = loadConfig(cliArgs.configPath);
+
+// Initialize concurrency limiter if configured
+initConcurrencyLimiter(config.concurrency?.maxParallel);
 
 const RUNS_DIR = config.output.runsDirectory;
 const MODEL_NAMES = Object.keys(config.models);

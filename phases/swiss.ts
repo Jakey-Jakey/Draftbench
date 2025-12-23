@@ -1,6 +1,6 @@
-import { appendFile, writeFile } from "fs/promises";
-import { join } from "path";
-import { type ModelName, threeWayJudge } from "../aiClient";
+import { appendFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { type ModelName, pairwiseJudge, threeWayJudge } from "../aiClient";
 import { getConfig } from "../config";
 import type { SwissContestant, SwissMatch } from "../leaderboard";
 import {
@@ -87,12 +87,50 @@ export function generateSwissTriples(
 	return { triples };
 }
 
+/**
+ * Generates Swiss pairings for 1v1 (pairs of 2).
+ * Sorts by points (descending), then forms pairs.
+ * Avoids pairing contestants who have already faced each other.
+ */
+export function generateSwissPairs(contestants: SwissContestant[]): {
+	pairs: [string, string][];
+} {
+	const sorted = [...contestants].sort((a, b) => b.points - a.points);
+	const pairs: [string, string][] = [];
+	const used = new Set<string>();
+
+	while (used.size < sorted.length - 1) {
+		const available = sorted.filter((c) => !used.has(c.id));
+		if (available.length < 2) break;
+
+		const first = available[0]!;
+		used.add(first.id);
+
+		// Find opponent who hasn't faced first
+		let secondIdx = -1;
+		for (let i = 1; i < available.length; i++) {
+			if (!first.opponents.has(available[i]!.id)) {
+				secondIdx = i;
+				break;
+			}
+		}
+		if (secondIdx === -1) secondIdx = 1;
+		const second = available[secondIdx]!;
+		used.add(second.id);
+
+		pairs.push([first.id, second.id]);
+	}
+
+	return { pairs };
+}
+
 // ============================================================================
 // Swiss Phase
 // ============================================================================
 
 /**
- * Phase 5: Swiss Tournament (7 rounds, 1v1v1 format).
+ * Phase 5: Swiss Tournament.
+ * Supports 1v1v1 (three-way) or 1v1 (pairwise) format.
  */
 export async function runSwissPhase(
 	runDir: string,
@@ -106,9 +144,10 @@ export async function runSwissPhase(
 	const config = getConfig();
 	const SWISS_ROUNDS = config.tournament.swissRounds;
 	const SWISS_JUDGE = config.tournament.swissJudge;
+	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 
 	console.log(
-		`Phase 5/6: Swiss Tournament (${SWISS_ROUNDS} rounds, 1v1v1 format)...`,
+		`Phase 5/6: Swiss Tournament (${SWISS_ROUNDS} rounds, ${SWISS_FORMAT} format)...`,
 	);
 
 	// Check for resume
@@ -153,141 +192,245 @@ export async function runSwissPhase(
 			await appendFile(swissLogPath, `## Round ${round}\n\n`, "utf-8");
 		}
 
-		const { triples } = generateSwissTriples(contestants, round);
-
-		if (dryRun) {
-			// Mock judging
-			for (const [idA, idB, idC] of triples) {
-				const ids = shuffleArray([idA, idB, idC]);
-				const match: SwissMatch = {
-					round,
-					ids: [idA, idB, idC],
-					first: ids[0]!,
-					second: ids[1]!,
-					third: ids[2]!,
-					reasoning: "Mock judgment for dry run.",
-				};
-
-				const first = contestants.find((c) => c.id === match.first);
-				const second = contestants.find((c) => c.id === match.second);
-				const third = contestants.find((c) => c.id === match.third);
-
-				if (first && second && third) {
-					first.points += 2;
-					first.placements.first++;
-					second.points += 1;
-					second.placements.second++;
-					third.placements.third++;
-
-					first.opponents.add(second.id);
-					first.opponents.add(third.id);
-					second.opponents.add(first.id);
-					second.opponents.add(third.id);
-					third.opponents.add(first.id);
-					third.opponents.add(second.id);
-				}
-
-				allSwissMatches.push(match);
-				console.log(
-					`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third} (mock)`,
-				);
-			}
-		} else {
-			// Real API calls
-			const triplePromises = triples.map(
-				async ([idA, idB, idC]): Promise<SwissMatch> => {
+		if (SWISS_FORMAT === "1v1") {
+			// === 1v1 PAIRWISE FORMAT ===
+			const { pairs } = generateSwissPairs(contestants);
+			const pairPromises = pairs.map(
+				async ([idA, idB]): Promise<SwissMatch> => {
 					const entries: [string, string][] = [
 						[idA, revisionsById.get(idA)!.result.text],
 						[idB, revisionsById.get(idB)!.result.text],
-						[idC, revisionsById.get(idC)!.result.text],
 					];
+					// Shuffle presentation order
 					const shuffled = shuffleArray(entries);
-					const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];
+					const [e1, e2] = [shuffled[0]!, shuffled[1]!];
 
-					const result = await threeWayJudge(
-						"S1",
-						e1[1],
-						"S2",
-						e2[1],
-						"S3",
-						e3[1],
-						SWISS_JUDGE.model as ModelName,
-						SWISS_JUDGE.effort,
-					);
+					let winnerId: string;
+					let _loserId: string;
+					let reasoning: string;
 
-					const anonToReal = new Map<string, string>([
-						["S1", e1[0]],
-						["S2", e2[0]],
-						["S3", e3[0]],
-					]);
+					if (dryRun) {
+						// Mock
+						winnerId = idA; // Arbitrary winner for dry run
+						_loserId = idB;
+						reasoning = "Mock judgment for dry run (1v1).";
+						console.log(
+							`    ✓ Winner: ${winnerId} | Loser: ${_loserId} (mock)`,
+						);
+					} else {
+						// Real
+						const result = await pairwiseJudge(
+							"S1",
+							e1[1],
+							"S2",
+							e2[1],
+							SWISS_JUDGE.model as ModelName,
+							SWISS_JUDGE.effort,
+						);
+						const anonToReal = new Map<string, string>([
+							["S1", e1[0]],
+							["S2", e2[0]],
+						]);
+						winnerId = anonToReal.get(result.winner) ?? idA;
+						_loserId = anonToReal.get(result.loser) ?? idB;
+						reasoning = result.reasoning;
 
-					const match: SwissMatch = {
+						// Log to file
+						await appendFile(
+							swissLogPath,
+							`- **Winner: ${winnerId}** | Loser: ${_loserId}\n  - *${reasoning}*\n`,
+							"utf-8",
+						);
+
+						// Save judgment artifact
+						const judgmentFile = join(
+							swissJudgmentsDir,
+							`round${round}_${idA}_vs_${idB}.md`,
+						);
+						const judgmentMd = `# Swiss Round ${round} Judgment (1v1)\n\n**Judge**: ${SWISS_JUDGE.model}\n\n## Contestants\n- S1: ${e1[0]}\n- S2: ${e2[0]}\n\n## Result\n**Winner**: ${winnerId}\n\n## Reasoning\n${reasoning}\n`;
+						await writeFile(judgmentFile, judgmentMd, "utf-8");
+					}
+
+					return {
 						round,
-						ids: [idA, idB, idC],
-						first: anonToReal.get(result.first) ?? idA,
-						second: anonToReal.get(result.second) ?? idB,
-						third: anonToReal.get(result.third) ?? idC,
-						reasoning: result.reasoning,
+						ids: [idA, idB, "BYE"], // Use "BYE" or similar to fit 3-tuple type if strict, or we need to update types?
+						// Wait, StoredSwissMatch expects [string, string, string].
+						// We should probably update the type or just use null/empty for 3rd.
+						// Let's check SwissMatch definition in leaderboard.ts or state.ts.
+						// It is defined in leaderboard.ts as `ids: string[]` usually? No, state.ts says `ids: z.tuple([z.string(), z.string(), z.string()])`.
+						// This is a constraint. I should probably update state.ts schema to allow 2 or 3.
+						// BUT simplifying, I can just put "N/A" for the 3rd slot for 1v1.
+						// Let's do that for now to avoid breaking schema changes if possible, or I should update schema.
+						// The schema says `ids: [string, string, string]`.
+						// I will use "N/A" for now.
+						first: winnerId,
+						second: _loserId,
+						third: "N/A",
+						reasoning,
 					};
-
-					await appendFile(
-						swissLogPath,
-						`- **1st: ${match.first}** | 2nd: ${match.second} | 3rd: ${match.third}\n  - *${match.reasoning}*\n`,
-						"utf-8",
-					);
-
-					const judgmentFile = join(
-						swissJudgmentsDir,
-						`round${round}_${match.first}_vs_${match.second}_vs_${match.third}.md`,
-					);
-					let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
-					judgmentMd += `**Judge**: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort} thinking)\n\n`;
-					judgmentMd += `## Contestants\n\n`;
-					judgmentMd += `- S1 (${e1[0]}): ${e1[0]}\n`;
-					judgmentMd += `- S2 (${e2[0]}): ${e2[0]}\n`;
-					judgmentMd += `- S3 (${e3[0]}): ${e3[0]}\n\n`;
-					judgmentMd += `## Result\n\n`;
-					judgmentMd += `1. **${match.first}** (2 pts)\n`;
-					judgmentMd += `2. ${match.second} (1 pt)\n`;
-					judgmentMd += `3. ${match.third} (0 pts)\n\n`;
-					judgmentMd += `## Reasoning\n\n${result.reasoning}\n`;
-					await writeFile(judgmentFile, judgmentMd, "utf-8");
-
-					return match;
 				},
 			);
 
-			const roundResults = await Promise.all(triplePromises);
+			const roundMatches = await Promise.all(pairPromises);
 
-			for (const match of roundResults) {
-				const first = contestants.find((c) => c.id === match.first);
-				const second = contestants.find((c) => c.id === match.second);
-				const third = contestants.find((c) => c.id === match.third);
+			for (const match of roundMatches) {
+				const winner = contestants.find((c) => c.id === match.first);
+				const loser = contestants.find((c) => c.id === match.second);
 
-				if (first && second && third) {
-					first.points += 2;
-					first.placements.first++;
-					second.points += 1;
-					second.placements.second++;
-					third.placements.third++;
+				if (winner && loser) {
+					winner.points += 1;
+					winner.placements.first++; // Track wins in 'first'
+					loser.points += 0;
+					loser.placements.second++; // Track losses in 'second'
 
-					first.opponents.add(second.id);
-					first.opponents.add(third.id);
-					second.opponents.add(first.id);
-					second.opponents.add(third.id);
-					third.opponents.add(first.id);
-					third.opponents.add(second.id);
+					winner.opponents.add(loser.id);
+					loser.opponents.add(winner.id);
+				}
+				if (!dryRun) {
+					console.log(`    ✓ Winner: ${match.first} | Loser: ${match.second}`);
+				}
+				allSwissMatches.push(match);
+			}
+			if (!dryRun) await appendFile(swissLogPath, "\n", "utf-8");
+			console.log(`    ✓ Round ${round} complete (${pairs.length} matches)`);
+		} else {
+			// === 1v1v1 TRIPLE FORMAT (Original) ===
+			const { triples } = generateSwissTriples(contestants, round);
+
+			if (dryRun) {
+				// Mock judging
+				for (const [idA, idB, idC] of triples) {
+					const ids = shuffleArray([idA, idB, idC]);
+					const match: SwissMatch = {
+						round,
+						ids: [idA, idB, idC],
+						first: ids[0]!,
+						second: ids[1]!,
+						third: ids[2]!,
+						reasoning: "Mock judgment for dry run.",
+					};
+
+					const first = contestants.find((c) => c.id === match.first);
+					const second = contestants.find((c) => c.id === match.second);
+					const third = contestants.find((c) => c.id === match.third);
+
+					if (first && second && third) {
+						first.points += 2;
+						first.placements.first++;
+						second.points += 1;
+						second.placements.second++;
+						third.placements.third++;
+
+						first.opponents.add(second.id);
+						first.opponents.add(third.id);
+						second.opponents.add(first.id);
+						second.opponents.add(third.id);
+						third.opponents.add(first.id);
+						third.opponents.add(second.id);
+					}
+
+					allSwissMatches.push(match);
+					console.log(
+						`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third} (mock)`,
+					);
+				}
+			} else {
+				// Real API calls
+				const triplePromises = triples.map(
+					async ([idA, idB, idC]): Promise<SwissMatch> => {
+						const entries: [string, string][] = [
+							[idA, revisionsById.get(idA)!.result.text],
+							[idB, revisionsById.get(idB)!.result.text],
+							[idC, revisionsById.get(idC)!.result.text],
+						];
+						const shuffled = shuffleArray(entries);
+						const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];
+
+						const result = await threeWayJudge(
+							"S1",
+							e1[1],
+							"S2",
+							e2[1],
+							"S3",
+							e3[1],
+							SWISS_JUDGE.model as ModelName,
+							SWISS_JUDGE.effort,
+						);
+
+						const anonToReal = new Map<string, string>([
+							["S1", e1[0]],
+							["S2", e2[0]],
+							["S3", e3[0]],
+						]);
+
+						const match: SwissMatch = {
+							round,
+							ids: [idA, idB, idC],
+							first: anonToReal.get(result.first) ?? idA,
+							second: anonToReal.get(result.second) ?? idB,
+							third: anonToReal.get(result.third) ?? idC,
+							reasoning: result.reasoning,
+						};
+
+						await appendFile(
+							swissLogPath,
+							`- **1st: ${match.first}** | 2nd: ${match.second} | 3rd: ${match.third}\n  - *${match.reasoning}*\n`,
+							"utf-8",
+						);
+
+						const judgmentFile = join(
+							swissJudgmentsDir,
+							`round${round}_${match.first}_vs_${match.second}_vs_${match.third}.md`,
+						);
+						let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
+						judgmentMd += `**Judge**: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort} thinking)\n\n`;
+						judgmentMd += `## Contestants\n\n`;
+						judgmentMd += `- S1 (${e1[0]}): ${e1[0]}\n`;
+						judgmentMd += `- S2 (${e2[0]}): ${e2[0]}\n`;
+						judgmentMd += `- S3 (${e3[0]}): ${e3[0]}\n\n`;
+						judgmentMd += `## Result\n\n`;
+						judgmentMd += `1. **${match.first}** (2 pts)\n`;
+						judgmentMd += `2. ${match.second} (1 pt)\n`;
+						judgmentMd += `3. ${match.third} (0 pts)\n\n`;
+						judgmentMd += `## Reasoning\n\n${result.reasoning}\n`;
+						await writeFile(judgmentFile, judgmentMd, "utf-8");
+
+						return match;
+					},
+				);
+
+				const roundResults = await Promise.all(triplePromises);
+
+				for (const match of roundResults) {
+					const first = contestants.find((c) => c.id === match.first);
+					const second = contestants.find((c) => c.id === match.second);
+					const third = contestants.find((c) => c.id === match.third);
+
+					if (first && second && third) {
+						first.points += 2;
+						first.placements.first++;
+						second.points += 1;
+						second.placements.second++;
+						third.placements.third++;
+
+						first.opponents.add(second.id);
+						first.opponents.add(third.id);
+						second.opponents.add(first.id);
+						second.opponents.add(third.id);
+						third.opponents.add(first.id);
+						third.opponents.add(second.id);
+					}
+
+					allSwissMatches.push(match);
+					console.log(
+						`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`,
+					);
 				}
 
-				allSwissMatches.push(match);
-				console.log(
-					`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`,
-				);
+				await appendFile(swissLogPath, "\n", "utf-8");
 			}
-
-			await appendFile(swissLogPath, "\n", "utf-8");
+			console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
 		}
-		console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
 	}
 
 	console.log("");

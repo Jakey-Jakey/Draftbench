@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // ============================================================================
 // Configuration Types
@@ -7,14 +7,38 @@ import { join } from "path";
 
 export type ModelName = string;
 
+/** Reasoning effort levels for LLM calls */
+export type ReasoningEffort =
+	| "xhigh"
+	| "high"
+	| "medium"
+	| "low"
+	| "minimal"
+	| "none";
+
+/** Per-phase LLM settings */
+export interface PhaseSettings {
+	effort?: ReasoningEffort;
+	temperature?: number;
+}
+
 export interface ModelConfig {
 	slug: string;
-	reasoningEffort: "low" | "medium" | "high";
+	reasoningEffort: ReasoningEffort;
+	/** Optional default temperature for this model */
+	temperature?: number;
+	/** Optional per-phase overrides for this model */
+	phases?: {
+		generate?: PhaseSettings;
+		review?: PhaseSettings;
+		revise?: PhaseSettings;
+		judge?: PhaseSettings;
+	};
 }
 
 export interface JudgeConfig {
 	model: ModelName;
-	effort: "low" | "medium" | "high";
+	effort: ReasoningEffort;
 }
 
 export interface InitialLeaderboardConfig {
@@ -29,6 +53,8 @@ export interface TournamentConfig {
 	initialLeaderboard: InitialLeaderboardConfig;
 	swissJudge: JudgeConfig;
 	playoffJudges: JudgeConfig[];
+	/** Swiss match format: 1v1 (pairwise) or 1v1v1 (three-way). Default: 1v1v1 */
+	swissFormat?: "1v1" | "1v1v1";
 }
 
 export interface OutputConfig {
@@ -44,6 +70,11 @@ export interface RolesConfig {
 	revisers?: string[];
 	/** Models allowed to judge. If set, swissJudge/playoffJudges must use these. */
 	judges?: string[];
+}
+
+export interface ConcurrencyConfig {
+	/** Maximum parallel API calls. Null or omitted = unlimited. */
+	maxParallel?: number | null;
 }
 
 export interface PromptsConfig {
@@ -72,6 +103,7 @@ export interface PromptsConfig {
 export interface PipelineConfig {
 	models: Record<string, ModelConfig>;
 	roles?: RolesConfig;
+	concurrency?: ConcurrencyConfig;
 	tournament: TournamentConfig;
 	output: OutputConfig;
 	prompts: PromptsConfig;
@@ -234,7 +266,7 @@ function deepMerge(
 				(judge, index) =>
 					mergeJudge(
 						target.tournament.playoffJudges[index] ??
-						target.tournament.swissJudge,
+							target.tournament.swissJudge,
 						judge,
 					),
 			);
@@ -251,7 +283,7 @@ function deepMerge(
 					source.tournament.initialLeaderboard.judges.map((judge, index) =>
 						mergeJudge(
 							target.tournament.initialLeaderboard.judges[index] ??
-							target.tournament.swissJudge,
+								target.tournament.swissJudge,
 							judge,
 						),
 					);

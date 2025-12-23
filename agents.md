@@ -119,6 +119,49 @@ If `roles` is omitted or a specific role list is empty, **all models** in `confi
 
 > **Note**: When `roles.judges` is set, all judge configurations (`swissJudge`, `playoffJudges`, `initialLeaderboard.judges`) must reference models in that list or config loading will fail.
 
+### Concurrency Limits (Optional)
+
+Limit parallel API calls to avoid rate limiting:
+
+```jsonc
+{ "concurrency": { "maxParallel": 5 } }
+```
+
+If omitted, all calls run in parallel (unlimited).
+
+### Per-Model Phase Settings (Optional)
+
+Fine-tune effort and temperature per model and phase:
+
+```jsonc
+{
+  "models": {
+    "claude": {
+      "slug": "anthropic/claude-4.5-opus",
+      "reasoningEffort": "high",
+      "temperature": 0.7,
+      "phases": {
+        "generate": { "effort": "xhigh", "temperature": 0.9 },
+        "judge": { "effort": "low" }
+      }
+    }
+  }
+}
+```
+
+**Resolution order** (highest priority first):
+1. `models[model].phases[phase]`
+2. `models[model].reasoningEffort / temperature`
+3. Default: `"high"`
+
+### Swiss Match Format (Optional)
+
+```jsonc
+{ "tournament": { "swissFormat": "1v1" | "1v1v1" } }
+```
+
+Default: `"1v1v1"` (three-way ranking: 2/1/0 points)
+
 ---
 
 ## 🏷️ Naming Conventions

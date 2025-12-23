@@ -1,12 +1,19 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
-import { getConfig, interpolate, type ModelName } from "./config";
+import { getCallSettings, type Phase } from "./callSettings";
+import {
+	getConfig,
+	interpolate,
+	type ModelName,
+	type ReasoningEffort,
+} from "./config";
 import {
 	JudgeStatblocksResponseSchema,
 	PairwiseJudgeResponseSchema,
 	parseJsonResponse,
 	ThreeWayJudgeResponseSchema,
 } from "./schemas";
+import { withConcurrencyLimit } from "./semaphore";
 
 // Re-export ModelName type
 export type { ModelName } from "./config";
@@ -70,14 +77,9 @@ export interface ReviseResult {
 	model: ModelName;
 }
 
-function getReasoningConfig(model: ModelName) {
-	const config = getConfig();
-	const modelConfig = config.models[model];
-	if (modelConfig) {
-		return { effort: modelConfig.reasoningEffort };
-	}
-	// Fallback to high if model not in config
-	return { effort: "high" as const };
+function getReasoningConfig(model: ModelName, phase: Phase = "generate") {
+	const settings = getCallSettings(model, phase);
+	return { effort: settings.effort ?? "high" };
 }
 
 /**
@@ -86,27 +88,31 @@ function getReasoningConfig(model: ModelName) {
 export async function generateStatblock(
 	model: ModelName,
 ): Promise<GenerateResult> {
-	const config = getConfig();
-	const modelSlug = config.models[model]?.slug;
-	if (!modelSlug) {
-		throw new Error(`Unknown model: ${model}`);
-	}
+	return withConcurrencyLimit(async () => {
+		const config = getConfig();
+		const modelSlug = config.models[model]?.slug;
+		if (!modelSlug) {
+			throw new Error(`Unknown model: ${model} `);
+		}
 
-	const result = await generateText({
-		model: getOpenRouter()(modelSlug),
-		system: config.prompts.generate.system,
-		prompt: config.prompts.generate.user,
-		providerOptions: {
-			openrouter: {
-				reasoning: getReasoningConfig(model),
+		const settings = getCallSettings(model, "generate");
+		const result = await generateText({
+			model: getOpenRouter()(modelSlug),
+			system: config.prompts.generate.system,
+			prompt: config.prompts.generate.user,
+			temperature: settings.temperature,
+			providerOptions: {
+				openrouter: {
+					reasoning: { effort: settings.effort ?? "high" },
+				},
 			},
-		},
-	});
+		});
 
-	return {
-		text: result.text,
-		model,
-	};
+		return {
+			text: result.text,
+			model,
+		};
+	});
 }
 
 /**
@@ -117,30 +123,36 @@ export async function reviewStatblock(
 	reviewed: ModelName,
 	statblock: string,
 ): Promise<ReviewResult> {
-	const config = getConfig();
-	const modelSlug = config.models[reviewer]?.slug;
-	if (!modelSlug) {
-		throw new Error(`Unknown model: ${reviewer}`);
-	}
+	return withConcurrencyLimit(async () => {
+		const config = getConfig();
+		const modelSlug = config.models[reviewer]?.slug;
+		if (!modelSlug) {
+			throw new Error(`Unknown model: ${reviewer} `);
+		}
 
-	const prompt = interpolate(config.prompts.review.userTemplate, { statblock });
+		const prompt = interpolate(config.prompts.review.userTemplate, {
+			statblock,
+		});
+		const settings = getCallSettings(reviewer, "review");
 
-	const result = await generateText({
-		model: getOpenRouter()(modelSlug),
-		system: config.prompts.review.system,
-		prompt,
-		providerOptions: {
-			openrouter: {
-				reasoning: getReasoningConfig(reviewer),
+		const result = await generateText({
+			model: getOpenRouter()(modelSlug),
+			system: config.prompts.review.system,
+			prompt,
+			temperature: settings.temperature,
+			providerOptions: {
+				openrouter: {
+					reasoning: { effort: settings.effort ?? "high" },
+				},
 			},
-		},
-	});
+		});
 
-	return {
-		text: result.text,
-		reviewer,
-		reviewed,
-	};
+		return {
+			text: result.text,
+			reviewer,
+			reviewed,
+		};
+	});
 }
 
 /**
@@ -151,32 +163,36 @@ export async function reviseStatblock(
 	originalStatblock: string,
 	feedback: string,
 ): Promise<ReviseResult> {
-	const config = getConfig();
-	const modelSlug = config.models[model]?.slug;
-	if (!modelSlug) {
-		throw new Error(`Unknown model: ${model}`);
-	}
+	return withConcurrencyLimit(async () => {
+		const config = getConfig();
+		const modelSlug = config.models[model]?.slug;
+		if (!modelSlug) {
+			throw new Error(`Unknown model: ${model} `);
+		}
 
-	const prompt = interpolate(config.prompts.revise.userTemplate, {
-		statblock: originalStatblock,
-		feedback,
-	});
+		const prompt = interpolate(config.prompts.revise.userTemplate, {
+			statblock: originalStatblock,
+			feedback,
+		});
+		const settings = getCallSettings(model, "revise");
 
-	const result = await generateText({
-		model: getOpenRouter()(modelSlug),
-		system: config.prompts.revise.system,
-		prompt,
-		providerOptions: {
-			openrouter: {
-				reasoning: getReasoningConfig(model),
+		const result = await generateText({
+			model: getOpenRouter()(modelSlug),
+			system: config.prompts.revise.system,
+			prompt,
+			temperature: settings.temperature,
+			providerOptions: {
+				openrouter: {
+					reasoning: { effort: settings.effort ?? "high" },
+				},
 			},
-		},
-	});
+		});
 
-	return {
-		text: result.text,
-		model,
-	};
+		return {
+			text: result.text,
+			model,
+		};
+	});
 }
 
 export interface StatblockRanking {
@@ -200,64 +216,68 @@ export async function judgeStatblocks(
 	judge: ModelName,
 	statblocks: Map<string, string>,
 ): Promise<JudgeResult> {
-	const config = getConfig();
-	const modelSlug = config.models[judge]?.slug;
-	if (!modelSlug) {
-		throw new Error(`Unknown model: ${judge}`);
-	}
+	return withConcurrencyLimit(async () => {
+		const config = getConfig();
+		const modelSlug = config.models[judge]?.slug;
+		if (!modelSlug) {
+			throw new Error(`Unknown model: ${judge} `);
+		}
 
-	const statblockEntries = Array.from(statblocks.entries())
-		.map(([id, text]) => `## Statblock ID: ${id}\n\n${text}`)
-		.join("\n\n---\n\n");
+		const statblockEntries = Array.from(statblocks.entries())
+			.map(([id, text]) => `## Statblock ID: ${id} \n\n${text} `)
+			.join("\n\n---\n\n");
 
-	const allIds = Array.from(statblocks.keys());
+		const allIds = Array.from(statblocks.keys());
+		const settings = getCallSettings(judge, "judge");
 
-	const result = await generateText({
-		model: getOpenRouter()(modelSlug),
-		system: `You are an expert D&D 5e game designer judging monster statblocks. Compare ALL the statblocks provided and rank them from best to worst. Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
+		const result = await generateText({
+			model: getOpenRouter()(modelSlug),
+			system: `You are an expert D & D 5e game designer judging monster statblocks.Compare ALL the statblocks provided and rank them from best to worst.Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
 
 You MUST respond with ONLY a valid JSON object in this exact format, no other text:
 {
-  "rankings": [
-    { "id": "statblock_id", "rank": 1, "score": 95 },
-    { "id": "statblock_id", "rank": 2, "score": 90 },
-    ... (include ALL ${allIds.length} statblocks)
-  ],
-  "reasoning": "One sentence summary of your ranking decision."
+	"rankings": [
+		{ "id": "statblock_id", "rank": 1, "score": 95 },
+		{ "id": "statblock_id", "rank": 2, "score": 90 },
+		... (include ALL ${allIds.length} statblocks)
+	],
+		"reasoning": "One sentence summary of your ranking decision."
 }
 
-Use scores from 0-100. IDs must exactly match the provided Statblock IDs: ${allIds.join(", ")}`,
-		prompt: `Compare and rank ALL ${allIds.length} D&D 5e Doctor Doom statblocks:\n\n${statblockEntries}`,
-		providerOptions: {
-			openrouter: {
-				reasoning: getReasoningConfig(judge),
+Use scores from 0 - 100. IDs must exactly match the provided Statblock IDs: ${allIds.join(", ")} `,
+			prompt: `Compare and rank ALL ${allIds.length} D & D 5e Doctor Doom statblocks: \n\n${statblockEntries} `,
+			temperature: settings.temperature,
+			providerOptions: {
+				openrouter: {
+					reasoning: { effort: settings.effort ?? "high" },
+				},
 			},
-		},
-	});
+		});
 
-	// Parse and validate the JSON response
-	const fallback = {
-		rankings: allIds.map((id, i) => ({ id, rank: i + 1, score: 50 })),
-		reasoning: "Failed to parse response",
-	};
-	const parseResult = parseJsonResponse(
-		result.text,
-		JudgeStatblocksResponseSchema,
-		fallback,
-	);
-	if (!parseResult.success) {
-		console.error(
-			`Failed to parse judge response from ${judge}: ${parseResult.error}`,
+		// Parse and validate the JSON response
+		const fallback = {
+			rankings: allIds.map((id, i) => ({ id, rank: i + 1, score: 50 })),
+			reasoning: "Failed to parse response",
+		};
+		const parseResult = parseJsonResponse(
+			result.text,
+			JudgeStatblocksResponseSchema,
+			fallback,
 		);
-	}
-	const parsed = parseResult.data;
+		if (!parseResult.success) {
+			console.error(
+				`Failed to parse judge response from ${judge}: ${parseResult.error} `,
+			);
+		}
+		const parsed = parseResult.data;
 
-	return {
-		judge,
-		rankings: parsed.rankings,
-		reasoning: parsed.reasoning,
-		raw: result.text,
-	};
+		return {
+			judge,
+			rankings: parsed.rankings,
+			reasoning: parsed.reasoning,
+			raw: result.text,
+		};
+	});
 }
 
 export interface PairwiseResult {
@@ -271,7 +291,7 @@ export interface PairwiseResult {
  * Pairwise comparison of two statblocks.
  * Returns the winner ID, reasoning, and which judge was used.
  * @param judge - Which model to use as judge (default: claude)
- * @param effort - Reasoning effort level (default: model config)
+ * @param effort - Reasoning effort level (default: from callSettings)
  */
 export async function pairwiseJudge(
 	idA: string,
@@ -279,62 +299,65 @@ export async function pairwiseJudge(
 	idB: string,
 	textB: string,
 	judge: ModelName = "claude",
-	effort?: "low" | "medium" | "high",
+	effort?: ReasoningEffort,
 ): Promise<PairwiseResult> {
-	const config = getConfig();
-	const modelSlug = config.models[judge]?.slug;
-	if (!modelSlug) {
-		throw new Error(`Unknown model: ${judge}`);
-	}
+	return withConcurrencyLimit(async () => {
+		const config = getConfig();
+		const modelSlug = config.models[judge]?.slug;
+		if (!modelSlug) {
+			throw new Error(`Unknown model: ${judge} `);
+		}
 
-	const reasoningEffort =
-		effort ?? config.models[judge]?.reasoningEffort ?? "high";
+		const settings = getCallSettings(judge, "judge");
+		const reasoningEffort = effort ?? settings.effort ?? "high";
 
-	const systemPrompt = interpolate(config.prompts.judgePairwise.system, {
-		idA,
-		idB,
-	});
-	const userPrompt = interpolate(config.prompts.judgePairwise.userTemplate, {
-		idA,
-		idB,
-		textA,
-		textB,
-	});
+		const systemPrompt = interpolate(config.prompts.judgePairwise.system, {
+			idA,
+			idB,
+		});
+		const userPrompt = interpolate(config.prompts.judgePairwise.userTemplate, {
+			idA,
+			idB,
+			textA,
+			textB,
+		});
 
-	const result = await generateText({
-		model: getOpenRouter()(modelSlug),
-		system: systemPrompt,
-		prompt: userPrompt,
-		providerOptions: {
-			openrouter: {
-				reasoning: { effort: reasoningEffort },
+		const result = await generateText({
+			model: getOpenRouter()(modelSlug),
+			system: systemPrompt,
+			prompt: userPrompt,
+			temperature: settings.temperature,
+			providerOptions: {
+				openrouter: {
+					reasoning: { effort: reasoningEffort },
+				},
 			},
-		},
-	});
+		});
 
-	// Parse and validate the JSON response
-	const fallback = {
-		winner: Math.random() > 0.5 ? idA : idB,
-		reasoning: "Failed to parse response, random selection.",
-	};
-	const parseResult = parseJsonResponse(
-		result.text,
-		PairwiseJudgeResponseSchema,
-		fallback,
-	);
-	if (!parseResult.success) {
-		console.error(
-			`Failed to parse pairwise judge response (${judge}): ${parseResult.error}`,
+		// Parse and validate the JSON response
+		const fallback = {
+			winner: Math.random() > 0.5 ? idA : idB,
+			reasoning: "Failed to parse response, random selection.",
+		};
+		const parseResult = parseJsonResponse(
+			result.text,
+			PairwiseJudgeResponseSchema,
+			fallback,
 		);
-	}
-	const parsed = parseResult.data;
+		if (!parseResult.success) {
+			console.error(
+				`Failed to parse pairwise judge response(${judge}): ${parseResult.error} `,
+			);
+		}
+		const parsed = parseResult.data;
 
-	return {
-		winner: parsed.winner,
-		loser: parsed.winner === idA ? idB : idA,
-		reasoning: parsed.reasoning,
-		judge,
-	};
+		return {
+			winner: parsed.winner,
+			loser: parsed.winner === idA ? idB : idA,
+			reasoning: parsed.reasoning,
+			judge,
+		};
+	});
 }
 
 export interface ThreeWayResult {
@@ -357,66 +380,69 @@ export async function threeWayJudge(
 	idC: string,
 	textC: string,
 	judge: ModelName | null = null,
-	effort?: "low" | "medium" | "high",
+	effort?: ReasoningEffort,
 ): Promise<ThreeWayResult> {
-	const config = getConfig();
-	const modelKeys = Object.keys(config.models);
-	if (modelKeys.length === 0) {
-		throw new Error("No models configured");
-	}
-	const judgeModel = judge ?? modelKeys[0]!;
-	const modelSlug = config.models[judgeModel]?.slug;
-	if (!modelSlug) {
-		throw new Error("No models configured");
-	}
+	return withConcurrencyLimit(async () => {
+		const config = getConfig();
+		const modelKeys = Object.keys(config.models);
+		if (modelKeys.length === 0) {
+			throw new Error("No models configured");
+		}
+		const judgeModel = judge ?? modelKeys[0]!;
+		const modelSlug = config.models[judgeModel]?.slug;
+		if (!modelSlug) {
+			throw new Error("No models configured");
+		}
 
-	const reasoningEffort =
-		effort ?? config.models[judgeModel]?.reasoningEffort ?? "high";
+		const settings = getCallSettings(judgeModel, "judge");
+		const reasoningEffort = effort ?? settings.effort ?? "high";
 
-	const systemPrompt = interpolate(config.prompts.judgeThreeWay.system, {
-		idA,
-		idB,
-		idC,
-	});
-	const userPrompt = interpolate(config.prompts.judgeThreeWay.userTemplate, {
-		idA,
-		idB,
-		idC,
-		textA,
-		textB,
-		textC,
-	});
+		const systemPrompt = interpolate(config.prompts.judgeThreeWay.system, {
+			idA,
+			idB,
+			idC,
+		});
+		const userPrompt = interpolate(config.prompts.judgeThreeWay.userTemplate, {
+			idA,
+			idB,
+			idC,
+			textA,
+			textB,
+			textC,
+		});
 
-	const result = await generateText({
-		model: getOpenRouter()(modelSlug),
-		system: systemPrompt,
-		prompt: userPrompt,
-		providerOptions: {
-			openrouter: {
-				reasoning: { effort: reasoningEffort },
+		const result = await generateText({
+			model: getOpenRouter()(modelSlug),
+			system: systemPrompt,
+			prompt: userPrompt,
+			temperature: settings.temperature,
+			providerOptions: {
+				openrouter: {
+					reasoning: { effort: reasoningEffort },
+				},
 			},
-		},
-	});
+		});
 
-	// Parse and validate the JSON response
-	const ids = [idA, idB, idC].sort(() => Math.random() - 0.5);
-	const fallback = {
-		first: ids[0]!,
-		second: ids[1]!,
-		third: ids[2]!,
-		reasoning: "Failed to parse response, random selection.",
-	};
-	const parseResult = parseJsonResponse(
-		result.text,
-		ThreeWayJudgeResponseSchema,
-		fallback,
-	);
-	if (!parseResult.success) {
-		console.error(
-			`Failed to parse three-way judge response: ${parseResult.error}`,
+		// Parse and validate the JSON response
+		const ids = [idA, idB, idC].sort(() => Math.random() - 0.5);
+		const fallback = {
+			first: ids[0]!,
+			second: ids[1]!,
+			third: ids[2]!,
+			reasoning: "Failed to parse response, random selection.",
+		};
+		const parseResult = parseJsonResponse(
+			result.text,
+			ThreeWayJudgeResponseSchema,
+			fallback,
 		);
-	}
-	const parsed = parseResult.data;
+		if (!parseResult.success) {
+			console.error(
+				`Failed to parse three - way judge response: ${parseResult.error} `,
+			);
+		}
+		const parsed = parseResult.data;
 
-	return parsed;
+		return parsed;
+	});
 }

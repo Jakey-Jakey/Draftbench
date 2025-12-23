@@ -1,4 +1,5 @@
 {
+	"$comment": "Example: Quick test with different prompt and fewer rounds",
 	"tournament": {
 		"swissRounds": 2,
 		"playoffSize": 4
