@@ -864,19 +864,19 @@ ${result.text}`,
     isResuming && isPhaseCompleted(state, "swiss") && state.contestants && state.swissMatches.length > 0;
   const contestants: SwissContestant[] = resumeSwiss
     ? (state.contestants as StoredSwissContestant[]).map((c) => ({
-        id: c.id,
-        text: revisedById.get(c.id)?.result.text ?? "",
-        points: c.points,
-        opponents: new Set(c.opponents),
-        placements: c.placements,
-      }))
+      id: c.id,
+      text: revisedById.get(c.id)?.result.text ?? "",
+      points: c.points,
+      opponents: new Set(c.opponents),
+      placements: c.placements,
+    }))
     : Array.from(revisedById.entries()).map(([id, data]) => ({
-        id,
-        text: data.result.text,
-        points: 0,
-        opponents: new Set<string>(),
-        placements: { first: 0, second: 0, third: 0 },
-      }));
+      id,
+      text: data.result.text,
+      points: 0,
+      opponents: new Set<string>(),
+      placements: { first: 0, second: 0, third: 0 },
+    }));
 
   const allSwissMatches: SwissMatch[] = resumeSwiss ? [...(state.swissMatches as StoredSwissMatch[])] : [];
 
@@ -1036,8 +1036,7 @@ ${result.reasoning}
           console.log(`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`);
         }
 
-        await appendFile(swissLogPath, "
-", "utf-8");
+        await appendFile(swissLogPath, "\n", "utf-8");
       }
       console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
     }
@@ -1073,12 +1072,7 @@ ${result.reasoning}
 
   console.log(`  Top ${TOP_N_PLAYOFF} qualifiers: ${top8.map((c) => c.id).join(", ")}`);
   if (!DRY_RUN) {
-    await appendFile(playoffLogPath, `## Qualifiers
-
-${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("
-")}
-
-`, "utf-8");
+    await appendFile(playoffLogPath, `## Qualifiers\n\n${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("\n")}\n\n`, "utf-8");
   }
 
   // Track playoff results
@@ -1098,12 +1092,10 @@ ${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("
   }
 
   console.log(
-    `  Running ${playoffPairs.length} matchups (×${PLAYOFF_JUDGES.length} judges = ${playoffPairs.length * PLAYOFF_JUDGES.length} total)...`
+    `  Running ${playoffPairs.length} matchups(×${PLAYOFF_JUDGES.length} judges = ${playoffPairs.length * PLAYOFF_JUDGES.length} total)...`
   );
   if (!DRY_RUN) {
-    await appendFile(playoffLogPath, `## Matches
-
-`, "utf-8");
+    await appendFile(playoffLogPath, `## Matches\n\n`, "utf-8");
   }
 
   if (resumePlayoff) {
@@ -1115,8 +1107,8 @@ ${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("
         draws: result.draws,
       });
     }
-    console.log(`  ↩︎ Loaded playoff standings from state (skipping playoff matches)
-`);
+    console.log(`  ↩︎ Loaded playoff standings from state(skipping playoff matches)
+      `);
   } else if (DRY_RUN) {
     // Mock playoff results
     for (const [idA, idB] of playoffPairs) {
@@ -1130,20 +1122,20 @@ ${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("
         resultA.points += 1;
         resultA.wins++;
         resultB.losses++;
-        console.log(`    ✓ ${idA} beat ${idB} (mock)`);
+        console.log(`    ✓ ${idA} beat ${idB}(mock)`);
       } else if (outcome < 0.8) {
         // B wins
         resultB.points += 1;
         resultB.wins++;
         resultA.losses++;
-        console.log(`    ✓ ${idB} beat ${idA} (mock)`);
+        console.log(`    ✓ ${idB} beat ${idA}(mock)`);
       } else {
         // Draw
         resultA.points += 0.5;
         resultA.draws++;
         resultB.points += 0.5;
         resultB.draws++;
-        console.log(`    = ${idA} drew ${idB} (mock)`);
+        console.log(`    = ${idA} drew ${idB}(mock)`);
       }
     }
   } else {
@@ -1185,33 +1177,24 @@ ${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("
         const winnerVotes = voteCounts.get(winner) ?? 0;
         const loserVotes = voteCounts.get(loser) ?? 0;
         matchResult = { winner, loser, isDraw: false };
-        logEntry = `- **${winner}** beat ${loser} (${winnerVotes}-${loserVotes})
-`;
+        logEntry = `- **${winner}** beat ${loser} (${winnerVotes}-${loserVotes})\n`;
       } else {
         const votesA = voteCounts.get(idA) ?? 0;
         const votesB = voteCounts.get(idB) ?? 0;
         matchResult = { winner: null, loser: null, isDraw: true };
-        logEntry = `- ${idA} vs ${idB}: **DRAW** (${votesA}-${votesB})
-`;
+        logEntry = `- ${idA} vs ${idB}: **DRAW** (${votesA}-${votesB})\n`;
       }
 
       for (const result of judgeResults) {
         const resolvedWinner = result.winner === "S1" ? firstId : secondId;
-        logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*
-`;
+        logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
       }
 
       // Write detailed judgment file for playoff
       const judgmentFile = join(playoffJudgmentsDir, `${idA}_vs_${idB}.md`);
-      let judgmentMd = `# Playoff Judgment: ${idA} vs ${idB}
-
-`;
-      judgmentMd += `**Position Order**: S1=${firstId}, S2=${secondId}
-
-`;
-      judgmentMd += `## Judge Decisions
-
-`;
+      let judgmentMd = `# Playoff Judgment: ${idA} vs ${idB}\n\n`;
+      judgmentMd += `**Position Order**: S1=${firstId}, S2=${secondId}\n\n`;
+      judgmentMd += `## Judge Decisions\n\n`;
       judgmentMd += logEntry.replace(/^- /, "");
       await writeFile(judgmentFile, judgmentMd, "utf-8");
 
@@ -1261,7 +1244,7 @@ ${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("
     await writeFile(leaderboardPath, leaderboard, "utf-8");
     console.log(`  ✓ Wrote ${leaderboardPath}`);
   } else {
-    console.log(`  ✓ Leaderboard computed (dry run - not written)`);
+    console.log(`  ✓ Leaderboard computed(dry run - not written)`);
   }
 
   // Print summary stats
@@ -1271,10 +1254,10 @@ ${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("
   if (DRY_RUN) {
     console.log("🧪 DRY RUN - No API calls were made");
   }
-  console.log(`Swiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
+  console.log(`Swiss Rounds: ${SWISS_ROUNDS}(1v1v1 format)`);
   console.log(`Swiss Matches: ${allSwissMatches.length}`);
   console.log(
-    `Playoff Judgments: ${playoffPairs.length * PLAYOFF_JUDGES.length} (${playoffPairs.length} pairs × ${PLAYOFF_JUDGES.length} judges)`
+    `Playoff Judgments: ${playoffPairs.length * PLAYOFF_JUDGES.length}(${playoffPairs.length} pairs × ${PLAYOFF_JUDGES.length} judges)`
   );
   const initialLeaderboardPairs =
     INITIAL_LEADERBOARD.enabled && leaderboardJudges.length > 0
@@ -1297,7 +1280,7 @@ ${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("
     const c = finalSorted[i]!;
     const playoff = playoffResults.get(c.id);
     const playoffStr = playoff ? ` + ${playoff.points} playoff` : "";
-    console.log(`  ${["🥇", "🥈", "🥉"][i]} ${c.id} (${c.points} Swiss${playoffStr})`);
+    console.log(`  ${["🥇", "🥈", "🥉"][i]} ${c.id}(${c.points} Swiss${playoffStr})`);
   }
   console.log("=".repeat(60));
   console.log(`\n✨ Pipeline complete! ${DRY_RUN ? "(dry run)" : `Output in: ${runDir}`}`);
