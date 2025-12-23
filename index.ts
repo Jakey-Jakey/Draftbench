@@ -13,7 +13,21 @@ import {
 } from "./aiClient";
 import { loadConfig, getConfig, parseArgs, type CLIArgs } from "./config";
 import { mkdir, writeFile, appendFile } from "fs/promises";
+import { existsSync } from "fs";
 import { join } from "path";
+import {
+  createInitialState,
+  loadState,
+  saveState,
+  isPhaseCompleted,
+  markPhaseCompleted,
+  type PipelineState,
+  type StoredGenerateResult,
+  type StoredReviewResult,
+  type StoredRevisionResult,
+  type StoredSwissMatch,
+  type StoredSwissContestant,
+} from "./state";
 
 // Parse CLI arguments and load config
 const cliArgs = parseArgs();
@@ -376,36 +390,79 @@ async function runCrossReviewPipeline(): Promise<void> {
   console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
   console.log(`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${j.model} (${j.effort})`).join(", ")})`);
   console.log(
-    `Swiss Judge: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort}) | Initial Leaderboard: ${
-      INITIAL_LEADERBOARD.enabled
-        ? (INITIAL_LEADERBOARD.judges.length ? INITIAL_LEADERBOARD.judges : PLAYOFF_JUDGES)
-            .map((j) => `${j.model} (${j.effort})`)
-            .join(", ")
-        : "disabled"
+    `Swiss Judge: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort}) | Initial Leaderboard: ${INITIAL_LEADERBOARD.enabled
+      ? (INITIAL_LEADERBOARD.judges.length ? INITIAL_LEADERBOARD.judges : PLAYOFF_JUDGES)
+        .map((j) => `${j.model} (${j.effort})`)
+        .join(", ")
+      : "disabled"
     }\n`
   );
 
-  // Create run directory early for incremental writes
-  const timestamp = getTimestamp();
-  const runDir = await ensureRunsDirectory(timestamp);
-  const revisionsDir = await ensureRunsDirectory(join(timestamp, "revisions"));
-  const reviewsDir = await ensureRunsDirectory(join(timestamp, "reviews"));
+  // === RESUME / STATE INITIALIZATION ===
+  let runDir: string;
+  let state: PipelineState;
+  let isResuming = false;
+
+  if (cliArgs.resumeDir) {
+    // Resume from existing run
+    const resumePath = cliArgs.resumeDir.startsWith(RUNS_DIR)
+      ? cliArgs.resumeDir
+      : join(RUNS_DIR, cliArgs.resumeDir);
+
+    if (!existsSync(resumePath)) {
+      throw new Error(`Resume directory not found: ${resumePath}`);
+    }
+
+    const loadedState = loadState(resumePath);
+    if (!loadedState) {
+      throw new Error(`Could not load state from: ${resumePath}`);
+    }
+
+    runDir = resumePath;
+    state = loadedState;
+    isResuming = true;
+    console.log(`\n🔄 RESUMING from: ${runDir}`);
+    console.log(`   Phases completed: [${state.phasesCompleted.join(", ")}]\n`);
+  } else {
+    // Create new run directory
+    const timestamp = getTimestamp();
+    runDir = await ensureRunsDirectory(timestamp);
+    state = createInitialState();
+  }
+
+  // Helper to get relative path for subdirectory creation
+  const getRelativeRunPath = () => {
+    if (runDir.includes(RUNS_DIR)) {
+      return runDir.slice(runDir.indexOf(RUNS_DIR) + RUNS_DIR.length + 1);
+    }
+    return runDir;
+  };
+  const relRunPath = getRelativeRunPath();
+
+  // Ensure subdirectories exist
+  const revisionsDir = await ensureRunsDirectory(join(relRunPath, "revisions"));
+  const reviewsDir = await ensureRunsDirectory(join(relRunPath, "reviews"));
   const initialLeaderboardDir = INITIAL_LEADERBOARD.enabled
-    ? await ensureRunsDirectory(join(timestamp, "initial_leaderboard"))
+    ? await ensureRunsDirectory(join(relRunPath, "initial_leaderboard"))
     : null;
-  const swissJudgmentsDir = await ensureRunsDirectory(join(timestamp, "swiss_judgments"));
-  const playoffJudgmentsDir = await ensureRunsDirectory(join(timestamp, "playoff_judgments"));
+  const swissJudgmentsDir = await ensureRunsDirectory(join(relRunPath, "swiss_judgments"));
+  const playoffJudgmentsDir = await ensureRunsDirectory(join(relRunPath, "playoff_judgments"));
   const swissLogPath = join(runDir, "swiss_rounds.md");
   const initialLeaderboardLogPath = initialLeaderboardDir ? join(initialLeaderboardDir, "leaderboard.md") : null;
   const playoffLogPath = join(runDir, "playoff_rounds.md");
 
-  // Initialize logs
-  if (!DRY_RUN) {
+  // Initialize logs (only for new runs)
+  if (!DRY_RUN && !isResuming) {
     await writeFile(swissLogPath, "# Swiss Tournament Log (1v1v1)\n\n", "utf-8");
     if (initialLeaderboardLogPath) {
       await writeFile(initialLeaderboardLogPath, "# Initial Draft Leaderboard\n\n", "utf-8");
     }
     await writeFile(playoffLogPath, "# Top-8 Round Robin Playoff\n\n", "utf-8");
+  }
+
+  // Save initial state for new runs
+  if (!DRY_RUN && !isResuming) {
+    saveState(runDir, state);
   }
 
   // === PHASE 1: Generate (3 parallel calls) ===
@@ -446,6 +503,13 @@ async function runCrossReviewPipeline(): Promise<void> {
     await Promise.all(generatePromises);
   }
   console.log(`  ✓ ${DRY_RUN ? "Mock data generated" : `Wrote originals to ${runDir}`}\n`);
+
+  // Save state after Phase 1
+  if (!DRY_RUN) {
+    state.generatedDrafts = initialDraftsByModel as Map<string, StoredGenerateResult[]>;
+    markPhaseCompleted(state, "generate");
+    saveState(runDir, state);
+  }
 
   // === PHASE 2: Initial round robin (optional) ===
   console.log("Phase 2/6: Ranking initial drafts for seeding...");
@@ -488,10 +552,9 @@ async function runCrossReviewPipeline(): Promise<void> {
       }
     }
     console.log(
-      `  ✓ ${
-        INITIAL_LEADERBOARD.enabled && leaderboardJudges.length === 0
-          ? "Initial leaderboard skipped (no judges configured)"
-          : "Initial leaderboard disabled"
+      `  ✓ ${INITIAL_LEADERBOARD.enabled && leaderboardJudges.length === 0
+        ? "Initial leaderboard skipped (no judges configured)"
+        : "Initial leaderboard disabled"
       }\n`
     );
   } else {
@@ -537,7 +600,7 @@ async function runCrossReviewPipeline(): Promise<void> {
           )
         );
 
-        const voteCounts = new Map<string, number>([ [firstId, 0], [secondId, 0] ]);
+        const voteCounts = new Map<string, number>([[firstId, 0], [secondId, 0]]);
         for (const result of judgeResults) {
           const winner = result.winner === "S1" ? firstId : secondId;
           voteCounts.set(winner, (voteCounts.get(winner) ?? 0) + 1);
@@ -611,8 +674,7 @@ async function runCrossReviewPipeline(): Promise<void> {
     }
 
     console.log(
-      `  ✓ Selected winners: ${
-        MODEL_NAMES.map((m) => `${m} draft ${winners.get(m)?.draftIndex ?? 1}`).join(", ")
+      `  ✓ Selected winners: ${MODEL_NAMES.map((m) => `${m} draft ${winners.get(m)?.draftIndex ?? 1}`).join(", ")
       }\n`
     );
   }
@@ -1077,8 +1139,7 @@ async function runCrossReviewPipeline(): Promise<void> {
       ? (MODEL_NAMES.length * INITIAL_GENERATIONS * (MODEL_NAMES.length * INITIAL_GENERATIONS - 1)) / 2
       : 0;
   console.log(
-    `Total Judge Calls: ${
-      allSwissMatches.length + playoffPairs.length * PLAYOFF_JUDGES.length + initialLeaderboardPairs * leaderboardJudges.length
+    `Total Judge Calls: ${allSwissMatches.length + playoffPairs.length * PLAYOFF_JUDGES.length + initialLeaderboardPairs * leaderboardJudges.length
     }`
   );
   console.log("");
