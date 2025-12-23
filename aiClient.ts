@@ -2,10 +2,10 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
 import { getConfig, interpolate, type ModelName } from "./config";
 import {
-  parseJsonResponse,
-  JudgeStatblocksResponseSchema,
-  PairwiseJudgeResponseSchema,
-  ThreeWayJudgeResponseSchema,
+	JudgeStatblocksResponseSchema,
+	PairwiseJudgeResponseSchema,
+	parseJsonResponse,
+	ThreeWayJudgeResponseSchema,
 } from "./schemas";
 
 // Re-export ModelName type
@@ -15,16 +15,16 @@ export type { ModelName } from "./config";
 let openrouter: ReturnType<typeof createOpenRouter> | null = null;
 
 function getOpenRouter() {
-  if (!openrouter) {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-      throw new Error(
-        "OPENROUTER_API_KEY environment variable is required. Please set it before running the script."
-      );
-    }
-    openrouter = createOpenRouter({ apiKey });
-  }
-  return openrouter;
+	if (!openrouter) {
+		const apiKey = process.env.OPENROUTER_API_KEY;
+		if (!apiKey) {
+			throw new Error(
+				"OPENROUTER_API_KEY environment variable is required. Please set it before running the script.",
+			);
+		}
+		openrouter = createOpenRouter({ apiKey });
+	}
+	return openrouter;
 }
 
 /**
@@ -32,10 +32,10 @@ function getOpenRouter() {
  * This is called dynamically to support runtime config loading.
  */
 export function getModels(): Record<string, string> {
-  const config = getConfig();
-  return Object.fromEntries(
-    Object.entries(config.models).map(([key, value]) => [key, value.slug])
-  );
+	const config = getConfig();
+	return Object.fromEntries(
+		Object.entries(config.models).map(([key, value]) => [key, value.slug]),
+	);
 }
 
 /**
@@ -43,151 +43,153 @@ export function getModels(): Record<string, string> {
  * @deprecated Use getModels() instead
  */
 export const MODELS = new Proxy({} as Record<string, string>, {
-  get(_, prop: string) {
-    return getModels()[prop];
-  },
-  ownKeys() {
-    return Object.keys(getModels());
-  },
-  getOwnPropertyDescriptor() {
-    return { enumerable: true, configurable: true };
-  },
+	get(_, prop: string) {
+		return getModels()[prop];
+	},
+	ownKeys() {
+		return Object.keys(getModels());
+	},
+	getOwnPropertyDescriptor() {
+		return { enumerable: true, configurable: true };
+	},
 });
 
 export interface GenerateResult {
-  text: string;
-  model: ModelName;
+	text: string;
+	model: ModelName;
 }
 
 export interface ReviewResult {
-  text: string;
-  reviewer: ModelName;
-  reviewed: ModelName;
+	text: string;
+	reviewer: ModelName;
+	reviewed: ModelName;
 }
 
 export interface ReviseResult {
-  text: string;
-  model: ModelName;
+	text: string;
+	model: ModelName;
 }
 
 function getReasoningConfig(model: ModelName) {
-  const config = getConfig();
-  const modelConfig = config.models[model];
-  if (modelConfig) {
-    return { effort: modelConfig.reasoningEffort };
-  }
-  // Fallback to high if model not in config
-  return { effort: "high" as const };
+	const config = getConfig();
+	const modelConfig = config.models[model];
+	if (modelConfig) {
+		return { effort: modelConfig.reasoningEffort };
+	}
+	// Fallback to high if model not in config
+	return { effort: "high" as const };
 }
 
 /**
  * Generates a D&D 5e monster statblock using specified model.
  */
-export async function generateStatblock(model: ModelName): Promise<GenerateResult> {
-  const config = getConfig();
-  const modelSlug = config.models[model]?.slug;
-  if (!modelSlug) {
-    throw new Error(`Unknown model: ${model}`);
-  }
+export async function generateStatblock(
+	model: ModelName,
+): Promise<GenerateResult> {
+	const config = getConfig();
+	const modelSlug = config.models[model]?.slug;
+	if (!modelSlug) {
+		throw new Error(`Unknown model: ${model}`);
+	}
 
-  const result = await generateText({
-    model: getOpenRouter()(modelSlug),
-    system: config.prompts.generate.system,
-    prompt: config.prompts.generate.user,
-    providerOptions: {
-      openrouter: {
-        reasoning: getReasoningConfig(model),
-      },
-    },
-  });
+	const result = await generateText({
+		model: getOpenRouter()(modelSlug),
+		system: config.prompts.generate.system,
+		prompt: config.prompts.generate.user,
+		providerOptions: {
+			openrouter: {
+				reasoning: getReasoningConfig(model),
+			},
+		},
+	});
 
-  return {
-    text: result.text,
-    model,
-  };
+	return {
+		text: result.text,
+		model,
+	};
 }
 
 /**
  * Reviews a statblock using specified model.
  */
 export async function reviewStatblock(
-  reviewer: ModelName,
-  reviewed: ModelName,
-  statblock: string
+	reviewer: ModelName,
+	reviewed: ModelName,
+	statblock: string,
 ): Promise<ReviewResult> {
-  const config = getConfig();
-  const modelSlug = config.models[reviewer]?.slug;
-  if (!modelSlug) {
-    throw new Error(`Unknown model: ${reviewer}`);
-  }
+	const config = getConfig();
+	const modelSlug = config.models[reviewer]?.slug;
+	if (!modelSlug) {
+		throw new Error(`Unknown model: ${reviewer}`);
+	}
 
-  const prompt = interpolate(config.prompts.review.userTemplate, { statblock });
+	const prompt = interpolate(config.prompts.review.userTemplate, { statblock });
 
-  const result = await generateText({
-    model: getOpenRouter()(modelSlug),
-    system: config.prompts.review.system,
-    prompt,
-    providerOptions: {
-      openrouter: {
-        reasoning: getReasoningConfig(reviewer),
-      },
-    },
-  });
+	const result = await generateText({
+		model: getOpenRouter()(modelSlug),
+		system: config.prompts.review.system,
+		prompt,
+		providerOptions: {
+			openrouter: {
+				reasoning: getReasoningConfig(reviewer),
+			},
+		},
+	});
 
-  return {
-    text: result.text,
-    reviewer,
-    reviewed,
-  };
+	return {
+		text: result.text,
+		reviewer,
+		reviewed,
+	};
 }
 
 /**
  * Revises a statblock based on feedback using specified model.
  */
 export async function reviseStatblock(
-  model: ModelName,
-  originalStatblock: string,
-  feedback: string
+	model: ModelName,
+	originalStatblock: string,
+	feedback: string,
 ): Promise<ReviseResult> {
-  const config = getConfig();
-  const modelSlug = config.models[model]?.slug;
-  if (!modelSlug) {
-    throw new Error(`Unknown model: ${model}`);
-  }
+	const config = getConfig();
+	const modelSlug = config.models[model]?.slug;
+	if (!modelSlug) {
+		throw new Error(`Unknown model: ${model}`);
+	}
 
-  const prompt = interpolate(config.prompts.revise.userTemplate, {
-    statblock: originalStatblock,
-    feedback,
-  });
+	const prompt = interpolate(config.prompts.revise.userTemplate, {
+		statblock: originalStatblock,
+		feedback,
+	});
 
-  const result = await generateText({
-    model: getOpenRouter()(modelSlug),
-    system: config.prompts.revise.system,
-    prompt,
-    providerOptions: {
-      openrouter: {
-        reasoning: getReasoningConfig(model),
-      },
-    },
-  });
+	const result = await generateText({
+		model: getOpenRouter()(modelSlug),
+		system: config.prompts.revise.system,
+		prompt,
+		providerOptions: {
+			openrouter: {
+				reasoning: getReasoningConfig(model),
+			},
+		},
+	});
 
-  return {
-    text: result.text,
-    model,
-  };
+	return {
+		text: result.text,
+		model,
+	};
 }
 
 export interface StatblockRanking {
-  id: string; // Opaque ID
-  rank: number;
-  score: number;
+	id: string; // Opaque ID
+	rank: number;
+	score: number;
 }
 
 export interface JudgeResult {
-  judge: ModelName;
-  rankings: StatblockRanking[];
-  reasoning: string;
-  raw: string;
+	judge: ModelName;
+	rankings: StatblockRanking[];
+	reasoning: string;
+	raw: string;
 }
 
 /**
@@ -195,24 +197,24 @@ export interface JudgeResult {
  * Statblocks are passed with anonymous IDs to prevent bias.
  */
 export async function judgeStatblocks(
-  judge: ModelName,
-  statblocks: Map<string, string>
+	judge: ModelName,
+	statblocks: Map<string, string>,
 ): Promise<JudgeResult> {
-  const config = getConfig();
-  const modelSlug = config.models[judge]?.slug;
-  if (!modelSlug) {
-    throw new Error(`Unknown model: ${judge}`);
-  }
+	const config = getConfig();
+	const modelSlug = config.models[judge]?.slug;
+	if (!modelSlug) {
+		throw new Error(`Unknown model: ${judge}`);
+	}
 
-  const statblockEntries = Array.from(statblocks.entries())
-    .map(([id, text]) => `## Statblock ID: ${id}\n\n${text}`)
-    .join("\n\n---\n\n");
+	const statblockEntries = Array.from(statblocks.entries())
+		.map(([id, text]) => `## Statblock ID: ${id}\n\n${text}`)
+		.join("\n\n---\n\n");
 
-  const allIds = Array.from(statblocks.keys());
+	const allIds = Array.from(statblocks.keys());
 
-  const result = await generateText({
-    model: getOpenRouter()(modelSlug),
-    system: `You are an expert D&D 5e game designer judging monster statblocks. Compare ALL the statblocks provided and rank them from best to worst. Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
+	const result = await generateText({
+		model: getOpenRouter()(modelSlug),
+		system: `You are an expert D&D 5e game designer judging monster statblocks. Compare ALL the statblocks provided and rank them from best to worst. Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
 
 You MUST respond with ONLY a valid JSON object in this exact format, no other text:
 {
@@ -225,38 +227,44 @@ You MUST respond with ONLY a valid JSON object in this exact format, no other te
 }
 
 Use scores from 0-100. IDs must exactly match the provided Statblock IDs: ${allIds.join(", ")}`,
-    prompt: `Compare and rank ALL ${allIds.length} D&D 5e Doctor Doom statblocks:\n\n${statblockEntries}`,
-    providerOptions: {
-      openrouter: {
-        reasoning: getReasoningConfig(judge),
-      },
-    },
-  });
+		prompt: `Compare and rank ALL ${allIds.length} D&D 5e Doctor Doom statblocks:\n\n${statblockEntries}`,
+		providerOptions: {
+			openrouter: {
+				reasoning: getReasoningConfig(judge),
+			},
+		},
+	});
 
-  // Parse and validate the JSON response
-  const fallback = {
-    rankings: allIds.map((id, i) => ({ id, rank: i + 1, score: 50 })),
-    reasoning: "Failed to parse response",
-  };
-  const parseResult = parseJsonResponse(result.text, JudgeStatblocksResponseSchema, fallback);
-  if (!parseResult.success) {
-    console.error(`Failed to parse judge response from ${judge}: ${parseResult.error}`);
-  }
-  const parsed = parseResult.data;
+	// Parse and validate the JSON response
+	const fallback = {
+		rankings: allIds.map((id, i) => ({ id, rank: i + 1, score: 50 })),
+		reasoning: "Failed to parse response",
+	};
+	const parseResult = parseJsonResponse(
+		result.text,
+		JudgeStatblocksResponseSchema,
+		fallback,
+	);
+	if (!parseResult.success) {
+		console.error(
+			`Failed to parse judge response from ${judge}: ${parseResult.error}`,
+		);
+	}
+	const parsed = parseResult.data;
 
-  return {
-    judge,
-    rankings: parsed.rankings,
-    reasoning: parsed.reasoning,
-    raw: result.text,
-  };
+	return {
+		judge,
+		rankings: parsed.rankings,
+		reasoning: parsed.reasoning,
+		raw: result.text,
+	};
 }
 
 export interface PairwiseResult {
-  winner: string;
-  loser: string;
-  reasoning: string;
-  judge: ModelName;
+	winner: string;
+	loser: string;
+	reasoning: string;
+	judge: ModelName;
 }
 
 /**
@@ -266,64 +274,74 @@ export interface PairwiseResult {
  * @param effort - Reasoning effort level (default: model config)
  */
 export async function pairwiseJudge(
-  idA: string,
-  textA: string,
-  idB: string,
-  textB: string,
-  judge: ModelName = "claude",
-  effort?: "low" | "medium" | "high"
+	idA: string,
+	textA: string,
+	idB: string,
+	textB: string,
+	judge: ModelName = "claude",
+	effort?: "low" | "medium" | "high",
 ): Promise<PairwiseResult> {
-  const config = getConfig();
-  const modelSlug = config.models[judge]?.slug;
-  if (!modelSlug) {
-    throw new Error(`Unknown model: ${judge}`);
-  }
+	const config = getConfig();
+	const modelSlug = config.models[judge]?.slug;
+	if (!modelSlug) {
+		throw new Error(`Unknown model: ${judge}`);
+	}
 
-  const reasoningEffort = effort ?? config.models[judge]?.reasoningEffort ?? "high";
+	const reasoningEffort =
+		effort ?? config.models[judge]?.reasoningEffort ?? "high";
 
-  const systemPrompt = interpolate(config.prompts.judgePairwise.system, { idA, idB });
-  const userPrompt = interpolate(config.prompts.judgePairwise.userTemplate, {
-    idA,
-    idB,
-    textA,
-    textB,
-  });
+	const systemPrompt = interpolate(config.prompts.judgePairwise.system, {
+		idA,
+		idB,
+	});
+	const userPrompt = interpolate(config.prompts.judgePairwise.userTemplate, {
+		idA,
+		idB,
+		textA,
+		textB,
+	});
 
-  const result = await generateText({
-    model: getOpenRouter()(modelSlug),
-    system: systemPrompt,
-    prompt: userPrompt,
-    providerOptions: {
-      openrouter: {
-        reasoning: { effort: reasoningEffort },
-      },
-    },
-  });
+	const result = await generateText({
+		model: getOpenRouter()(modelSlug),
+		system: systemPrompt,
+		prompt: userPrompt,
+		providerOptions: {
+			openrouter: {
+				reasoning: { effort: reasoningEffort },
+			},
+		},
+	});
 
-  // Parse and validate the JSON response
-  const fallback = {
-    winner: Math.random() > 0.5 ? idA : idB,
-    reasoning: "Failed to parse response, random selection.",
-  };
-  const parseResult = parseJsonResponse(result.text, PairwiseJudgeResponseSchema, fallback);
-  if (!parseResult.success) {
-    console.error(`Failed to parse pairwise judge response (${judge}): ${parseResult.error}`);
-  }
-  const parsed = parseResult.data;
+	// Parse and validate the JSON response
+	const fallback = {
+		winner: Math.random() > 0.5 ? idA : idB,
+		reasoning: "Failed to parse response, random selection.",
+	};
+	const parseResult = parseJsonResponse(
+		result.text,
+		PairwiseJudgeResponseSchema,
+		fallback,
+	);
+	if (!parseResult.success) {
+		console.error(
+			`Failed to parse pairwise judge response (${judge}): ${parseResult.error}`,
+		);
+	}
+	const parsed = parseResult.data;
 
-  return {
-    winner: parsed.winner,
-    loser: parsed.winner === idA ? idB : idA,
-    reasoning: parsed.reasoning,
-    judge,
-  };
+	return {
+		winner: parsed.winner,
+		loser: parsed.winner === idA ? idB : idA,
+		reasoning: parsed.reasoning,
+		judge,
+	};
 }
 
 export interface ThreeWayResult {
-  first: string;
-  second: string;
-  third: string;
-  reasoning: string;
+	first: string;
+	second: string;
+	third: string;
+	reasoning: string;
 }
 
 /**
@@ -332,62 +350,73 @@ export interface ThreeWayResult {
  * Returns 1st, 2nd, 3rd place rankings with reasoning.
  */
 export async function threeWayJudge(
-  idA: string,
-  textA: string,
-  idB: string,
-  textB: string,
-  idC: string,
-  textC: string,
-  judge: ModelName | null = null,
-  effort?: "low" | "medium" | "high"
+	idA: string,
+	textA: string,
+	idB: string,
+	textB: string,
+	idC: string,
+	textC: string,
+	judge: ModelName | null = null,
+	effort?: "low" | "medium" | "high",
 ): Promise<ThreeWayResult> {
-  const config = getConfig();
-  const modelKeys = Object.keys(config.models);
-  if (modelKeys.length === 0) {
-    throw new Error("No models configured");
-  }
-  const judgeModel = judge ?? modelKeys[0]!;
-  const modelSlug = config.models[judgeModel]?.slug;
-  if (!modelSlug) {
-    throw new Error("No models configured");
-  }
+	const config = getConfig();
+	const modelKeys = Object.keys(config.models);
+	if (modelKeys.length === 0) {
+		throw new Error("No models configured");
+	}
+	const judgeModel = judge ?? modelKeys[0]!;
+	const modelSlug = config.models[judgeModel]?.slug;
+	if (!modelSlug) {
+		throw new Error("No models configured");
+	}
 
-  const reasoningEffort = effort ?? config.models[judgeModel]?.reasoningEffort ?? "high";
+	const reasoningEffort =
+		effort ?? config.models[judgeModel]?.reasoningEffort ?? "high";
 
-  const systemPrompt = interpolate(config.prompts.judgeThreeWay.system, { idA, idB, idC });
-  const userPrompt = interpolate(config.prompts.judgeThreeWay.userTemplate, {
-    idA,
-    idB,
-    idC,
-    textA,
-    textB,
-    textC,
-  });
+	const systemPrompt = interpolate(config.prompts.judgeThreeWay.system, {
+		idA,
+		idB,
+		idC,
+	});
+	const userPrompt = interpolate(config.prompts.judgeThreeWay.userTemplate, {
+		idA,
+		idB,
+		idC,
+		textA,
+		textB,
+		textC,
+	});
 
-  const result = await generateText({
-    model: getOpenRouter()(modelSlug),
-    system: systemPrompt,
-    prompt: userPrompt,
-    providerOptions: {
-      openrouter: {
-        reasoning: { effort: reasoningEffort },
-      },
-    },
-  });
+	const result = await generateText({
+		model: getOpenRouter()(modelSlug),
+		system: systemPrompt,
+		prompt: userPrompt,
+		providerOptions: {
+			openrouter: {
+				reasoning: { effort: reasoningEffort },
+			},
+		},
+	});
 
-  // Parse and validate the JSON response
-  const ids = [idA, idB, idC].sort(() => Math.random() - 0.5);
-  const fallback = {
-    first: ids[0]!,
-    second: ids[1]!,
-    third: ids[2]!,
-    reasoning: "Failed to parse response, random selection.",
-  };
-  const parseResult = parseJsonResponse(result.text, ThreeWayJudgeResponseSchema, fallback);
-  if (!parseResult.success) {
-    console.error(`Failed to parse three-way judge response: ${parseResult.error}`);
-  }
-  const parsed = parseResult.data;
+	// Parse and validate the JSON response
+	const ids = [idA, idB, idC].sort(() => Math.random() - 0.5);
+	const fallback = {
+		first: ids[0]!,
+		second: ids[1]!,
+		third: ids[2]!,
+		reasoning: "Failed to parse response, random selection.",
+	};
+	const parseResult = parseJsonResponse(
+		result.text,
+		ThreeWayJudgeResponseSchema,
+		fallback,
+	);
+	if (!parseResult.success) {
+		console.error(
+			`Failed to parse three-way judge response: ${parseResult.error}`,
+		);
+	}
+	const parsed = parseResult.data;
 
-  return parsed;
+	return parsed;
 }

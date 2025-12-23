@@ -1,58 +1,58 @@
 {
-    "models": {
-        "claude": {
-            "slug": "anthropic/claude-4.5-opus",
-            "reasoningEffort": "high"
-        },
-        "gpt": {
-            "slug": "openai/gpt-5.2",
-            "reasoningEffort": "high"
-        },
-        "gemini": {
-            "slug": "google/gemini-3-pro-preview",
-            "reasoningEffort": "high"
-        }
-    },
-    "tournament": {
-        "swissRounds": 7,
-        "playoffSize": 8,
-        "initialGenerations": 1,
-        "initialLeaderboard": {
-            "enabled": false,
-            "judges": []
-        },
-        "swissJudge": {
-            "model": "claude",
-            "effort": "low"
-        },
-        "playoffJudges": [
-            { "model": "claude", "effort": "low" },
-            { "model": "gpt", "effort": "high" }
-        ]
-    },
-    "output": {
-        "runsDirectory": "runs"
-    },
-    "prompts": {
-        "generate": {
-            "system": "You are an expert TTRPG designer specializing in D&D 5th Edition. Create well constructed monster statblocks that follow official 5e formatting conventions. Include all standard statblock components: size/type/alignment, AC, HP, speed, ability scores, saving throws, skills, damage immunities/resistances/vulnerabilities, senses, languages, challenge rating, and special abilities/actions.",
-            "user": "Create a D&D 5e monster statblock for Doctor Doom (Marvel Comics). This should be a powerful villain suitable for high-level play. Output only the statblock without commentary."
-        },
-        "review": {
-            "system": "You are an expert D&D 5e game designer and balance consultant. Review the monster statblock provided and give constructive feedback on: mechanical balance, CR accuracy, thematic representation of the character, adherence to 5e formatting conventions, action economy, and potential gameplay issues. Be thorough but constructive. Focus on actionable improvements.",
-            "userTemplate": "Please review the following D&D 5e monster statblock and provide feedback:\n\n{statblock}"
-        },
-        "revise": {
-            "system": "You are an expert TTRPG designer specializing in D&D 5th Edition. Revise the provided monster statblock based on the feedback given.",
-            "userTemplate": "Original statblock:\n{statblock}\n\nReview feedback:\n{feedback}\n\nPlease revise the statblock based on the feedback above. Output only the revised statblock without commentary."
-        },
-        "judgePairwise": {
-            "system": "You are an expert D&D 5e game designer. Compare the two statblocks and pick the better one based on: mechanical balance, CR accuracy, thematic representation, 5e formatting, and playability.\n\nYou MUST respond with ONLY a valid JSON object in this exact format, no other text:\n{\n  \"winner\": \"ID of the better statblock\",\n  \"reasoning\": \"One sentence explaining why.\"\n}\n\nThe IDs are: \"{idA}\" and \"{idB}\". Pick exactly one winner.",
-            "userTemplate": "Compare these two D&D 5e statblocks:\n\n## Statblock: {idA}\n\n{textA}\n\n---\n\n## Statblock: {idB}\n\n{textB}"
-        },
-        "judgeThreeWay": {
-            "system": "You are an expert D&D 5e game designer. Compare the three statblocks and rank them from best to worst based on: mechanical balance, CR accuracy, thematic representation, 5e formatting, and playability.\n\nYou MUST respond with ONLY a valid JSON object in this exact format, no other text:\n{\n  \"first\": \"ID of the best statblock\",\n  \"second\": \"ID of the second-best statblock\",\n  \"third\": \"ID of the worst statblock\",\n  \"reasoning\": \"One sentence explaining the ranking.\"\n}\n\nThe IDs are: \"{idA}\", \"{idB}\", \"{idC}\". Rank all three.",
-            "userTemplate": "Compare and rank these three D&D 5e statblocks:\n\n## Statblock: {idA}\n\n{textA}\n\n---\n\n## Statblock: {idB}\n\n{textB}\n\n---\n\n## Statblock: {idC}\n\n{textC}"
-        }
-    }
+	"models": {
+		"claude": {
+			"slug": "anthropic/claude-4.5-opus",
+			"reasoningEffort": "high"
+		},
+		"gpt": {
+			"slug": "openai/gpt-5.2",
+			"reasoningEffort": "high"
+		},
+		"gemini": {
+			"slug": "google/gemini-3-pro-preview",
+			"reasoningEffort": "high"
+		}
+	},
+	"tournament": {
+		"swissRounds": 7,
+		"playoffSize": 8,
+		"initialGenerations": 1,
+		"initialLeaderboard": {
+			"enabled": false,
+			"judges": []
+		},
+		"swissJudge": {
+			"model": "claude",
+			"effort": "low"
+		},
+		"playoffJudges": [
+			{ "model": "claude", "effort": "low" },
+			{ "model": "gpt", "effort": "high" }
+		]
+	},
+	"output": {
+		"runsDirectory": "runs"
+	},
+	"prompts": {
+		"generate": {
+			"system": "You are an expert TTRPG designer specializing in D&D 5th Edition. Create well constructed monster statblocks that follow official 5e formatting conventions. Include all standard statblock components: size/type/alignment, AC, HP, speed, ability scores, saving throws, skills, damage immunities/resistances/vulnerabilities, senses, languages, challenge rating, and special abilities/actions.",
+			"user": "Create a D&D 5e monster statblock for Doctor Doom (Marvel Comics). This should be a powerful villain suitable for high-level play. Output only the statblock without commentary."
+		},
+		"review": {
+			"system": "You are an expert D&D 5e game designer and balance consultant. Review the monster statblock provided and give constructive feedback on: mechanical balance, CR accuracy, thematic representation of the character, adherence to 5e formatting conventions, action economy, and potential gameplay issues. Be thorough but constructive. Focus on actionable improvements.",
+			"userTemplate": "Please review the following D&D 5e monster statblock and provide feedback:\n\n{statblock}"
+		},
+		"revise": {
+			"system": "You are an expert TTRPG designer specializing in D&D 5th Edition. Revise the provided monster statblock based on the feedback given.",
+			"userTemplate": "Original statblock:\n{statblock}\n\nReview feedback:\n{feedback}\n\nPlease revise the statblock based on the feedback above. Output only the revised statblock without commentary."
+		},
+		"judgePairwise": {
+			"system": "You are an expert D&D 5e game designer. Compare the two statblocks and pick the better one based on: mechanical balance, CR accuracy, thematic representation, 5e formatting, and playability.\n\nYou MUST respond with ONLY a valid JSON object in this exact format, no other text:\n{\n  \"winner\": \"ID of the better statblock\",\n  \"reasoning\": \"One sentence explaining why.\"\n}\n\nThe IDs are: \"{idA}\" and \"{idB}\". Pick exactly one winner.",
+			"userTemplate": "Compare these two D&D 5e statblocks:\n\n## Statblock: {idA}\n\n{textA}\n\n---\n\n## Statblock: {idB}\n\n{textB}"
+		},
+		"judgeThreeWay": {
+			"system": "You are an expert D&D 5e game designer. Compare the three statblocks and rank them from best to worst based on: mechanical balance, CR accuracy, thematic representation, 5e formatting, and playability.\n\nYou MUST respond with ONLY a valid JSON object in this exact format, no other text:\n{\n  \"first\": \"ID of the best statblock\",\n  \"second\": \"ID of the second-best statblock\",\n  \"third\": \"ID of the worst statblock\",\n  \"reasoning\": \"One sentence explaining the ranking.\"\n}\n\nThe IDs are: \"{idA}\", \"{idB}\", \"{idC}\". Rank all three.",
+			"userTemplate": "Compare and rank these three D&D 5e statblocks:\n\n## Statblock: {idA}\n\n{textA}\n\n---\n\n## Statblock: {idB}\n\n{textB}\n\n---\n\n## Statblock: {idC}\n\n{textC}"
+		}
+	}
 }
