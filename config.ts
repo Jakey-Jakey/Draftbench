@@ -321,12 +321,13 @@ export function interpolate(template: string, vars: Record<string, string>): str
 
 export interface CLIArgs {
     configPath?: string;
+    resumeDir?: string;
     dryRun: boolean;
 }
 
 /**
  * Parses command line arguments.
- * Supports: --config <path>, --dry-run
+ * Supports: --config <path>, --resume <run-dir>, --dry-run
  */
 export function parseArgs(argv: string[] = process.argv): CLIArgs {
     const args: CLIArgs = {
@@ -337,6 +338,9 @@ export function parseArgs(argv: string[] = process.argv): CLIArgs {
         const arg = argv[i];
         if (arg === "--config" && argv[i + 1]) {
             args.configPath = argv[i + 1];
+            i++; // Skip next arg
+        } else if (arg === "--resume" && argv[i + 1]) {
+            args.resumeDir = argv[i + 1];
             i++; // Skip next arg
         } else if (arg === "--dry-run") {
             args.dryRun = true;

@@ -1,6 +1,12 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
 import { getConfig, interpolate, type ModelName } from "./config";
+import {
+  parseJsonResponse,
+  JudgeStatblocksResponseSchema,
+  PairwiseJudgeResponseSchema,
+  ThreeWayJudgeResponseSchema,
+} from "./schemas";
 
 // Re-export ModelName type
 export type { ModelName } from "./config";
@@ -227,22 +233,16 @@ Use scores from 0-100. IDs must exactly match the provided Statblock IDs: ${allI
     },
   });
 
-  // Parse the JSON response
-  let parsed: { rankings: StatblockRanking[]; reasoning: string };
-  try {
-    const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("No JSON found in response");
-    }
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    console.error(`Failed to parse judge response from ${judge}:`, e);
-    // Return a fallback with equal scores
-    parsed = {
-      rankings: allIds.map((id, i) => ({ id, rank: i + 1, score: 50 })),
-      reasoning: "Failed to parse response",
-    };
+  // Parse and validate the JSON response
+  const fallback = {
+    rankings: allIds.map((id, i) => ({ id, rank: i + 1, score: 50 })),
+    reasoning: "Failed to parse response",
+  };
+  const parseResult = parseJsonResponse(result.text, JudgeStatblocksResponseSchema, fallback);
+  if (!parseResult.success) {
+    console.error(`Failed to parse judge response from ${judge}: ${parseResult.error}`);
   }
+  const parsed = parseResult.data;
 
   return {
     judge,
@@ -300,22 +300,16 @@ export async function pairwiseJudge(
     },
   });
 
-  // Parse the JSON response
-  let parsed: { winner: string; reasoning: string };
-  try {
-    const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("No JSON found in response");
-    }
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    console.error(`Failed to parse pairwise judge response (${judge}):`, e);
-    // Fallback: random winner
-    parsed = {
-      winner: Math.random() > 0.5 ? idA : idB,
-      reasoning: "Failed to parse response, random selection.",
-    };
+  // Parse and validate the JSON response
+  const fallback = {
+    winner: Math.random() > 0.5 ? idA : idB,
+    reasoning: "Failed to parse response, random selection.",
+  };
+  const parseResult = parseJsonResponse(result.text, PairwiseJudgeResponseSchema, fallback);
+  if (!parseResult.success) {
+    console.error(`Failed to parse pairwise judge response (${judge}): ${parseResult.error}`);
   }
+  const parsed = parseResult.data;
 
   return {
     winner: parsed.winner,
@@ -381,25 +375,19 @@ export async function threeWayJudge(
     },
   });
 
-  // Parse the JSON response
-  let parsed: { first: string; second: string; third: string; reasoning: string };
-  try {
-    const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("No JSON found in response");
-    }
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    console.error(`Failed to parse three-way judge response:`, e);
-    // Fallback: random ordering
-    const ids = [idA, idB, idC].sort(() => Math.random() - 0.5);
-    parsed = {
-      first: ids[0]!,
-      second: ids[1]!,
-      third: ids[2]!,
-      reasoning: "Failed to parse response, random selection.",
-    };
+  // Parse and validate the JSON response
+  const ids = [idA, idB, idC].sort(() => Math.random() - 0.5);
+  const fallback = {
+    first: ids[0]!,
+    second: ids[1]!,
+    third: ids[2]!,
+    reasoning: "Failed to parse response, random selection.",
+  };
+  const parseResult = parseJsonResponse(result.text, ThreeWayJudgeResponseSchema, fallback);
+  if (!parseResult.success) {
+    console.error(`Failed to parse three-way judge response: ${parseResult.error}`);
   }
+  const parsed = parseResult.data;
 
   return parsed;
 }

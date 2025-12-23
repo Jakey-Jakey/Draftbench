@@ -13,7 +13,22 @@ import {
 } from "./aiClient";
 import { loadConfig, getConfig, parseArgs, type CLIArgs } from "./config";
 import { mkdir, writeFile, appendFile } from "fs/promises";
+import { existsSync } from "fs";
 import { join } from "path";
+import {
+  createInitialState,
+  loadState,
+  saveState,
+  isPhaseCompleted,
+  markPhaseCompleted,
+  type PipelineState,
+  type StoredGenerateResult,
+  type StoredReviewResult,
+  type StoredRevisionResult,
+  type StoredSwissMatch,
+  type StoredSwissContestant,
+  type StoredPlayoffResult,
+} from "./state";
 
 // Parse CLI arguments and load config
 const cliArgs = parseArgs();
@@ -376,36 +391,79 @@ async function runCrossReviewPipeline(): Promise<void> {
   console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
   console.log(`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${j.model} (${j.effort})`).join(", ")})`);
   console.log(
-    `Swiss Judge: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort}) | Initial Leaderboard: ${
-      INITIAL_LEADERBOARD.enabled
-        ? (INITIAL_LEADERBOARD.judges.length ? INITIAL_LEADERBOARD.judges : PLAYOFF_JUDGES)
-            .map((j) => `${j.model} (${j.effort})`)
-            .join(", ")
-        : "disabled"
+    `Swiss Judge: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort}) | Initial Leaderboard: ${INITIAL_LEADERBOARD.enabled
+      ? (INITIAL_LEADERBOARD.judges.length ? INITIAL_LEADERBOARD.judges : PLAYOFF_JUDGES)
+        .map((j) => `${j.model} (${j.effort})`)
+        .join(", ")
+      : "disabled"
     }\n`
   );
 
-  // Create run directory early for incremental writes
-  const timestamp = getTimestamp();
-  const runDir = await ensureRunsDirectory(timestamp);
-  const revisionsDir = await ensureRunsDirectory(join(timestamp, "revisions"));
-  const reviewsDir = await ensureRunsDirectory(join(timestamp, "reviews"));
+  // === RESUME / STATE INITIALIZATION ===
+  let runDir: string;
+  let state: PipelineState;
+  let isResuming = false;
+
+  if (cliArgs.resumeDir) {
+    // Resume from existing run
+    const resumePath = cliArgs.resumeDir.startsWith(RUNS_DIR)
+      ? cliArgs.resumeDir
+      : join(RUNS_DIR, cliArgs.resumeDir);
+
+    if (!existsSync(resumePath)) {
+      throw new Error(`Resume directory not found: ${resumePath}`);
+    }
+
+    const loadedState = loadState(resumePath);
+    if (!loadedState) {
+      throw new Error(`Could not load state from: ${resumePath}`);
+    }
+
+    runDir = resumePath;
+    state = loadedState;
+    isResuming = true;
+    console.log(`\n🔄 RESUMING from: ${runDir}`);
+    console.log(`   Phases completed: [${state.phasesCompleted.join(", ")}]\n`);
+  } else {
+    // Create new run directory
+    const timestamp = getTimestamp();
+    runDir = await ensureRunsDirectory(timestamp);
+    state = createInitialState();
+  }
+
+  // Helper to get relative path for subdirectory creation
+  const getRelativeRunPath = () => {
+    if (runDir.includes(RUNS_DIR)) {
+      return runDir.slice(runDir.indexOf(RUNS_DIR) + RUNS_DIR.length + 1);
+    }
+    return runDir;
+  };
+  const relRunPath = getRelativeRunPath();
+
+  // Ensure subdirectories exist
+  const revisionsDir = await ensureRunsDirectory(join(relRunPath, "revisions"));
+  const reviewsDir = await ensureRunsDirectory(join(relRunPath, "reviews"));
   const initialLeaderboardDir = INITIAL_LEADERBOARD.enabled
-    ? await ensureRunsDirectory(join(timestamp, "initial_leaderboard"))
+    ? await ensureRunsDirectory(join(relRunPath, "initial_leaderboard"))
     : null;
-  const swissJudgmentsDir = await ensureRunsDirectory(join(timestamp, "swiss_judgments"));
-  const playoffJudgmentsDir = await ensureRunsDirectory(join(timestamp, "playoff_judgments"));
+  const swissJudgmentsDir = await ensureRunsDirectory(join(relRunPath, "swiss_judgments"));
+  const playoffJudgmentsDir = await ensureRunsDirectory(join(relRunPath, "playoff_judgments"));
   const swissLogPath = join(runDir, "swiss_rounds.md");
   const initialLeaderboardLogPath = initialLeaderboardDir ? join(initialLeaderboardDir, "leaderboard.md") : null;
   const playoffLogPath = join(runDir, "playoff_rounds.md");
 
-  // Initialize logs
-  if (!DRY_RUN) {
+  // Initialize logs (only for new runs)
+  if (!DRY_RUN && !isResuming) {
     await writeFile(swissLogPath, "# Swiss Tournament Log (1v1v1)\n\n", "utf-8");
     if (initialLeaderboardLogPath) {
       await writeFile(initialLeaderboardLogPath, "# Initial Draft Leaderboard\n\n", "utf-8");
     }
     await writeFile(playoffLogPath, "# Top-8 Round Robin Playoff\n\n", "utf-8");
+  }
+
+  // Save initial state for new runs
+  if (!DRY_RUN && !isResuming) {
+    saveState(runDir, state);
   }
 
   // === PHASE 1: Generate (3 parallel calls) ===
@@ -415,7 +473,12 @@ async function runCrossReviewPipeline(): Promise<void> {
   let generateCount = 0;
 
   const totalGenerations = MODEL_NAMES.length * INITIAL_GENERATIONS;
-  if (DRY_RUN) {
+  if (isResuming && isPhaseCompleted(state, "generate") && state.generatedDrafts) {
+    for (const [model, drafts] of state.generatedDrafts as Map<ModelName, StoredGenerateResult[]>) {
+      initialDraftsByModel.set(model, drafts as GenerateResult[]);
+    }
+    console.log(`  ↩︎ Loaded ${initialDraftsByModel.size} generated draft sets from state (skipping generation)\n`);
+  } else if (DRY_RUN) {
     // Mock data for dry run
     for (const model of MODEL_NAMES) {
       const drafts: GenerateResult[] = [];
@@ -444,8 +507,19 @@ async function runCrossReviewPipeline(): Promise<void> {
       return drafts;
     });
     await Promise.all(generatePromises);
+    console.log(`  ✓ Wrote originals to ${runDir}\n`);
   }
-  console.log(`  ✓ ${DRY_RUN ? "Mock data generated" : `Wrote originals to ${runDir}`}\n`);
+
+  if (!isResuming) {
+    console.log(`  ✓ ${DRY_RUN ? "Mock data generated" : `Wrote originals to ${runDir}`}\n`);
+  }
+
+  // Save state after Phase 1
+  if (!DRY_RUN) {
+    state.generatedDrafts = initialDraftsByModel as Map<string, StoredGenerateResult[]>;
+    markPhaseCompleted(state, "generate");
+    saveState(runDir, state);
+  }
 
   // === PHASE 2: Initial round robin (optional) ===
   console.log("Phase 2/6: Ranking initial drafts for seeding...");
@@ -479,7 +553,14 @@ async function runCrossReviewPipeline(): Promise<void> {
     });
   }
 
-  if (!INITIAL_LEADERBOARD.enabled || leaderboardJudges.length === 0) {
+  const resumeSelected = isResuming && isPhaseCompleted(state, "initial_leaderboard") && state.selectedDrafts;
+
+  if (resumeSelected) {
+    for (const [model, draft] of state.selectedDrafts as Map<ModelName, StoredGenerateResult>) {
+      statblocksByModel.set(model, draft as GenerateResult);
+    }
+    console.log("  ↩︎ Loaded initial leaderboard winners from state (skipping ranking)\n");
+  } else if (!INITIAL_LEADERBOARD.enabled || leaderboardJudges.length === 0) {
     // No leaderboard: take first draft for each model
     for (const model of MODEL_NAMES) {
       const drafts = initialDraftsByModel.get(model) ?? [];
@@ -488,10 +569,9 @@ async function runCrossReviewPipeline(): Promise<void> {
       }
     }
     console.log(
-      `  ✓ ${
-        INITIAL_LEADERBOARD.enabled && leaderboardJudges.length === 0
-          ? "Initial leaderboard skipped (no judges configured)"
-          : "Initial leaderboard disabled"
+      `  ✓ ${INITIAL_LEADERBOARD.enabled && leaderboardJudges.length === 0
+        ? "Initial leaderboard skipped (no judges configured)"
+        : "Initial leaderboard disabled"
       }\n`
     );
   } else {
@@ -537,7 +617,7 @@ async function runCrossReviewPipeline(): Promise<void> {
           )
         );
 
-        const voteCounts = new Map<string, number>([ [firstId, 0], [secondId, 0] ]);
+        const voteCounts = new Map<string, number>([[firstId, 0], [secondId, 0]]);
         for (const result of judgeResults) {
           const winner = result.winner === "S1" ? firstId : secondId;
           voteCounts.set(winner, (voteCounts.get(winner) ?? 0) + 1);
@@ -611,11 +691,16 @@ async function runCrossReviewPipeline(): Promise<void> {
     }
 
     console.log(
-      `  ✓ Selected winners: ${
-        MODEL_NAMES.map((m) => `${m} draft ${winners.get(m)?.draftIndex ?? 1}`).join(", ")
+      `  ✓ Selected winners: ${MODEL_NAMES.map((m) => `${m} draft ${winners.get(m)?.draftIndex ?? 1}`).join(", ")
       }\n`
     );
   }
+  if (!DRY_RUN && !resumeSelected) {
+    state.selectedDrafts = statblocksByModel as Map<string, StoredGenerateResult>;
+    markPhaseCompleted(state, "initial_leaderboard");
+    saveState(runDir, state);
+  }
+
 
   // === PHASE 2: Review (9 parallel calls) ===
   console.log("Phase 3/6: Cross-reviewing statblocks (including self-review)...");
@@ -623,7 +708,13 @@ async function runCrossReviewPipeline(): Promise<void> {
   let reviewCount = 0;
   const totalReviews = MODEL_NAMES.length * MODEL_NAMES.length;
 
-  if (DRY_RUN) {
+  const resumeReviews = isResuming && isPhaseCompleted(state, "review") && state.reviews;
+
+  if (resumeReviews) {
+    reviews.push(...(state.reviews as StoredReviewResult[]));
+    console.log(`  ↩︎ Loaded ${reviews.length} cached reviews from state (skipping review calls)
+`);
+  } else if (DRY_RUN) {
     // Mock reviews
     for (const reviewer of MODEL_NAMES) {
       for (const reviewed of MODEL_NAMES) {
@@ -648,14 +739,24 @@ async function runCrossReviewPipeline(): Promise<void> {
             console.log(`  ✓ ${review.reviewer} reviewed ${review.reviewed}'s statblock${selfTag} (${reviewCount}/${totalReviews})`);
             // Write immediately
             const path = join(reviewsDir, `${review.reviewer}_reviews_${review.reviewed}.md`);
-            await writeFile(path, `# ${review.reviewer} reviews ${review.reviewed}\n\n${review.text}`, "utf-8");
+            await writeFile(path, `# ${review.reviewer} reviews ${review.reviewed}
+
+${review.text}`, "utf-8");
           })()
         );
       }
     }
     await Promise.all(reviewPromises);
   }
-  console.log(`  ✓ ${DRY_RUN ? "Mock reviews generated" : `Wrote reviews to ${reviewsDir}`}\n`);
+  console.log(`  ✓ ${DRY_RUN ? "Mock reviews generated" : `Wrote reviews to ${reviewsDir}`}
+`);
+
+  if (!DRY_RUN && !resumeReviews) {
+    state.reviews = reviews as StoredReviewResult[];
+    markPhaseCompleted(state, "review");
+    saveState(runDir, state);
+  }
+
 
   // === PHASE 3: Revise (27 parallel calls) ===
   console.log("Phase 4/6: Revising statblocks...");
@@ -683,7 +784,24 @@ async function runCrossReviewPipeline(): Promise<void> {
   let reviseCount = 0;
   const totalRevisions = revisionTasks.length;
 
-  if (DRY_RUN) {
+  const resumeRevisions = isResuming && isPhaseCompleted(state, "revise") && state.revisions;
+
+  if (resumeRevisions) {
+    for (const [id, stored] of state.revisions as Map<string, StoredRevisionResult>) {
+      revisedById.set(id, {
+        result: { text: stored.text, model: stored.reviser },
+        task: {
+          id: stored.id,
+          generator: stored.generator as ModelName,
+          reviewer: stored.reviewer as ModelName,
+          reviser: stored.reviser as ModelName,
+        },
+      });
+    }
+    reviseCount = revisedById.size;
+    console.log(`  ↩︎ Loaded ${reviseCount} revisions from state (skipping revision calls)
+`);
+  } else if (DRY_RUN) {
     // Mock revisions
     for (const task of revisionTasks) {
       const result: ReviseResult = { text: createMockStatblock(task.reviser), model: task.reviser };
@@ -695,7 +813,8 @@ async function runCrossReviewPipeline(): Promise<void> {
     const revisePromises = revisionTasks.map(async (task) => {
       const originalStatblock = statblocksByModel.get(task.generator)!.text;
       const review = reviews.find((r) => r.reviewed === task.generator && r.reviewer === task.reviewer)!;
-      const feedback = `## Feedback:\n${review.text}`;
+      const feedback = `## Feedback:
+${review.text}`;
       const result = await reviseStatblock(task.reviser, originalStatblock, feedback);
       revisedById.set(task.id, { result, task });
       reviseCount++;
@@ -704,164 +823,241 @@ async function runCrossReviewPipeline(): Promise<void> {
       const path = join(revisionsDir, `${task.id}.md`);
       await writeFile(
         path,
-        `# ${task.generator}'s Statblock\n\n**Reviewed by:** ${task.reviewer}\n**Revised by:** ${task.reviser}\n\n${result.text}`,
+        `# ${task.generator}'s Statblock
+
+**Reviewed by:** ${task.reviewer}
+**Revised by:** ${task.reviser}
+
+${result.text}`,
         "utf-8"
       );
       return { task, result };
     });
     await Promise.all(revisePromises);
   }
-  console.log(`  ✓ ${DRY_RUN ? "Mock revisions generated" : `Wrote ${totalRevisions} revisions to ${revisionsDir}`}\n`);
+  console.log(`  ✓ ${DRY_RUN ? "Mock revisions generated" : `Wrote ${totalRevisions} revisions to ${revisionsDir}`}
+`);
+
+  if (!DRY_RUN && !resumeRevisions) {
+    state.revisions = new Map(
+      Array.from(revisedById.entries()).map(([id, entry]) => [
+        id,
+        {
+          id,
+          text: entry.result.text,
+          generator: entry.task.generator,
+          reviewer: entry.task.reviewer,
+          reviser: entry.task.reviser,
+        },
+      ])
+    ) as Map<string, StoredRevisionResult>;
+    markPhaseCompleted(state, "revise");
+    saveState(runDir, state);
+  }
+
 
   // === PHASE 4: Swiss Tournament (7 rounds, 1v1v1) ===
   console.log(`Phase 5/6: Swiss Tournament (${SWISS_ROUNDS} rounds, 1v1v1 format)...`);
 
   // Initialize contestants
-  const contestants: SwissContestant[] = Array.from(revisedById.entries()).map(([id, data]) => ({
-    id,
-    text: data.result.text,
-    points: 0,
-    opponents: new Set<string>(),
-    placements: { first: 0, second: 0, third: 0 },
-  }));
+  const resumeSwiss =
+    isResuming && isPhaseCompleted(state, "swiss") && state.contestants && state.swissMatches.length > 0;
+  const contestants: SwissContestant[] = resumeSwiss
+    ? (state.contestants as StoredSwissContestant[]).map((c) => ({
+        id: c.id,
+        text: revisedById.get(c.id)?.result.text ?? "",
+        points: c.points,
+        opponents: new Set(c.opponents),
+        placements: c.placements,
+      }))
+    : Array.from(revisedById.entries()).map(([id, data]) => ({
+        id,
+        text: data.result.text,
+        points: 0,
+        opponents: new Set<string>(),
+        placements: { first: 0, second: 0, third: 0 },
+      }));
 
-  const allSwissMatches: SwissMatch[] = [];
+  const allSwissMatches: SwissMatch[] = resumeSwiss ? [...(state.swissMatches as StoredSwissMatch[])] : [];
 
-  for (let round = 1; round <= SWISS_ROUNDS; round++) {
-    console.log(`  Round ${round}/${SWISS_ROUNDS}...`);
-    if (!DRY_RUN) {
-      await appendFile(swissLogPath, `## Round ${round}\n\n`, "utf-8");
-    }
+  if (resumeSwiss) {
+    console.log(`  ↩︎ Loaded Swiss tournament state with ${contestants.length} contestants; skipping rounds
+`);
+  } else {
+    for (let round = 1; round <= SWISS_ROUNDS; round++) {
+      console.log(`  Round ${round}/${SWISS_ROUNDS}...`);
+      if (!DRY_RUN) {
+        await appendFile(swissLogPath, `## Round ${round}
 
-    const { triples } = generateSwissTriples(contestants, round);
+`, "utf-8");
+      }
 
-    if (DRY_RUN) {
-      // Mock judging - random results
-      for (const [idA, idB, idC] of triples) {
-        const ids = shuffleArray([idA, idB, idC]);
-        const match: SwissMatch = {
-          round,
-          ids: [idA, idB, idC],
-          first: ids[0]!,
-          second: ids[1]!,
-          third: ids[2]!,
-          reasoning: "Mock judgment for dry run.",
-        };
+      const { triples } = generateSwissTriples(contestants, round);
+
+      if (DRY_RUN) {
+        // Mock judging - random results
+        for (const [idA, idB, idC] of triples) {
+          const ids = shuffleArray([idA, idB, idC]);
+          const match: SwissMatch = {
+            round,
+            ids: [idA, idB, idC],
+            first: ids[0]!,
+            second: ids[1]!,
+            third: ids[2]!,
+            reasoning: "Mock judgment for dry run.",
+          };
+
+          // Update contestants
+          const first = contestants.find((c) => c.id === match.first);
+          const second = contestants.find((c) => c.id === match.second);
+          const third = contestants.find((c) => c.id === match.third);
+
+          if (first && second && third) {
+            first.points += 2;
+            first.placements.first++;
+            second.points += 1;
+            second.placements.second++;
+            third.placements.third++;
+
+            first.opponents.add(second.id);
+            first.opponents.add(third.id);
+            second.opponents.add(first.id);
+            second.opponents.add(third.id);
+            third.opponents.add(first.id);
+            third.opponents.add(second.id);
+          }
+
+          allSwissMatches.push(match);
+          console.log(`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third} (mock)`);
+        }
+      } else {
+        // Run all triples in parallel with randomized, anonymized IDs
+        const triplePromises = triples.map(async ([idA, idB, idC]): Promise<SwissMatch> => {
+          // Randomize order to eliminate position bias
+          const entries: [string, string][] = [
+            [idA, revisedById.get(idA)!.result.text],
+            [idB, revisedById.get(idB)!.result.text],
+            [idC, revisedById.get(idC)!.result.text],
+          ];
+          const shuffled = shuffleArray(entries);
+          const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];
+
+          // Anonymize IDs to prevent judge bias
+          const result = await threeWayJudge("S1", e1[1], "S2", e2[1], "S3", e3[1], SWISS_JUDGE.model, SWISS_JUDGE.effort);
+
+          // Map anonymous winners back to real IDs
+          const anonToReal = new Map<string, string>([
+            ["S1", e1[0]],
+            ["S2", e2[0]],
+            ["S3", e3[0]],
+          ]);
+
+          const match: SwissMatch = {
+            round,
+            ids: [idA, idB, idC],
+            first: anonToReal.get(result.first) ?? idA,
+            second: anonToReal.get(result.second) ?? idB,
+            third: anonToReal.get(result.third) ?? idC,
+            reasoning: result.reasoning,
+          };
+
+          // Write match result immediately
+          await appendFile(
+            swissLogPath,
+            `- **1st: ${match.first}** | 2nd: ${match.second} | 3rd: ${match.third}
+  - *${match.reasoning}*
+`,
+            "utf-8"
+          );
+
+          // Write detailed judgment file
+          const judgmentFile = join(swissJudgmentsDir, `round${round}_${match.first}_vs_${match.second}_vs_${match.third}.md`);
+          let judgmentMd = `# Swiss Round ${round} Judgment
+
+`;
+          judgmentMd += `**Judge**: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort} thinking)
+
+`;
+          judgmentMd += `## Contestants
+
+`;
+          judgmentMd += `- S1 (${e1[0]}): ${e1[0]}
+`;
+          judgmentMd += `- S2 (${e2[0]}): ${e2[0]}
+`;
+          judgmentMd += `- S3 (${e3[0]}): ${e3[0]}
+
+`;
+          judgmentMd += `## Result
+
+`;
+          judgmentMd += `1. **${match.first}** (2 pts)
+`;
+          judgmentMd += `2. ${match.second} (1 pt)
+`;
+          judgmentMd += `3. ${match.third} (0 pts)
+
+`;
+          judgmentMd += `## Reasoning
+
+${result.reasoning}
+`;
+          await writeFile(judgmentFile, judgmentMd, "utf-8");
+
+          return match;
+        });
+
+        const roundResults = await Promise.all(triplePromises);
 
         // Update contestants
-        const first = contestants.find((c) => c.id === match.first);
-        const second = contestants.find((c) => c.id === match.second);
-        const third = contestants.find((c) => c.id === match.third);
+        for (const match of roundResults) {
+          const first = contestants.find((c) => c.id === match.first);
+          const second = contestants.find((c) => c.id === match.second);
+          const third = contestants.find((c) => c.id === match.third);
 
-        if (first && second && third) {
-          first.points += 2;
-          first.placements.first++;
-          second.points += 1;
-          second.placements.second++;
-          third.placements.third++;
+          if (first && second && third) {
+            // Award points: 2/1/0
+            first.points += 2;
+            first.placements.first++;
+            second.points += 1;
+            second.placements.second++;
+            third.placements.third++;
 
-          first.opponents.add(second.id);
-          first.opponents.add(third.id);
-          second.opponents.add(first.id);
-          second.opponents.add(third.id);
-          third.opponents.add(first.id);
-          third.opponents.add(second.id);
+            // Track opponents
+            first.opponents.add(second.id);
+            first.opponents.add(third.id);
+            second.opponents.add(first.id);
+            second.opponents.add(third.id);
+            third.opponents.add(first.id);
+            third.opponents.add(second.id);
+          }
+
+          allSwissMatches.push(match);
+          console.log(`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`);
         }
 
-        allSwissMatches.push(match);
-        console.log(`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third} (mock)`);
+        await appendFile(swissLogPath, "
+", "utf-8");
       }
-    } else {
-      // Run all triples in parallel with randomized, anonymized IDs
-      const triplePromises = triples.map(async ([idA, idB, idC]): Promise<SwissMatch> => {
-        // Randomize order to eliminate position bias
-        const entries: [string, string][] = [
-          [idA, revisedById.get(idA)!.result.text],
-          [idB, revisedById.get(idB)!.result.text],
-          [idC, revisedById.get(idC)!.result.text],
-        ];
-        const shuffled = shuffleArray(entries);
-        const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];
-
-        // Anonymize IDs to prevent judge bias
-        const result = await threeWayJudge("S1", e1[1], "S2", e2[1], "S3", e3[1], SWISS_JUDGE.model, SWISS_JUDGE.effort);
-
-        // Map anonymous winners back to real IDs
-        const anonToReal = new Map<string, string>([
-          ["S1", e1[0]],
-          ["S2", e2[0]],
-          ["S3", e3[0]],
-        ]);
-
-        const match: SwissMatch = {
-          round,
-          ids: [idA, idB, idC],
-          first: anonToReal.get(result.first) ?? idA,
-          second: anonToReal.get(result.second) ?? idB,
-          third: anonToReal.get(result.third) ?? idC,
-          reasoning: result.reasoning,
-        };
-
-        // Write match result immediately
-        await appendFile(
-          swissLogPath,
-          `- **1st: ${match.first}** | 2nd: ${match.second} | 3rd: ${match.third}\n  - *${match.reasoning}*\n`,
-          "utf-8"
-        );
-
-        // Write detailed judgment file
-        const judgmentFile = join(swissJudgmentsDir, `round${round}_${match.first}_vs_${match.second}_vs_${match.third}.md`);
-        let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
-        judgmentMd += `**Judge**: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort} thinking)\n\n`;
-        judgmentMd += `## Contestants\n\n`;
-        judgmentMd += `- S1 (${e1[0]}): ${e1[0]}\n`;
-        judgmentMd += `- S2 (${e2[0]}): ${e2[0]}\n`;
-        judgmentMd += `- S3 (${e3[0]}): ${e3[0]}\n\n`;
-        judgmentMd += `## Result\n\n`;
-        judgmentMd += `1. **${match.first}** (2 pts)\n`;
-        judgmentMd += `2. ${match.second} (1 pt)\n`;
-        judgmentMd += `3. ${match.third} (0 pts)\n\n`;
-        judgmentMd += `## Reasoning\n\n${result.reasoning}\n`;
-        await writeFile(judgmentFile, judgmentMd, "utf-8");
-
-        return match;
-      });
-
-      const roundResults = await Promise.all(triplePromises);
-
-      // Update contestants
-      for (const match of roundResults) {
-        const first = contestants.find((c) => c.id === match.first);
-        const second = contestants.find((c) => c.id === match.second);
-        const third = contestants.find((c) => c.id === match.third);
-
-        if (first && second && third) {
-          // Award points: 2/1/0
-          first.points += 2;
-          first.placements.first++;
-          second.points += 1;
-          second.placements.second++;
-          third.placements.third++;
-
-          // Track opponents
-          first.opponents.add(second.id);
-          first.opponents.add(third.id);
-          second.opponents.add(first.id);
-          second.opponents.add(third.id);
-          third.opponents.add(first.id);
-          third.opponents.add(second.id);
-        }
-
-        allSwissMatches.push(match);
-        console.log(`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`);
-      }
-
-      await appendFile(swissLogPath, "\n", "utf-8");
+      console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
     }
-    console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
+
+    console.log("");
   }
 
-  console.log("");
+  if (!DRY_RUN && !resumeSwiss) {
+    state.swissRound = SWISS_ROUNDS;
+    state.swissMatches = allSwissMatches as StoredSwissMatch[];
+    state.contestants = contestants.map((c) => ({
+      id: c.id,
+      points: c.points,
+      opponents: Array.from(c.opponents),
+      placements: c.placements,
+    })) as StoredSwissContestant[];
+    markPhaseCompleted(state, "swiss");
+    saveState(runDir, state);
+  }
+
 
   // === PHASE 5: Top-8 Round Robin Playoff (Dual-Judge) ===
   console.log(`Phase 6/6: Top-${TOP_N_PLAYOFF} Round Robin Playoff (judges: ${PLAYOFF_JUDGES.map((j) => `${j.model} (${j.effort})`).join(", ")})...`);
@@ -877,7 +1073,12 @@ async function runCrossReviewPipeline(): Promise<void> {
 
   console.log(`  Top ${TOP_N_PLAYOFF} qualifiers: ${top8.map((c) => c.id).join(", ")}`);
   if (!DRY_RUN) {
-    await appendFile(playoffLogPath, `## Qualifiers\n\n${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("\n")}\n\n`, "utf-8");
+    await appendFile(playoffLogPath, `## Qualifiers
+
+${top8.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("
+")}
+
+`, "utf-8");
   }
 
   // Track playoff results
@@ -885,6 +1086,8 @@ async function runCrossReviewPipeline(): Promise<void> {
   for (const c of top8) {
     playoffResults.set(c.id, { points: 0, wins: 0, losses: 0, draws: 0 });
   }
+
+  const resumePlayoff = isResuming && isPhaseCompleted(state, "playoff") && state.playoffResults;
 
   // Generate all pairings for round robin
   const playoffPairs: [string, string][] = [];
@@ -898,10 +1101,23 @@ async function runCrossReviewPipeline(): Promise<void> {
     `  Running ${playoffPairs.length} matchups (×${PLAYOFF_JUDGES.length} judges = ${playoffPairs.length * PLAYOFF_JUDGES.length} total)...`
   );
   if (!DRY_RUN) {
-    await appendFile(playoffLogPath, `## Matches\n\n`, "utf-8");
+    await appendFile(playoffLogPath, `## Matches
+
+`, "utf-8");
   }
 
-  if (DRY_RUN) {
+  if (resumePlayoff) {
+    for (const result of state.playoffResults as StoredPlayoffResult[]) {
+      playoffResults.set(result.id, {
+        points: result.points,
+        wins: result.wins,
+        losses: result.losses,
+        draws: result.draws,
+      });
+    }
+    console.log(`  ↩︎ Loaded playoff standings from state (skipping playoff matches)
+`);
+  } else if (DRY_RUN) {
     // Mock playoff results
     for (const [idA, idB] of playoffPairs) {
       const resultA = playoffResults.get(idA)!;
@@ -969,88 +1185,76 @@ async function runCrossReviewPipeline(): Promise<void> {
         const winnerVotes = voteCounts.get(winner) ?? 0;
         const loserVotes = voteCounts.get(loser) ?? 0;
         matchResult = { winner, loser, isDraw: false };
-        logEntry = `- **${winner}** beat ${loser} (${winnerVotes}-${loserVotes})\n`;
+        logEntry = `- **${winner}** beat ${loser} (${winnerVotes}-${loserVotes})
+`;
       } else {
         const votesA = voteCounts.get(idA) ?? 0;
         const votesB = voteCounts.get(idB) ?? 0;
         matchResult = { winner: null, loser: null, isDraw: true };
-        logEntry = `- ${idA} vs ${idB}: **DRAW** (${votesA}-${votesB})\n`;
+        logEntry = `- ${idA} vs ${idB}: **DRAW** (${votesA}-${votesB})
+`;
       }
 
       for (const result of judgeResults) {
         const resolvedWinner = result.winner === "S1" ? firstId : secondId;
-        logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
+        logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*
+`;
       }
 
       // Write detailed judgment file for playoff
       const judgmentFile = join(playoffJudgmentsDir, `${idA}_vs_${idB}.md`);
-      let judgmentMd = `# Playoff Judgment: ${idA} vs ${idB}\n\n`;
-      judgmentMd += `**Position Order**: S1=${firstId}, S2=${secondId}\n\n`;
-      judgmentMd += `## Judges\n\n`;
-      for (let i = 0; i < judgeResults.length; i++) {
-        const judgeCfg = PLAYOFF_JUDGES[i]!;
-        const result = judgeResults[i]!;
-        const resolvedWinner = result.winner === "S1" ? firstId : secondId;
-        judgmentMd += `### ${judgeCfg.model} (${judgeCfg.effort} thinking)\n\n`;
-        judgmentMd += `- **Winner**: ${resolvedWinner}\n`;
-        judgmentMd += `- **Reasoning**: ${result.reasoning}\n\n`;
-      }
-      judgmentMd += `## Final Result\n\n`;
-      if (matchResult.isDraw) {
-        judgmentMd += `**DRAW** - Judges tied (0.5 pts each)\n`;
-      } else {
-        judgmentMd += `**${matchResult.winner}** wins (1 pt)\n`;
-      }
+      let judgmentMd = `# Playoff Judgment: ${idA} vs ${idB}
+
+`;
+      judgmentMd += `**Position Order**: S1=${firstId}, S2=${secondId}
+
+`;
+      judgmentMd += `## Judge Decisions
+
+`;
+      judgmentMd += logEntry.replace(/^- /, "");
       await writeFile(judgmentFile, judgmentMd, "utf-8");
 
-      // Update scores
+      // Update standings
       const resultA = playoffResults.get(idA)!;
       const resultB = playoffResults.get(idB)!;
-
       if (matchResult.isDraw) {
         resultA.points += 0.5;
         resultA.draws++;
         resultB.points += 0.5;
         resultB.draws++;
-        console.log(`    = ${idA} drew ${idB}`);
       } else if (matchResult.winner === idA) {
         resultA.points += 1;
         resultA.wins++;
         resultB.losses++;
-        console.log(`    ✓ ${idA} beat ${idB}`);
       } else {
         resultB.points += 1;
         resultB.wins++;
         resultA.losses++;
-        console.log(`    ✓ ${idB} beat ${idA}`);
       }
 
-      // Write immediately
-      await appendFile(playoffLogPath, logEntry, "utf-8");
-
-      return matchResult;
+      // Append to playoff log
+      if (!DRY_RUN) {
+        await appendFile(playoffLogPath, logEntry, "utf-8");
+      }
     });
 
     await Promise.all(playoffPromises);
   }
 
-  // Add playoff summary to log
-  if (!DRY_RUN) {
-    await appendFile(playoffLogPath, "\n## Playoff Standings\n\n", "utf-8");
-    await appendFile(playoffLogPath, "| Rank | ID | Points | W | D | L |\n", "utf-8");
-    await appendFile(playoffLogPath, "|------|----|--------|---|---|---|\n", "utf-8");
-
-    const playoffSorted = [...playoffResults.entries()].sort((a, b) => b[1].points - a[1].points);
-    for (let i = 0; i < playoffSorted.length; i++) {
-      const [id, result] = playoffSorted[i]!;
-      const medal = i < 3 ? ["🥇", "🥈", "🥉"][i] : "  ";
-      await appendFile(playoffLogPath, `| ${medal} ${i + 1} | ${id} | ${result.points} | ${result.wins} | ${result.draws} | ${result.losses} |\n`, "utf-8");
-    }
+  if (!DRY_RUN && !resumePlayoff) {
+    state.playoffResults = Array.from(playoffResults.entries()).map(([id, result]) => ({
+      id,
+      points: result.points,
+      wins: result.wins,
+      losses: result.losses,
+      draws: result.draws,
+    })) as StoredPlayoffResult[];
+    markPhaseCompleted(state, "playoff");
+    saveState(runDir, state);
   }
 
-  console.log("");
 
-  // === Finalize: Write leaderboard ===
   const leaderboard = computeLeaderboard(contestants, allSwissMatches, playoffResults);
   const leaderboardPath = join(runDir, "leaderboard.md");
   if (!DRY_RUN) {
@@ -1077,8 +1281,7 @@ async function runCrossReviewPipeline(): Promise<void> {
       ? (MODEL_NAMES.length * INITIAL_GENERATIONS * (MODEL_NAMES.length * INITIAL_GENERATIONS - 1)) / 2
       : 0;
   console.log(
-    `Total Judge Calls: ${
-      allSwissMatches.length + playoffPairs.length * PLAYOFF_JUDGES.length + initialLeaderboardPairs * leaderboardJudges.length
+    `Total Judge Calls: ${allSwissMatches.length + playoffPairs.length * PLAYOFF_JUDGES.length + initialLeaderboardPairs * leaderboardJudges.length
     }`
   );
   console.log("");

@@ -54,10 +54,23 @@ bun run index.ts --config path/to/override.json
 
 Key configuration knobs include:
 
-- **models**: Override provider slugs or reasoning effort per model.
-- **tournament**: Adjust Swiss round count or playoff size.
+- **models**: Override provider slugs or reasoning effort per model. All models participate in all phases (generate, review, revise).
+- **tournament**: Adjust Swiss round count, playoff size, and judge configuration.
+  - `swissJudge`: Which model judges Swiss rounds (and at what reasoning effort).
+  - `playoffJudges`: Array of models that vote on playoff matches.
+  - `initialLeaderboard.judges`: Judges for seed selection. If empty `[]`, falls back to `playoffJudges`.
 - **output**: Change the destination for generated run folders.
 - **prompts**: Swap in custom system prompts or user templates to change the artifact type (essay, short story, D&D statblock, etc.).
+
+### Customization
+
+The best way to tailor Draftbench to your own purposes is to **create your own config file**. You can:
+
+1. Copy `config.default.json` and modify the `prompts` section to test any artifact type.
+2. Ask an LLM to generate a config for you—just describe what you want to benchmark (e.g., "Generate a config for testing code review quality" or "Create prompts for comparing short story writing").
+
+See [`agents.md`](./agents.md) for a full config schema reference.
+
 
 ## Usage
 
