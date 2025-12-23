@@ -9,6 +9,9 @@ function createContestant(id: string, points = 0): SwissContestant {
 		points,
 		opponents: new Set<string>(),
 		placements: { first: 0, second: 0, third: 0 },
+		wins: 0,
+		losses: 0,
+		draws: 0,
 	};
 }
 
@@ -182,7 +185,6 @@ test("sorts by points descending", () => {
 	expect(secondPoints).toBeGreaterThanOrEqual(thirdPoints - 3);
 });
 
-
 describe("generateSwissPairs (1v1)", () => {
 	test("pairs 8 contestants into 4 matches", () => {
 		const contestants = Array.from({ length: 8 }, (_, i) =>
@@ -322,5 +324,17 @@ describe("Swiss contestant tracking", () => {
 
 		c.points += 1; // 2nd place
 		expect(c.points).toBe(3);
+	});
+
+	test("wins/losses are tracked correctly", () => {
+		const c = createContestant("A");
+		expect(c.wins).toBe(0);
+		expect(c.losses).toBe(0);
+
+		c.wins = (c.wins ?? 0) + 1;
+		c.losses = (c.losses ?? 0) + 2;
+
+		expect(c.wins).toBe(1);
+		expect(c.losses).toBe(2);
 	});
 });

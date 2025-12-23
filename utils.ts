@@ -94,10 +94,7 @@ This is a MOCK statblock for dry-run testing purposes.`;
 /**
  * Creates a mock review for dry run mode.
  */
-export function createMockReview(
-	reviewer?: string,
-	reviewed?: string,
-): string {
+export function createMockReview(reviewer?: string, reviewed?: string): string {
 	const header =
 		reviewer && reviewed
 			? `Review by ${reviewer} on ${reviewed}`

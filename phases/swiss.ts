@@ -165,19 +165,25 @@ export async function runSwissPhase(
 	// Initialize contestants
 	const contestants: SwissContestant[] = resumeSwiss
 		? (state.contestants as StoredSwissContestant[]).map((c) => ({
-			id: c.id,
-			text: revisionsById.get(c.id)?.result.text ?? "",
-			points: c.points,
-			opponents: new Set(c.opponents),
-			placements: c.placements,
-		}))
+				id: c.id,
+				text: revisionsById.get(c.id)?.result.text ?? "",
+				points: c.points,
+				opponents: new Set(c.opponents),
+				placements: c.placements,
+				wins: c.wins ?? 0,
+				losses: c.losses ?? 0,
+				draws: c.draws ?? 0,
+			}))
 		: Array.from(revisionsById.entries()).map(([id, data]) => ({
-			id,
-			text: data.result.text,
-			points: 0,
-			opponents: new Set<string>(),
-			placements: { first: 0, second: 0, third: 0 },
-		}));
+				id,
+				text: data.result.text,
+				points: 0,
+				opponents: new Set<string>(),
+				placements: { first: 0, second: 0, third: 0 },
+				wins: 0,
+				losses: 0,
+				draws: 0,
+			}));
 
 	const allSwissMatches: SwissMatch[] = resumeSwiss
 		? [...(state.swissMatches as StoredSwissMatch[])]
@@ -276,9 +282,10 @@ export async function runSwissPhase(
 
 				if (winner && loser) {
 					winner.points += 1;
-					winner.placements.first++; // Track wins in 'first'
+					// Update wins/losses for 1v1 instead of placements
+					winner.wins = (winner.wins ?? 0) + 1;
 					loser.points += 0;
-					loser.placements.second++; // Track losses in 'second'
+					loser.losses = (loser.losses ?? 0) + 1;
 
 					winner.opponents.add(loser.id);
 					loser.opponents.add(winner.id);
@@ -293,7 +300,7 @@ export async function runSwissPhase(
 				const byeContestant = contestants.find((c) => c.id === bye);
 				if (byeContestant) {
 					byeContestant.points += 1;
-					byeContestant.placements.first++;
+					byeContestant.wins = (byeContestant.wins ?? 0) + 1;
 				}
 
 				const byeMatch: SwissMatch = {
@@ -470,6 +477,9 @@ export async function runSwissPhase(
 			points: c.points,
 			opponents: Array.from(c.opponents),
 			placements: c.placements,
+			wins: c.wins ?? 0,
+			losses: c.losses ?? 0,
+			draws: c.draws ?? 0,
 		})) as StoredSwissContestant[];
 		markPhaseCompleted(state, "swiss");
 		saveState(runDir, state);

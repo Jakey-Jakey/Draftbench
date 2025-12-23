@@ -1,11 +1,11 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { loadConfig, resetConfig } from "../config";
 import {
 	getLeaderboard,
 	type PlayoffResult,
 	type SwissContestant,
 	type SwissMatch,
 } from "../leaderboard";
-import { loadConfig, resetConfig } from "../config";
 
 function createContestant(
 	id: string,
@@ -37,12 +37,7 @@ describe("getLeaderboard", () => {
 				createContestant("C", 15),
 			];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard[0]!.id).toBe("C"); // 15 points
 			expect(leaderboard[1]!.id).toBe("A"); // 10 points
@@ -56,12 +51,7 @@ describe("getLeaderboard", () => {
 				createContestant("C", 10, 1, 2, 1),
 			];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard[0]!.id).toBe("B"); // Most 1sts
 			expect(leaderboard[1]!.id).toBe("A");
@@ -75,12 +65,7 @@ describe("getLeaderboard", () => {
 				createContestant("C", 10, 3, 1, 0),
 			];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard[0]!.id).toBe("B"); // Most 2nds
 			expect(leaderboard[1]!.id).toBe("A");
@@ -88,17 +73,9 @@ describe("getLeaderboard", () => {
 		});
 
 		test("includes rank in leaderboard entries", () => {
-			const contestants = [
-				createContestant("A", 10),
-				createContestant("B", 5),
-			];
+			const contestants = [createContestant("A", 10), createContestant("B", 5)];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard[0]!.rank).toBe(1);
 			expect(leaderboard[1]!.rank).toBe(2);
@@ -107,12 +84,7 @@ describe("getLeaderboard", () => {
 		test("includes all contestant data", () => {
 			const contestants = [createContestant("A", 10, 2, 1, 0)];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			const entry = leaderboard[0]!;
 			expect(entry.id).toBe("A");
@@ -125,10 +97,7 @@ describe("getLeaderboard", () => {
 
 	describe("With playoff results", () => {
 		test("includes playoff data when available", () => {
-			const contestants = [
-				createContestant("A", 10),
-				createContestant("B", 8),
-			];
+			const contestants = [createContestant("A", 10), createContestant("B", 8)];
 
 			const playoffResults = new Map<string, PlayoffResult>([
 				["A", { points: 5, wins: 5, losses: 0, draws: 0 }],
@@ -149,10 +118,7 @@ describe("getLeaderboard", () => {
 		});
 
 		test("omits playoff data for non-playoff contestants", () => {
-			const contestants = [
-				createContestant("A", 10),
-				createContestant("B", 5),
-			];
+			const contestants = [createContestant("A", 10), createContestant("B", 5)];
 
 			const playoffResults = new Map<string, PlayoffResult>([
 				["A", { points: 5, wins: 5, losses: 0, draws: 0 }],
@@ -223,12 +189,7 @@ describe("getLeaderboard", () => {
 		test("handles missing revision metadata gracefully", () => {
 			const contestants = [createContestant("unknown", 10)];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			// Defaults gracefully or uses ID parts
 			// In implementation, it falls back to ID split if metadata missing
@@ -246,12 +207,7 @@ describe("getLeaderboard", () => {
 		test("handles single contestant", () => {
 			const contestants = [createContestant("A", 10)];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard.length).toBe(1);
 			expect(leaderboard[0]!.rank).toBe(1);
@@ -264,12 +220,7 @@ describe("getLeaderboard", () => {
 				createContestant("C", 0),
 			];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard.length).toBe(3);
 			// Should still assign ranks
@@ -282,12 +233,7 @@ describe("getLeaderboard", () => {
 				createContestant("B", 10),
 			];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard[0]!.id).toBe("B"); // Positive points first
 			expect(leaderboard[1]!.id).toBe("A");
@@ -299,12 +245,7 @@ describe("getLeaderboard", () => {
 				createContestant("B", 999999),
 			];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard[0]!.id).toBe("A");
 			expect(leaderboard[0]!.points).toBe(1000000);
@@ -378,12 +319,7 @@ describe("getLeaderboard", () => {
 				createContestant("D", 10, 3, 2, 0), // Fewer 1sts, more 2nds
 			];
 
-			const leaderboard = getLeaderboard(
-				contestants,
-				[],
-				new Map(),
-				new Map(),
-			);
+			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard[0]!.id).toBe("A"); // Most 1sts
 			expect(leaderboard[1]!.id).toBe("B"); // Second most 1sts, has 2nd

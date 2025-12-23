@@ -55,6 +55,9 @@ export interface StoredSwissContestant {
 	points: number;
 	opponents: string[]; // Stored as array, converted to Set at runtime
 	placements: { first: number; second: number; third: number };
+	wins?: number;
+	losses?: number;
+	draws?: number;
 }
 
 /**
@@ -128,22 +131,22 @@ function deserializeState(obj: Record<string, unknown>): PipelineState {
 		...obj,
 		generatedDrafts: obj.generatedDrafts
 			? new Map(
-				Object.entries(
-					obj.generatedDrafts as Record<string, StoredGenerateResult[]>,
-				),
-			)
+					Object.entries(
+						obj.generatedDrafts as Record<string, StoredGenerateResult[]>,
+					),
+				)
 			: null,
 		selectedDrafts: obj.selectedDrafts
 			? new Map(
-				Object.entries(
-					obj.selectedDrafts as Record<string, StoredGenerateResult>,
-				),
-			)
+					Object.entries(
+						obj.selectedDrafts as Record<string, StoredGenerateResult>,
+					),
+				)
 			: null,
 		revisions: obj.revisions
 			? new Map(
-				Object.entries(obj.revisions as Record<string, StoredRevisionResult>),
-			)
+					Object.entries(obj.revisions as Record<string, StoredRevisionResult>),
+				)
 			: null,
 	} as PipelineState;
 }
@@ -189,6 +192,9 @@ const StoredSwissContestantSchema = z.object({
 		second: z.number(),
 		third: z.number(),
 	}),
+	wins: z.number().optional(),
+	losses: z.number().optional(),
+	draws: z.number().optional(),
 });
 
 const StoredPlayoffResultSchema = z.object({

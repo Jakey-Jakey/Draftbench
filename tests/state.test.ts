@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -6,8 +6,8 @@ import {
 	isPhaseCompleted,
 	loadState,
 	markPhaseCompleted,
-	saveState,
 	type PipelineState,
+	saveState,
 } from "../state";
 
 const TEST_RUN_DIR = join(process.cwd(), "test-runs", `test-${Date.now()}`);
@@ -265,9 +265,9 @@ describe("PipelineState", () => {
 			markPhaseCompleted(state, "generate");
 			markPhaseCompleted(state, "generate");
 
-			expect(
-				state.phasesCompleted.filter((p) => p === "generate").length,
-			).toBe(1);
+			expect(state.phasesCompleted.filter((p) => p === "generate").length).toBe(
+				1,
+			);
 		});
 
 		test("can mark multiple phases", () => {

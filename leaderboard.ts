@@ -15,6 +15,9 @@ export interface SwissContestant {
 	points: number;
 	opponents: Set<string>;
 	placements: { first: number; second: number; third: number };
+	wins?: number;
+	losses?: number;
+	draws?: number;
 }
 
 /**
@@ -108,7 +111,12 @@ export function getLeaderboard(
 			return 1; // B was in playoff, A wasn't
 		}
 
-		// Tiebreaker 2: Swiss placements (most 1sts, then most 2nds)
+		// Tiebreaker 2: Win/Loss record (1v1 format specific)
+		const winsA = a.wins ?? 0;
+		const winsB = b.wins ?? 0;
+		if (winsB !== winsA) return winsB - winsA;
+
+		// Tiebreaker 3: Swiss placements (most 1sts, then most 2nds - multi-player format)
 		if (b.placements.first !== a.placements.first)
 			return b.placements.first - a.placements.first;
 		return b.placements.second - a.placements.second;
@@ -191,7 +199,7 @@ function formatLeaderboardMarkdown(
 
 	sorted.forEach((c) => {
 		const inTop8 = playoffResults?.has(c.id) ? 1 : 0;
-		// Use keys from ID (default) or potentially enriched metadata could be used, 
+		// Use keys from ID (default) or potentially enriched metadata could be used,
 		// but keeping it simple based on ID convention generally used in stats
 		const [gen, rev, revi] = c.id.split("_");
 
@@ -206,7 +214,8 @@ function formatLeaderboardMarkdown(
 				avgRank: 0,
 				top8: 0,
 			};
-			stats.avgRank = (stats.avgRank * stats.count + c.rank) / (stats.count + 1);
+			stats.avgRank =
+				(stats.avgRank * stats.count + c.rank) / (stats.count + 1);
 			stats.count++;
 			stats.top8 += inTop8;
 			modelStats[role].set(model, stats);
@@ -216,6 +225,8 @@ function formatLeaderboardMarkdown(
 	// Build markdown
 	let md = "# 🏆 Tournament Leaderboard\n\n";
 	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
+	const is1v1 = SWISS_FORMAT === "1v1";
+
 	md += `> **${SWISS_ROUNDS} Swiss rounds (${SWISS_FORMAT})** + **Top-${TOP_N_PLAYOFF} Round Robin playoff**\n>\n`;
 	md += `> Swiss Judge: ${getShortModelName(SWISS_JUDGE.model)} (${SWISS_JUDGE.effort ?? "low"}) | Playoff Judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(" + ")}\n>\n`;
 	md += `> Tiebreaker: Playoff performance → Swiss placements\n\n`;
@@ -253,26 +264,41 @@ function formatLeaderboardMarkdown(
 
 	// Final Rankings Table
 	md += "## 🏅 Final Rankings\n\n";
-	md +=
-		"| # | ID | Gen | Rev | Revi | Swiss | Playoff | Total | Swiss 1st/2nd/3rd |\n";
+	const extraHeader = is1v1 ? "Swiss W/L/D" : "Swiss 1st/2nd/3rd";
+	md += `| # | ID | Gen | Rev | Revi | Swiss | Playoff | Total | ${extraHeader} |\n`;
 	md +=
 		"|---|-----|-----|-----|------|-------|---------|-------|-------------------|\n";
 
 	sorted.forEach((c) => {
 		const medal = c.rank <= 3 ? ["🥇", "🥈", "🥉"][c.rank - 1] : "";
-		const playoffStr = c.playoffPoints !== undefined
-			? `${c.playoffWins}W/${c.playoffDraws}D/${c.playoffLosses}L`
-			: "-";
-		const placementStr = `${c.placements.first}/${c.placements.second}/${c.placements.third}`;
+		const playoffStr =
+			c.playoffPoints !== undefined
+				? `${c.playoffWins}W/${c.playoffDraws}D/${c.playoffLosses}L`
+				: "-";
+
+		let placementStr = "";
+		if (is1v1) {
+			const w = c.wins ?? 0;
+			const l = c.losses ?? 0;
+			const d = c.draws ?? 0;
+			placementStr = `${w}W/${l}L/${d}D`;
+		} else {
+			placementStr = `${c.placements.first}/${c.placements.second}/${c.placements.third}`;
+		}
+
 		md += `| ${medal}${c.rank} | ${c.id} | ${c.generator} | ${c.reviewer} | ${c.reviser} | ${c.points} | ${playoffStr} | ${c.totalScore.toFixed(1)} | ${placementStr} |\n`;
 	});
 
 	// Top 8 Playoff Details
 	md += "\n## 🎯 Playoff Details (Top 8)\n\n";
 	if (playoffResults) {
-		const playoffEntries = sorted.filter(c => c.playoffPoints !== undefined);
+		const playoffEntries = sorted.filter((c) => c.playoffPoints !== undefined);
 		// Sort specifically for this table (rank in playoff)
-		playoffEntries.sort((a, b) => (b.playoffPoints!) - (a.playoffPoints!) || (a.playoffLosses!) - (b.playoffLosses!));
+		playoffEntries.sort(
+			(a, b) =>
+				b.playoffPoints! - a.playoffPoints! ||
+				a.playoffLosses! - b.playoffLosses!,
+		);
 
 		md += "| # | ID | W | D | L | Pts | Win Rate |\n";
 		md += "|---|-----|---|---|---|-----|----------|\n";
@@ -328,6 +354,9 @@ export function storedToRuntimeContestants(
 		points: c.points,
 		opponents: new Set(c.opponents),
 		placements: c.placements,
+		wins: c.wins ?? 0,
+		losses: c.losses ?? 0,
+		draws: c.draws ?? 0,
 	}));
 }
 
@@ -342,5 +371,8 @@ export function runtimeToStoredContestants(
 		points: c.points,
 		opponents: Array.from(c.opponents),
 		placements: c.placements,
+		wins: c.wins ?? 0,
+		losses: c.losses ?? 0,
+		draws: c.draws ?? 0,
 	}));
 }

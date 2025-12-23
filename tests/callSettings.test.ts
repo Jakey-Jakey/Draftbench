@@ -5,7 +5,7 @@ import {
 	getJudgeSettings,
 	type Phase,
 } from "../callSettings";
-import { loadConfig, resetConfig, type RoleEntry } from "../config";
+import { loadConfig, type RoleEntry, resetConfig } from "../config";
 
 describe("callSettings", () => {
 	beforeEach(() => {
@@ -128,7 +128,10 @@ describe("callSettings", () => {
 			const settings = getCallSettings("openai/gpt-5.2", "generators");
 			expect(settings).toHaveProperty("effort");
 			// temperature may or may not be present
-			expect(typeof settings.temperature === "number" || settings.temperature === undefined).toBe(true);
+			expect(
+				typeof settings.temperature === "number" ||
+					settings.temperature === undefined,
+			).toBe(true);
 		});
 	});
 

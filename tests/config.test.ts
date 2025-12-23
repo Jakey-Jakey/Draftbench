@@ -124,14 +124,7 @@ describe("TOML configuration", () => {
 
 	test("handles effort levels", () => {
 		const config = loadConfig("config.example.toml");
-		const validEfforts = [
-			"xhigh",
-			"high",
-			"medium",
-			"low",
-			"minimal",
-			"none",
-		];
+		const validEfforts = ["xhigh", "high", "medium", "low", "minimal", "none"];
 
 		for (const gen of config.roles.generators) {
 			if (gen.effort) {
