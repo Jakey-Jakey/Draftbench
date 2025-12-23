@@ -231,3 +231,38 @@ runs/<timestamp>/
 - **Randomization**: Presentation order is shuffled for every match.
 - **Dual Judging**: Playoff uses two judges with different reasoning efforts to reduce single-model bias.
 - **Incremental I/O**: Results are persisted immediately to handle crashes gracefully.
+
+---
+
+## 🧪 Test Coverage
+
+The test suite now includes comprehensive coverage for:
+
+### New Test Files
+- `tests/callSettings.test.ts` - Tests for the new callSettings module (effort/temperature resolution)
+- `tests/semaphore.test.ts` - Tests for the new concurrency limiter
+- `tests/state.test.ts` - Tests for state management and persistence
+- `tests/leaderboard.test.ts` - Tests for leaderboard computation and ranking logic
+
+### Enhanced Existing Tests
+- `tests/config.test.ts` - Added TOML parsing, role configuration, prompt interpolation tests
+- `tests/swiss.test.ts` - Added pairwise pairing, opponent tracking, edge case tests
+- `tests/utils.test.ts` - Added timestamp, directory management, mock generation tests
+
+### Test Statistics
+- **Total Test Files**: 7
+- **Test Suites**: 50+
+- **Individual Tests**: 150+
+- **Coverage Areas**: Config loading, TOML parsing, concurrency control, state persistence, tournament logic, leaderboard computation, utility functions
+
+Run tests with:
+```bash
+bun test
+```
+
+Run specific test file:
+```bash
+bun test tests/semaphore.test.ts
+```
+
+---
