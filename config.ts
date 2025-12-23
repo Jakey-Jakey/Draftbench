@@ -5,14 +5,30 @@ import { join } from "path";
 // Configuration Types
 // ============================================================================
 
+export type ModelName = string;
+
 export interface ModelConfig {
     slug: string;
     reasoningEffort: "low" | "medium" | "high";
 }
 
+export interface JudgeConfig {
+    model: ModelName;
+    effort: "low" | "medium" | "high";
+}
+
+export interface InitialLeaderboardConfig {
+    enabled: boolean;
+    judges: JudgeConfig[];
+}
+
 export interface TournamentConfig {
     swissRounds: number;
     playoffSize: number;
+    initialGenerations: number;
+    initialLeaderboard: InitialLeaderboardConfig;
+    swissJudge: JudgeConfig;
+    playoffJudges: JudgeConfig[];
 }
 
 export interface OutputConfig {
@@ -71,6 +87,19 @@ const DEFAULT_CONFIG: PipelineConfig = {
     tournament: {
         swissRounds: 7,
         playoffSize: 8,
+        initialGenerations: 1,
+        initialLeaderboard: {
+            enabled: false,
+            judges: [],
+        },
+        swissJudge: {
+            model: "claude",
+            effort: "low",
+        },
+        playoffJudges: [
+            { model: "claude", effort: "low" },
+            { model: "gpt", effort: "high" },
+        ],
     },
     output: {
         runsDirectory: "runs",
@@ -275,4 +304,3 @@ export function parseArgs(argv: string[] = process.argv): CLIArgs {
 }
 
 // Export types for model names derived from config
-export type ModelName = string;

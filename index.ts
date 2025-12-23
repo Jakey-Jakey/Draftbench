@@ -24,6 +24,10 @@ const RUNS_DIR = config.output.runsDirectory;
 const MODEL_NAMES = Object.keys(config.models) as ModelName[];
 const SWISS_ROUNDS = config.tournament.swissRounds;
 const TOP_N_PLAYOFF = config.tournament.playoffSize;
+const INITIAL_GENERATIONS = config.tournament.initialGenerations;
+const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
+const SWISS_JUDGE = config.tournament.swissJudge;
+const PLAYOFF_JUDGES = config.tournament.playoffJudges;
 
 // Dry run mode flag
 const DRY_RUN = cliArgs.dryRun;
@@ -218,7 +222,7 @@ function computeLeaderboard(
   // Build markdown
   let md = "# 🏆 Tournament Leaderboard\n\n";
   md += `> **${SWISS_ROUNDS} Swiss rounds (1v1v1)** + **Top-${TOP_N_PLAYOFF} Round Robin playoff**\n>\n`;
-  md += "> Swiss Judge: Claude (low) | Playoff Judges: Claude (low) + GPT (high)\n>\n";
+  md += `> Swiss Judge: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort}) | Playoff Judges: ${PLAYOFF_JUDGES.map((j) => `${j.model} (${j.effort})`).join(" + ")}\n>\n`;
   md += `> Tiebreaker: Playoff performance → Swiss placements\n\n`;
 
   // Model Performance Summary
@@ -335,6 +339,8 @@ function printDryRunConfig(): void {
   console.log(`\nTournament:`);
   console.log(`  Swiss Rounds: ${SWISS_ROUNDS}`);
   console.log(`  Playoff Size: ${TOP_N_PLAYOFF}`);
+  console.log(`  Initial Generations per Model: ${INITIAL_GENERATIONS}`);
+  console.log(`  Initial Leaderboard Enabled: ${INITIAL_LEADERBOARD.enabled}`);
   console.log(`  Total Contestants: ${MODEL_NAMES.length ** 3}`);
   console.log(`\nOutput:`);
   console.log(`  Runs Directory: ${RUNS_DIR}`);
@@ -349,12 +355,13 @@ function printDryRunConfig(): void {
 
 /**
  * Runs the cross-review pipeline with optimized Swiss System:
- * 1. Each model generates its own statblock (3 parallel calls)
- * 2. Each model reviews ALL 3 models' outputs (9 parallel calls)
- * 3. ALL 3 models revise each original based on each review (27 parallel calls)
- * 4. Swiss tournament: 7 rounds of 1v1v1 judging (9 matches/round = 63 total)
- * 5. Top-8 Round Robin playoff with dual-judge voting (56 API calls)
- * 6. Compute final leaderboard
+ * 1. Each model generates N drafts (parallel per model, configurable count)
+ * 2. Optional initial round robin to pick the best draft per model
+ * 3. Each model reviews ALL models' selected drafts (cross-review)
+ * 4. ALL models revise each original based on each review (27 revisions for 3 models)
+ * 5. Swiss tournament: 7 rounds of 1v1v1 judging (9 matches/round = 63 total)
+ * 6. Top-8 Round Robin playoff with configurable judges
+ * 7. Compute final leaderboard
  */
 async function runCrossReviewPipeline(): Promise<void> {
   console.log("🎲 Auto-Draftify: D&D 5e Cross-Review Pipeline (Optimized Swiss)\n");
@@ -367,56 +374,251 @@ async function runCrossReviewPipeline(): Promise<void> {
   console.log("📝 Creating: Monster Statblock\n");
   console.log("Models:", Object.entries(getModels()).map(([k, v]) => `${k}: ${v}`).join("\n        "));
   console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
-  console.log(`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (dual-judge: Claude + GPT)`);
-  console.log("Swiss Judge: Claude (low) | Playoff Judges: Claude (low) + GPT (high)\n");
+  console.log(`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${j.model} (${j.effort})`).join(", ")})`);
+  console.log(
+    `Swiss Judge: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort}) | Initial Leaderboard: ${
+      INITIAL_LEADERBOARD.enabled
+        ? (INITIAL_LEADERBOARD.judges.length ? INITIAL_LEADERBOARD.judges : PLAYOFF_JUDGES)
+            .map((j) => `${j.model} (${j.effort})`)
+            .join(", ")
+        : "disabled"
+    }\n`
+  );
 
   // Create run directory early for incremental writes
   const timestamp = getTimestamp();
   const runDir = await ensureRunsDirectory(timestamp);
   const revisionsDir = await ensureRunsDirectory(join(timestamp, "revisions"));
   const reviewsDir = await ensureRunsDirectory(join(timestamp, "reviews"));
+  const initialLeaderboardDir = INITIAL_LEADERBOARD.enabled
+    ? await ensureRunsDirectory(join(timestamp, "initial_leaderboard"))
+    : null;
   const swissJudgmentsDir = await ensureRunsDirectory(join(timestamp, "swiss_judgments"));
   const playoffJudgmentsDir = await ensureRunsDirectory(join(timestamp, "playoff_judgments"));
   const swissLogPath = join(runDir, "swiss_rounds.md");
+  const initialLeaderboardLogPath = initialLeaderboardDir ? join(initialLeaderboardDir, "leaderboard.md") : null;
   const playoffLogPath = join(runDir, "playoff_rounds.md");
 
   // Initialize logs
   if (!DRY_RUN) {
     await writeFile(swissLogPath, "# Swiss Tournament Log (1v1v1)\n\n", "utf-8");
+    if (initialLeaderboardLogPath) {
+      await writeFile(initialLeaderboardLogPath, "# Initial Draft Leaderboard\n\n", "utf-8");
+    }
     await writeFile(playoffLogPath, "# Top-8 Round Robin Playoff\n\n", "utf-8");
   }
 
   // === PHASE 1: Generate (3 parallel calls) ===
-  console.log("Phase 1/5: Generating statblocks from all models...");
+  console.log("Phase 1/6: Generating statblocks from all models...");
+  const initialDraftsByModel = new Map<ModelName, GenerateResult[]>();
   const statblocksByModel = new Map<ModelName, GenerateResult>();
   let generateCount = 0;
 
+  const totalGenerations = MODEL_NAMES.length * INITIAL_GENERATIONS;
   if (DRY_RUN) {
     // Mock data for dry run
     for (const model of MODEL_NAMES) {
-      const result: GenerateResult = { text: createMockStatblock(model), model };
-      statblocksByModel.set(model, result);
-      generateCount++;
-      console.log(`  ✓ ${model} generated (mock) (${generateCount}/${MODEL_NAMES.length})`);
+      const drafts: GenerateResult[] = [];
+      for (let i = 0; i < INITIAL_GENERATIONS; i++) {
+        const result: GenerateResult = { text: createMockStatblock(`${model}-${i + 1}`), model };
+        drafts.push(result);
+        generateCount++;
+        console.log(`  ✓ ${model} draft ${i + 1} generated (mock) (${generateCount}/${totalGenerations})`);
+      }
+      initialDraftsByModel.set(model, drafts);
     }
   } else {
     // Immediate writes as each completes
     const generatePromises = MODEL_NAMES.map(async (model) => {
-      const result = await generateStatblock(model);
-      statblocksByModel.set(result.model, result);
-      generateCount++;
-      console.log(`  ✓ ${result.model} generated (${generateCount}/${MODEL_NAMES.length})`);
-      // Write immediately
-      const path = join(runDir, `${result.model}_original.md`);
-      await writeFile(path, `# Original Statblock (${result.model})\n\n${result.text}`, "utf-8");
-      return result;
+      const drafts: GenerateResult[] = [];
+      for (let i = 0; i < INITIAL_GENERATIONS; i++) {
+        const result = await generateStatblock(model);
+        drafts.push(result);
+        generateCount++;
+        console.log(`  ✓ ${result.model} draft ${i + 1} generated (${generateCount}/${totalGenerations})`);
+        // Write immediately
+        const path = join(runDir, `${result.model}_original_${i + 1}.md`);
+        await writeFile(path, `# Original Statblock (${result.model} draft ${i + 1})\n\n${result.text}`, "utf-8");
+      }
+      initialDraftsByModel.set(model, drafts);
+      return drafts;
     });
     await Promise.all(generatePromises);
   }
   console.log(`  ✓ ${DRY_RUN ? "Mock data generated" : `Wrote originals to ${runDir}`}\n`);
 
+  // === PHASE 2: Initial round robin (optional) ===
+  console.log("Phase 2/6: Ranking initial drafts for seeding...");
+  const leaderboardJudges = INITIAL_LEADERBOARD.judges.length ? INITIAL_LEADERBOARD.judges : PLAYOFF_JUDGES;
+
+  interface DraftStanding {
+    model: ModelName;
+    draftIndex: number;
+    text: string;
+    result: GenerateResult;
+    points: number;
+    wins: number;
+    draws: number;
+    losses: number;
+  }
+
+  const draftStandings = new Map<string, DraftStanding>();
+  for (const model of MODEL_NAMES) {
+    const drafts = initialDraftsByModel.get(model) ?? [];
+    drafts.forEach((draft, idx) => {
+      draftStandings.set(`${model}_draft${idx + 1}`, {
+        model,
+        draftIndex: idx + 1,
+        text: draft.text,
+        result: draft,
+        points: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+      });
+    });
+  }
+
+  if (!INITIAL_LEADERBOARD.enabled || leaderboardJudges.length === 0) {
+    // No leaderboard: take first draft for each model
+    for (const model of MODEL_NAMES) {
+      const drafts = initialDraftsByModel.get(model) ?? [];
+      if (drafts[0]) {
+        statblocksByModel.set(model, drafts[0]!);
+      }
+    }
+    console.log(
+      `  ✓ ${
+        INITIAL_LEADERBOARD.enabled && leaderboardJudges.length === 0
+          ? "Initial leaderboard skipped (no judges configured)"
+          : "Initial leaderboard disabled"
+      }\n`
+    );
+  } else {
+    const draftIds = Array.from(draftStandings.keys());
+    const pairs: [string, string][] = [];
+    for (let i = 0; i < draftIds.length; i++) {
+      for (let j = i + 1; j < draftIds.length; j++) {
+        pairs.push([draftIds[i]!, draftIds[j]!]);
+      }
+    }
+
+    console.log(`  Running ${pairs.length} matchups with judges: ${leaderboardJudges.map((j) => `${j.model} (${j.effort})`).join(", ")}`);
+
+    if (DRY_RUN) {
+      for (const [idA, idB] of pairs) {
+        const outcome = Math.random();
+        if (outcome < 0.4) {
+          draftStandings.get(idA)!.points += 1;
+          draftStandings.get(idA)!.wins += 1;
+          draftStandings.get(idB)!.losses += 1;
+        } else if (outcome < 0.8) {
+          draftStandings.get(idB)!.points += 1;
+          draftStandings.get(idB)!.wins += 1;
+          draftStandings.get(idA)!.losses += 1;
+        } else {
+          draftStandings.get(idA)!.points += 0.5;
+          draftStandings.get(idB)!.points += 0.5;
+          draftStandings.get(idA)!.draws += 1;
+          draftStandings.get(idB)!.draws += 1;
+        }
+      }
+    } else {
+      const leaderboardPromises = pairs.map(async ([idA, idB]) => {
+        const a = draftStandings.get(idA)!;
+        const b = draftStandings.get(idB)!;
+        const swapped = Math.random() > 0.5;
+        const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
+        const [firstText, secondText] = swapped ? [b.text, a.text] : [a.text, b.text];
+
+        const judgeResults = await Promise.all(
+          leaderboardJudges.map((judge) =>
+            pairwiseJudge("S1", firstText, "S2", secondText, judge.model, judge.effort)
+          )
+        );
+
+        const voteCounts = new Map<string, number>([ [firstId, 0], [secondId, 0] ]);
+        for (const result of judgeResults) {
+          const winner = result.winner === "S1" ? firstId : secondId;
+          voteCounts.set(winner, (voteCounts.get(winner) ?? 0) + 1);
+        }
+
+        const votes = Array.from(voteCounts.entries());
+        votes.sort((a, b) => b[1]! - a[1]!);
+        const topCount = votes[0]![1];
+        const topWinners = votes.filter(([, count]) => count === topCount).map(([id]) => id);
+
+        if (topWinners.length === 1) {
+          const winner = topWinners[0]!;
+          const loser = winner === firstId ? secondId : firstId;
+          draftStandings.get(winner)!.points += 1;
+          draftStandings.get(winner)!.wins += 1;
+          draftStandings.get(loser)!.losses += 1;
+        } else {
+          draftStandings.get(firstId)!.points += 0.5;
+          draftStandings.get(secondId)!.points += 0.5;
+          draftStandings.get(firstId)!.draws += 1;
+          draftStandings.get(secondId)!.draws += 1;
+        }
+
+        if (initialLeaderboardLogPath) {
+          let logEntry = `- ${idA} vs ${idB}: `;
+          if (topWinners.length === 1) {
+            const winnerVotes = voteCounts.get(topWinners[0]!) ?? 0;
+            const loserVotes = voteCounts.get(topWinners[0] === firstId ? secondId : firstId) ?? 0;
+            logEntry += `**${topWinners[0]}** wins (${winnerVotes}-${loserVotes})`;
+          } else {
+            logEntry += `**DRAW** (${voteCounts.get(firstId)}-${voteCounts.get(secondId)})`;
+          }
+          logEntry += "\n";
+          for (const result of judgeResults) {
+            const resolvedWinner = result.winner === "S1" ? firstId : secondId;
+            logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
+          }
+          await appendFile(initialLeaderboardLogPath, logEntry, "utf-8");
+        }
+      });
+
+      await Promise.all(leaderboardPromises);
+    }
+
+    const sortedStandings = Array.from(draftStandings.entries()).sort((a, b) => {
+      if (b[1].points !== a[1].points) return b[1].points - a[1].points;
+      if (b[1].wins !== a[1].wins) return b[1].wins - a[1].wins;
+      return a[1].draftIndex - b[1].draftIndex;
+    });
+
+    const winners = new Map<ModelName, DraftStanding>();
+    for (const [, standing] of sortedStandings) {
+      if (!winners.has(standing.model)) {
+        winners.set(standing.model, standing);
+        statblocksByModel.set(standing.model, standing.result);
+      }
+    }
+
+    if (!DRY_RUN && initialLeaderboardLogPath) {
+      await appendFile(initialLeaderboardLogPath, "\n## Standings\n\n", "utf-8");
+      await appendFile(initialLeaderboardLogPath, "| Rank | Draft | Model | Points | W | D | L |\n", "utf-8");
+      await appendFile(initialLeaderboardLogPath, "|------|-------|-------|--------|---|---|---|\n", "utf-8");
+      for (let i = 0; i < sortedStandings.length; i++) {
+        const [id, s] = sortedStandings[i]!;
+        await appendFile(
+          initialLeaderboardLogPath,
+          `| ${i + 1} | ${id} | ${s.model} | ${s.points} | ${s.wins} | ${s.draws} | ${s.losses} |\n`,
+          "utf-8"
+        );
+      }
+    }
+
+    console.log(
+      `  ✓ Selected winners: ${
+        MODEL_NAMES.map((m) => `${m} draft ${winners.get(m)?.draftIndex ?? 1}`).join(", ")
+      }\n`
+    );
+  }
+
   // === PHASE 2: Review (9 parallel calls) ===
-  console.log("Phase 2/5: Cross-reviewing statblocks (including self-review)...");
+  console.log("Phase 3/6: Cross-reviewing statblocks (including self-review)...");
   const reviews: ReviewResult[] = [];
   let reviewCount = 0;
   const totalReviews = MODEL_NAMES.length * MODEL_NAMES.length;
@@ -456,7 +658,7 @@ async function runCrossReviewPipeline(): Promise<void> {
   console.log(`  ✓ ${DRY_RUN ? "Mock reviews generated" : `Wrote reviews to ${reviewsDir}`}\n`);
 
   // === PHASE 3: Revise (27 parallel calls) ===
-  console.log("Phase 3/5: Revising statblocks (27 revisions)...");
+  console.log("Phase 4/6: Revising statblocks...");
 
   interface RevisionTask {
     generator: ModelName;
@@ -512,7 +714,7 @@ async function runCrossReviewPipeline(): Promise<void> {
   console.log(`  ✓ ${DRY_RUN ? "Mock revisions generated" : `Wrote ${totalRevisions} revisions to ${revisionsDir}`}\n`);
 
   // === PHASE 4: Swiss Tournament (7 rounds, 1v1v1) ===
-  console.log(`Phase 4/5: Swiss Tournament (${SWISS_ROUNDS} rounds, 1v1v1 format)...`);
+  console.log(`Phase 5/6: Swiss Tournament (${SWISS_ROUNDS} rounds, 1v1v1 format)...`);
 
   // Initialize contestants
   const contestants: SwissContestant[] = Array.from(revisedById.entries()).map(([id, data]) => ({
@@ -582,7 +784,7 @@ async function runCrossReviewPipeline(): Promise<void> {
         const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];
 
         // Anonymize IDs to prevent judge bias
-        const result = await threeWayJudge("S1", e1[1], "S2", e2[1], "S3", e3[1]);
+        const result = await threeWayJudge("S1", e1[1], "S2", e2[1], "S3", e3[1], SWISS_JUDGE.model, SWISS_JUDGE.effort);
 
         // Map anonymous winners back to real IDs
         const anonToReal = new Map<string, string>([
@@ -610,7 +812,7 @@ async function runCrossReviewPipeline(): Promise<void> {
         // Write detailed judgment file
         const judgmentFile = join(swissJudgmentsDir, `round${round}_${match.first}_vs_${match.second}_vs_${match.third}.md`);
         let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
-        judgmentMd += `**Judge**: Claude (low thinking)\n\n`;
+        judgmentMd += `**Judge**: ${SWISS_JUDGE.model} (${SWISS_JUDGE.effort} thinking)\n\n`;
         judgmentMd += `## Contestants\n\n`;
         judgmentMd += `- S1 (${e1[0]}): ${e1[0]}\n`;
         judgmentMd += `- S2 (${e2[0]}): ${e2[0]}\n`;
@@ -662,7 +864,7 @@ async function runCrossReviewPipeline(): Promise<void> {
   console.log("");
 
   // === PHASE 5: Top-8 Round Robin Playoff (Dual-Judge) ===
-  console.log(`Phase 5/5: Top-${TOP_N_PLAYOFF} Round Robin Playoff (dual-judge: Claude + GPT)...`);
+  console.log(`Phase 6/6: Top-${TOP_N_PLAYOFF} Round Robin Playoff (judges: ${PLAYOFF_JUDGES.map((j) => `${j.model} (${j.effort})`).join(", ")})...`);
 
   // Get top 8 by Swiss points
   const sortedBySwiss = [...contestants].sort((a, b) => {
@@ -692,7 +894,9 @@ async function runCrossReviewPipeline(): Promise<void> {
     }
   }
 
-  console.log(`  Running ${playoffPairs.length} matchups (×2 judges = ${playoffPairs.length * 2} total)...`);
+  console.log(
+    `  Running ${playoffPairs.length} matchups (×${PLAYOFF_JUDGES.length} judges = ${playoffPairs.length * PLAYOFF_JUDGES.length} total)...`
+  );
   if (!DRY_RUN) {
     await appendFile(playoffLogPath, `## Matches\n\n`, "utf-8");
   }
@@ -727,7 +931,7 @@ async function runCrossReviewPipeline(): Promise<void> {
       }
     }
   } else {
-    // Run all pairs with dual-judge (Claude low + GPT high) and randomized positions
+    // Run all pairs with configurable judges and randomized positions
     const playoffPromises = playoffPairs.map(async ([idA, idB]) => {
       const textA = revisedById.get(idA)!.result.text;
       const textB = revisedById.get(idB)!.result.text;
@@ -737,46 +941,63 @@ async function runCrossReviewPipeline(): Promise<void> {
       const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
       const [firstText, secondText] = swapped ? [textB, textA] : [textA, textB];
 
-      // Run both judges in parallel with same randomized positions
-      const [claudeResult, gptResult] = await Promise.all([
-        pairwiseJudge("S1", firstText, "S2", secondText, "claude", "low"),
-        pairwiseJudge("S1", firstText, "S2", secondText, "gpt", "high"),
+      const judgeResults = await Promise.all(
+        PLAYOFF_JUDGES.map((judge) => pairwiseJudge("S1", firstText, "S2", secondText, judge.model, judge.effort))
+      );
+
+      const voteCounts = new Map<string, number>([
+        [firstId, 0],
+        [secondId, 0],
       ]);
 
-      // Map back to real IDs
-      const claudeWinner = claudeResult.winner === "S1" ? firstId : secondId;
-      const gptWinner = gptResult.winner === "S1" ? firstId : secondId;
+      for (const result of judgeResults) {
+        const resolvedWinner = result.winner === "S1" ? firstId : secondId;
+        voteCounts.set(resolvedWinner, (voteCounts.get(resolvedWinner) ?? 0) + 1);
+      }
+
+      const votes = Array.from(voteCounts.entries());
+      votes.sort((a, b) => b[1]! - a[1]!);
+      const topCount = votes[0]![1];
+      const topWinners = votes.filter(([, count]) => count === topCount).map(([id]) => id);
 
       let matchResult: { winner: string | null; loser: string | null; isDraw: boolean };
       let logEntry: string;
 
-      if (claudeWinner === gptWinner) {
-        // Both judges agree - clear winner
-        matchResult = { winner: claudeWinner, loser: claudeWinner === idA ? idB : idA, isDraw: false };
-        logEntry = `- **${matchResult.winner}** beat ${matchResult.loser} (2-0)\n`;
-        logEntry += `  - Claude: *${claudeResult.reasoning}*\n`;
-        logEntry += `  - GPT: *${gptResult.reasoning}*\n`;
+      if (topWinners.length === 1) {
+        const winner = topWinners[0]!;
+        const loser = winner === idA ? idB : idA;
+        const winnerVotes = voteCounts.get(winner) ?? 0;
+        const loserVotes = voteCounts.get(loser) ?? 0;
+        matchResult = { winner, loser, isDraw: false };
+        logEntry = `- **${winner}** beat ${loser} (${winnerVotes}-${loserVotes})\n`;
       } else {
-        // Judges disagree - draw
+        const votesA = voteCounts.get(idA) ?? 0;
+        const votesB = voteCounts.get(idB) ?? 0;
         matchResult = { winner: null, loser: null, isDraw: true };
-        logEntry = `- ${idA} vs ${idB}: **DRAW** (1-1)\n`;
-        logEntry += `  - Claude picked ${claudeWinner}: *${claudeResult.reasoning}*\n`;
-        logEntry += `  - GPT picked ${gptWinner}: *${gptResult.reasoning}*\n`;
+        logEntry = `- ${idA} vs ${idB}: **DRAW** (${votesA}-${votesB})\n`;
+      }
+
+      for (const result of judgeResults) {
+        const resolvedWinner = result.winner === "S1" ? firstId : secondId;
+        logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
       }
 
       // Write detailed judgment file for playoff
       const judgmentFile = join(playoffJudgmentsDir, `${idA}_vs_${idB}.md`);
       let judgmentMd = `# Playoff Judgment: ${idA} vs ${idB}\n\n`;
       judgmentMd += `**Position Order**: S1=${firstId}, S2=${secondId}\n\n`;
-      judgmentMd += `## Claude (low thinking)\n\n`;
-      judgmentMd += `- **Winner**: ${claudeWinner}\n`;
-      judgmentMd += `- **Reasoning**: ${claudeResult.reasoning}\n\n`;
-      judgmentMd += `## GPT (high thinking)\n\n`;
-      judgmentMd += `- **Winner**: ${gptWinner}\n`;
-      judgmentMd += `- **Reasoning**: ${gptResult.reasoning}\n\n`;
+      judgmentMd += `## Judges\n\n`;
+      for (let i = 0; i < judgeResults.length; i++) {
+        const judgeCfg = PLAYOFF_JUDGES[i]!;
+        const result = judgeResults[i]!;
+        const resolvedWinner = result.winner === "S1" ? firstId : secondId;
+        judgmentMd += `### ${judgeCfg.model} (${judgeCfg.effort} thinking)\n\n`;
+        judgmentMd += `- **Winner**: ${resolvedWinner}\n`;
+        judgmentMd += `- **Reasoning**: ${result.reasoning}\n\n`;
+      }
       judgmentMd += `## Final Result\n\n`;
       if (matchResult.isDraw) {
-        judgmentMd += `**DRAW** - Judges disagreed (0.5 pts each)\n`;
+        judgmentMd += `**DRAW** - Judges tied (0.5 pts each)\n`;
       } else {
         judgmentMd += `**${matchResult.winner}** wins (1 pt)\n`;
       }
@@ -848,8 +1069,18 @@ async function runCrossReviewPipeline(): Promise<void> {
   }
   console.log(`Swiss Rounds: ${SWISS_ROUNDS} (1v1v1 format)`);
   console.log(`Swiss Matches: ${allSwissMatches.length}`);
-  console.log(`Playoff Matches: ${playoffPairs.length * 2} (${playoffPairs.length} pairs × 2 positions)`);
-  console.log(`Total Judge Calls: ${allSwissMatches.length + playoffPairs.length * 2}`);
+  console.log(
+    `Playoff Judgments: ${playoffPairs.length * PLAYOFF_JUDGES.length} (${playoffPairs.length} pairs × ${PLAYOFF_JUDGES.length} judges)`
+  );
+  const initialLeaderboardPairs =
+    INITIAL_LEADERBOARD.enabled && leaderboardJudges.length > 0
+      ? (MODEL_NAMES.length * INITIAL_GENERATIONS * (MODEL_NAMES.length * INITIAL_GENERATIONS - 1)) / 2
+      : 0;
+  console.log(
+    `Total Judge Calls: ${
+      allSwissMatches.length + playoffPairs.length * PLAYOFF_JUDGES.length + initialLeaderboardPairs * leaderboardJudges.length
+    }`
+  );
   console.log("");
   console.log("🏆 TOP 3 (Final Rankings):");
   const finalSorted = [...contestants].sort((a, b) => {

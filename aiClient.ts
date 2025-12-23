@@ -340,15 +340,16 @@ export async function threeWayJudge(
   idB: string,
   textB: string,
   idC: string,
-  textC: string
+  textC: string,
+  judge: ModelName | null = null,
+  effort: "low" | "medium" | "high" = "low"
 ): Promise<ThreeWayResult> {
   const config = getConfig();
-  // Use first model in config as judge (typically claude)
   const modelKeys = Object.keys(config.models);
   if (modelKeys.length === 0) {
     throw new Error("No models configured");
   }
-  const judgeModel = modelKeys[0]!;
+  const judgeModel = judge ?? modelKeys[0]!;
   const modelSlug = config.models[judgeModel]?.slug;
   if (!modelSlug) {
     throw new Error("No models configured");
@@ -370,7 +371,7 @@ export async function threeWayJudge(
     prompt: userPrompt,
     providerOptions: {
       openrouter: {
-        reasoning: { effort: "low" },
+        reasoning: { effort },
       },
     },
   });
