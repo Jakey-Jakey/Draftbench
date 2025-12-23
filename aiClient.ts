@@ -1,14 +1,9 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
+import { getConfig, interpolate, type ModelName } from "./config";
 
-// Model IDs - 3 models being tested
-export const MODELS = {
-  claude: "anthropic/claude-4.5-opus",
-  gpt: "openai/gpt-5.2",
-  gemini: "google/gemini-3-pro-preview",
-} as const;
-
-export type ModelName = keyof typeof MODELS;
+// Re-export ModelName type
+export type { ModelName } from "./config";
 
 // Initialize the OpenRouter provider
 if (!process.env.OPENROUTER_API_KEY) {
@@ -19,6 +14,33 @@ if (!process.env.OPENROUTER_API_KEY) {
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+/**
+ * Get the model slug map from config.
+ * This is called dynamically to support runtime config loading.
+ */
+export function getModels(): Record<string, string> {
+  const config = getConfig();
+  return Object.fromEntries(
+    Object.entries(config.models).map(([key, value]) => [key, value.slug])
+  );
+}
+
+/**
+ * Legacy MODELS export for backwards compatibility.
+ * @deprecated Use getModels() instead
+ */
+export const MODELS = new Proxy({} as Record<string, string>, {
+  get(_, prop: string) {
+    return getModels()[prop];
+  },
+  ownKeys() {
+    return Object.keys(getModels());
+  },
+  getOwnPropertyDescriptor() {
+    return { enumerable: true, configurable: true };
+  },
 });
 
 export interface GenerateResult {
@@ -38,30 +60,29 @@ export interface ReviseResult {
 }
 
 function getReasoningConfig(model: ModelName) {
-  switch (model) {
-    case "claude":
-      // Claude models use reasoning effort or max_tokens. 
-      // Mapping 'thinking:high' to high effort.
-      return { effort: "high" };
-    case "gpt":
-      // GPT models (gpt-5.2) support reasoning effort.
-      // Mapping 'xhigh' to xhigh effort.
-      return { effort: "high" };
-    case "gemini":
-      // Gemini models support reasoning.
-      // Mapping 'high' to high effort.
-      return { effort: "high" };
+  const config = getConfig();
+  const modelConfig = config.models[model];
+  if (modelConfig) {
+    return { effort: modelConfig.reasoningEffort };
   }
+  // Fallback to high if model not in config
+  return { effort: "high" as const };
 }
 
 /**
- * Generates a D&D 5e monster statblock for Doctor Doom using specified model.
+ * Generates a D&D 5e monster statblock using specified model.
  */
 export async function generateStatblock(model: ModelName): Promise<GenerateResult> {
+  const config = getConfig();
+  const modelSlug = config.models[model]?.slug;
+  if (!modelSlug) {
+    throw new Error(`Unknown model: ${model}`);
+  }
+
   const result = await generateText({
-    model: openrouter(MODELS[model]),
-    system: `You are an expert TTRPG designer specializing in D&D 5th Edition. Create well constructedmonster statblocks that follow official 5e formatting conventions. Include all standard statblock components: size/type/alignment, AC, HP, speed, ability scores, saving throws, skills, damage immunities/resistances/vulnerabilities, senses, languages, challenge rating, and special abilities/actions.`,
-    prompt: `Create a D&D 5e monster statblock for Doctor Doom (Marvel Comics). This should be a powerful villain suitable for high-level play. Output only the statblock without commentary.`,
+    model: openrouter(modelSlug),
+    system: config.prompts.generate.system,
+    prompt: config.prompts.generate.user,
     providerOptions: {
       openrouter: {
         reasoning: getReasoningConfig(model),
@@ -83,10 +104,18 @@ export async function reviewStatblock(
   reviewed: ModelName,
   statblock: string
 ): Promise<ReviewResult> {
+  const config = getConfig();
+  const modelSlug = config.models[reviewer]?.slug;
+  if (!modelSlug) {
+    throw new Error(`Unknown model: ${reviewer}`);
+  }
+
+  const prompt = interpolate(config.prompts.review.userTemplate, { statblock });
+
   const result = await generateText({
-    model: openrouter(MODELS[reviewer]),
-    system: `You are an expert D&D 5e game designer and balance consultant. Review the monster statblock provided and give constructive feedback on: mechanical balance, CR accuracy, thematic representation of the character, adherence to 5e formatting conventions, action economy, and potential gameplay issues. Be thorough but constructive. Focus on actionable improvements.`,
-    prompt: `Please review the following D&D 5e monster statblock and provide feedback:\n\n${statblock}`,
+    model: openrouter(modelSlug),
+    system: config.prompts.review.system,
+    prompt,
     providerOptions: {
       openrouter: {
         reasoning: getReasoningConfig(reviewer),
@@ -109,10 +138,21 @@ export async function reviseStatblock(
   originalStatblock: string,
   feedback: string
 ): Promise<ReviseResult> {
+  const config = getConfig();
+  const modelSlug = config.models[model]?.slug;
+  if (!modelSlug) {
+    throw new Error(`Unknown model: ${model}`);
+  }
+
+  const prompt = interpolate(config.prompts.revise.userTemplate, {
+    statblock: originalStatblock,
+    feedback,
+  });
+
   const result = await generateText({
-    model: openrouter(MODELS[model]),
-    system: `You are an expert TTRPG designer specializing in D&D 5th Edition. Revise the provided monster statblock based on the feedback given.`,
-    prompt: `Original statblock:\n${originalStatblock}\n\nReview feedback:\n${feedback}\n\nPlease revise the statblock based on the feedback above. Output only the revised statblock without commentary.`,
+    model: openrouter(modelSlug),
+    system: config.prompts.revise.system,
+    prompt,
     providerOptions: {
       openrouter: {
         reasoning: getReasoningConfig(model),
@@ -147,6 +187,12 @@ export async function judgeStatblocks(
   judge: ModelName,
   statblocks: Map<string, string>
 ): Promise<JudgeResult> {
+  const config = getConfig();
+  const modelSlug = config.models[judge]?.slug;
+  if (!modelSlug) {
+    throw new Error(`Unknown model: ${judge}`);
+  }
+
   const statblockEntries = Array.from(statblocks.entries())
     .map(([id, text]) => `## Statblock ID: ${id}\n\n${text}`)
     .join("\n\n---\n\n");
@@ -154,7 +200,7 @@ export async function judgeStatblocks(
   const allIds = Array.from(statblocks.keys());
 
   const result = await generateText({
-    model: openrouter(MODELS[judge]),
+    model: openrouter(modelSlug),
     system: `You are an expert D&D 5e game designer judging monster statblocks. Compare ALL the statblocks provided and rank them from best to worst. Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
 
 You MUST respond with ONLY a valid JSON object in this exact format, no other text:
@@ -222,28 +268,24 @@ export async function pairwiseJudge(
   judge: ModelName = "claude",
   effort: "low" | "medium" | "high" = "low"
 ): Promise<PairwiseResult> {
+  const config = getConfig();
+  const modelSlug = config.models[judge]?.slug;
+  if (!modelSlug) {
+    throw new Error(`Unknown model: ${judge}`);
+  }
+
+  const systemPrompt = interpolate(config.prompts.judgePairwise.system, { idA, idB });
+  const userPrompt = interpolate(config.prompts.judgePairwise.userTemplate, {
+    idA,
+    idB,
+    textA,
+    textB,
+  });
+
   const result = await generateText({
-    model: openrouter(MODELS[judge]),
-    system: `You are an expert D&D 5e game designer. Compare the two statblocks and pick the better one based on: mechanical balance, CR accuracy, thematic representation, 5e formatting, and playability.
-
-You MUST respond with ONLY a valid JSON object in this exact format, no other text:
-{
-  "winner": "ID of the better statblock",
-  "reasoning": "One sentence explaining why."
-}
-
-The IDs are: "${idA}" and "${idB}". Pick exactly one winner.`,
-    prompt: `Compare these two D&D 5e Doctor Doom statblocks:
-
-## Statblock: ${idA}
-
-${textA}
-
----
-
-## Statblock: ${idB}
-
-${textB}`,
+    model: openrouter(modelSlug),
+    system: systemPrompt,
+    prompt: userPrompt,
     providerOptions: {
       openrouter: {
         reasoning: { effort },
@@ -284,7 +326,7 @@ export interface ThreeWayResult {
 }
 
 /**
- * Three-way comparison of statblocks. Claude Opus 4.5 only (low thinking).
+ * Three-way comparison of statblocks. Uses first model in config (low thinking).
  * Returns 1st, 2nd, 3rd place rankings with reasoning.
  */
 export async function threeWayJudge(
@@ -295,36 +337,32 @@ export async function threeWayJudge(
   idC: string,
   textC: string
 ): Promise<ThreeWayResult> {
+  const config = getConfig();
+  // Use first model in config as judge (typically claude)
+  const modelKeys = Object.keys(config.models);
+  if (modelKeys.length === 0) {
+    throw new Error("No models configured");
+  }
+  const judgeModel = modelKeys[0]!;
+  const modelSlug = config.models[judgeModel]?.slug;
+  if (!modelSlug) {
+    throw new Error("No models configured");
+  }
+
+  const systemPrompt = interpolate(config.prompts.judgeThreeWay.system, { idA, idB, idC });
+  const userPrompt = interpolate(config.prompts.judgeThreeWay.userTemplate, {
+    idA,
+    idB,
+    idC,
+    textA,
+    textB,
+    textC,
+  });
+
   const result = await generateText({
-    model: openrouter(MODELS.claude),
-    system: `You are an expert D&D 5e game designer. Compare the three statblocks and rank them from best to worst based on: mechanical balance, CR accuracy, thematic representation, 5e formatting, and playability.
-
-You MUST respond with ONLY a valid JSON object in this exact format, no other text:
-{
-  "first": "ID of the best statblock",
-  "second": "ID of the second-best statblock",
-  "third": "ID of the worst statblock",
-  "reasoning": "One sentence explaining the ranking."
-}
-
-The IDs are: "${idA}", "${idB}", "${idC}". Rank all three.`,
-    prompt: `Compare and rank these three D&D 5e Doctor Doom statblocks:
-
-## Statblock: ${idA}
-
-${textA}
-
----
-
-## Statblock: ${idB}
-
-${textB}
-
----
-
-## Statblock: ${idC}
-
-${textC}`,
+    model: openrouter(modelSlug),
+    system: systemPrompt,
+    prompt: userPrompt,
     providerOptions: {
       openrouter: {
         reasoning: { effort: "low" },
