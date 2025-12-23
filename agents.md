@@ -93,6 +93,32 @@
 }
 ```
 
+### Per-Phase Model Roles (Optional)
+
+Control which models participate in each pipeline phase:
+
+```jsonc
+{
+  "roles": {
+    "generators": ["claude", "gpt"],           // Only these generate drafts
+    "reviewers": ["gemini", "llama", "mistral"], // Only these review
+    "revisers": ["claude", "gpt", "gemini"],   // Only these revise
+    "judges": ["claude", "gpt"]                // Only these can judge
+  }
+}
+```
+
+| Role | Effect | Default |
+|------|--------|---------|
+| `generators` | Models that create initial drafts | All models |
+| `reviewers` | Models that review drafts | All models |
+| `revisers` | Models that revise based on reviews | All models |
+| `judges` | Allowed judge models (validates `swissJudge`, `playoffJudges`) | All models |
+
+If `roles` is omitted or a specific role list is empty, **all models** in `config.models` participate in that phase (backward compatible).
+
+> **Note**: When `roles.judges` is set, all judge configurations (`swissJudge`, `playoffJudges`, `initialLeaderboard.judges`) must reference models in that list or config loading will fail.
+
 ---
 
 ## 🏷️ Naming Conventions

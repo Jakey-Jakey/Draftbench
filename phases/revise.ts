@@ -7,7 +7,7 @@ import {
 	type ReviseResult,
 	reviseStatblock,
 } from "../aiClient";
-import { getConfig } from "../config";
+import { getConfig, getModelsForRole } from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -56,14 +56,14 @@ export async function runRevisePhase(
 	isResuming: boolean,
 ): Promise<RevisePhaseResult> {
 	const config = getConfig();
-	const MODEL_NAMES = Object.keys(config.models) as ModelName[];
+	const REVISER_MODELS = getModelsForRole("revisers") as ModelName[];
 
 	console.log("Phase 4/6: Revising statblocks...");
 
 	// Build revision tasks
 	const revisionTasks: RevisionTask[] = [];
 	for (const review of reviews) {
-		for (const reviser of MODEL_NAMES) {
+		for (const reviser of REVISER_MODELS) {
 			revisionTasks.push({
 				generator: review.reviewed,
 				reviewer: review.reviewer,

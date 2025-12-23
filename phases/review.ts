@@ -6,7 +6,7 @@ import {
 	type ReviewResult,
 	reviewStatblock,
 } from "../aiClient";
-import { getConfig } from "../config";
+import { getConfig, getModelsForRole } from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -37,7 +37,8 @@ export async function runReviewPhase(
 	isResuming: boolean,
 ): Promise<ReviewPhaseResult> {
 	const config = getConfig();
-	const MODEL_NAMES = Object.keys(config.models) as ModelName[];
+	const REVIEWER_MODELS = getModelsForRole("reviewers") as ModelName[];
+	const draftModels = Array.from(selectedByModel.keys());
 
 	console.log(
 		"Phase 3/6: Cross-reviewing statblocks (including self-review)...",
@@ -45,7 +46,7 @@ export async function runReviewPhase(
 
 	const reviews: ReviewResult[] = [];
 	let reviewCount = 0;
-	const totalReviews = MODEL_NAMES.length * MODEL_NAMES.length;
+	const totalReviews = REVIEWER_MODELS.length * draftModels.length;
 
 	// Resume from state if available
 	const resumeReviews =
@@ -61,8 +62,8 @@ export async function runReviewPhase(
 
 	if (dryRun) {
 		// Mock reviews
-		for (const reviewer of MODEL_NAMES) {
-			for (const reviewed of MODEL_NAMES) {
+		for (const reviewer of REVIEWER_MODELS) {
+			for (const reviewed of draftModels) {
 				const review: ReviewResult = {
 					text: createMockReview(),
 					reviewer,
@@ -79,8 +80,8 @@ export async function runReviewPhase(
 	} else {
 		// Real API calls
 		const reviewPromises: Promise<void>[] = [];
-		for (const reviewer of MODEL_NAMES) {
-			for (const reviewed of MODEL_NAMES) {
+		for (const reviewer of REVIEWER_MODELS) {
+			for (const reviewed of draftModels) {
 				const statblock = selectedByModel.get(reviewed)!.text;
 				reviewPromises.push(
 					(async () => {

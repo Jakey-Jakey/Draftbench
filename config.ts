@@ -35,6 +35,17 @@ export interface OutputConfig {
 	runsDirectory: string;
 }
 
+export interface RolesConfig {
+	/** Models that generate initial drafts. Defaults to all models. */
+	generators?: string[];
+	/** Models that review drafts. Defaults to all models. */
+	reviewers?: string[];
+	/** Models that revise drafts. Defaults to all models. */
+	revisers?: string[];
+	/** Models allowed to judge. If set, swissJudge/playoffJudges must use these. */
+	judges?: string[];
+}
+
 export interface PromptsConfig {
 	generate: {
 		system: string;
@@ -60,6 +71,7 @@ export interface PromptsConfig {
 
 export interface PipelineConfig {
 	models: Record<string, ModelConfig>;
+	roles?: RolesConfig;
 	tournament: TournamentConfig;
 	output: OutputConfig;
 	prompts: PromptsConfig;
@@ -222,7 +234,7 @@ function deepMerge(
 				(judge, index) =>
 					mergeJudge(
 						target.tournament.playoffJudges[index] ??
-							target.tournament.swissJudge,
+						target.tournament.swissJudge,
 						judge,
 					),
 			);
@@ -239,7 +251,7 @@ function deepMerge(
 					source.tournament.initialLeaderboard.judges.map((judge, index) =>
 						mergeJudge(
 							target.tournament.initialLeaderboard.judges[index] ??
-								target.tournament.swissJudge,
+							target.tournament.swissJudge,
 							judge,
 						),
 					);
@@ -252,6 +264,11 @@ function deepMerge(
 	// Merge output
 	if (source.output) {
 		result.output = { ...target.output, ...source.output };
+	}
+
+	// Merge roles
+	if (source.roles) {
+		result.roles = { ...target.roles, ...source.roles };
 	}
 
 	// Merge prompts (nested)
@@ -304,6 +321,7 @@ export function loadConfig(configPath?: string): PipelineConfig {
 	}
 
 	const mergedConfig = deepMerge(DEFAULT_CONFIG, userConfig);
+	validateConfig(mergedConfig);
 	loadedConfig = mergedConfig;
 	return mergedConfig;
 }
@@ -334,6 +352,82 @@ export function interpolate(
 	vars: Record<string, string>,
 ): string {
 	return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
+}
+
+/**
+ * Gets models for a specific role, falling back to all models if not specified.
+ */
+export function getModelsForRole(
+	role: "generators" | "reviewers" | "revisers" | "judges",
+): string[] {
+	const config = getConfig();
+	const allModels = Object.keys(config.models);
+
+	if (!config.roles?.[role] || config.roles[role].length === 0) {
+		return allModels;
+	}
+
+	// Validate that specified models exist
+	const specified = config.roles[role];
+	for (const model of specified) {
+		if (!config.models[model]) {
+			throw new Error(`Role '${role}' references unknown model: ${model}`);
+		}
+	}
+
+	return specified;
+}
+
+/**
+ * Validates the loaded configuration for consistency.
+ * Throws if judge configs reference models not in roles.judges (when set).
+ */
+function validateConfig(config: PipelineConfig): void {
+	// Validate that all role models exist in config.models
+	if (config.roles) {
+		const allModelNames = Object.keys(config.models);
+		for (const [role, models] of Object.entries(config.roles)) {
+			if (models) {
+				for (const model of models) {
+					if (!allModelNames.includes(model)) {
+						throw new Error(
+							`Role '${role}' references unknown model: ${model}`,
+						);
+					}
+				}
+			}
+		}
+	}
+
+	// Validate judge models if roles.judges is set
+	if (config.roles?.judges && config.roles.judges.length > 0) {
+		const allowedJudges = new Set(config.roles.judges);
+
+		// Check swissJudge
+		if (!allowedJudges.has(config.tournament.swissJudge.model)) {
+			throw new Error(
+				`swissJudge.model '${config.tournament.swissJudge.model}' not in roles.judges: [${config.roles.judges.join(", ")}]`,
+			);
+		}
+
+		// Check playoffJudges
+		for (const judge of config.tournament.playoffJudges) {
+			if (!allowedJudges.has(judge.model)) {
+				throw new Error(
+					`playoffJudges contains model '${judge.model}' not in roles.judges: [${config.roles.judges.join(", ")}]`,
+				);
+			}
+		}
+
+		// Check initialLeaderboard.judges
+		for (const judge of config.tournament.initialLeaderboard.judges) {
+			if (!allowedJudges.has(judge.model)) {
+				throw new Error(
+					`initialLeaderboard.judges contains model '${judge.model}' not in roles.judges: [${config.roles.judges.join(", ")}]`,
+				);
+			}
+		}
+	}
 }
 
 // ============================================================================

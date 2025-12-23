@@ -5,7 +5,7 @@ import {
 	generateStatblock,
 	type ModelName,
 } from "../aiClient";
-import { getConfig } from "../config";
+import { getConfig, getModelsForRole } from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -35,7 +35,7 @@ export async function runGeneratePhase(
 	isResuming: boolean,
 ): Promise<GeneratePhaseResult> {
 	const config = getConfig();
-	const MODEL_NAMES = Object.keys(config.models) as ModelName[];
+	const MODEL_NAMES = getModelsForRole("generators") as ModelName[];
 	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
 
 	console.log("Phase 1/6: Generating statblocks from all models...");
