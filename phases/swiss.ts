@@ -2,6 +2,7 @@ import { appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ModelSlug, pairwiseJudge, threeWayJudge } from "../aiClient";
 import { getConfig, getSwissJudge } from "../config";
+import { Semaphore } from "../semaphore";
 import type { SwissContestant, SwissMatch } from "../leaderboard";
 import {
 	isPhaseCompleted,
@@ -151,6 +152,9 @@ export async function runSwissPhase(
 	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 	const judgeShortName = getShortModelName(SWISS_JUDGE.model);
 
+	// Mutex for logging to the file to avoid interleaved writes
+	const logMutex = new Semaphore(1);
+
 	console.log(
 		`Phase 5/6: Swiss Tournament (${SWISS_ROUNDS} rounds, ${SWISS_FORMAT} format)...`,
 	);
@@ -247,11 +251,16 @@ export async function runSwissPhase(
 						reasoning = result.reasoning;
 
 						// Log to file
-						await appendFile(
-							swissLogPath,
-							`- **Winner: ${winnerId}** | Loser: ${_loserId}\n  - *${reasoning}*\n`,
-							"utf-8",
-						);
+						await logMutex.acquire();
+						try {
+							await appendFile(
+								swissLogPath,
+								`- **Winner: ${winnerId}** | Loser: ${_loserId}\n  - *${reasoning}*\n`,
+								"utf-8",
+							);
+						} finally {
+							logMutex.release();
+						}
 
 						// Save judgment artifact
 						const judgmentFile = join(
@@ -405,11 +414,16 @@ export async function runSwissPhase(
 							reasoning: result.reasoning,
 						};
 
-						await appendFile(
-							swissLogPath,
-							`- **1st: ${match.first}** | 2nd: ${match.second} | 3rd: ${match.third}\n  - *${match.reasoning}*\n`,
-							"utf-8",
-						);
+						await logMutex.acquire();
+						try {
+							await appendFile(
+								swissLogPath,
+								`- **1st: ${match.first}** | 2nd: ${match.second} | 3rd: ${match.third}\n  - *${match.reasoning}*\n`,
+								"utf-8",
+							);
+						} finally {
+							logMutex.release();
+						}
 
 						const judgmentFile = join(
 							swissJudgmentsDir,
