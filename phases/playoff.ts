@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { type ModelSlug, pairwiseJudge } from "../aiClient";
 import { getConfig, getPlayoffJudges } from "../config";
 import type { PlayoffResult, SwissContestant } from "../leaderboard";
+import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -77,6 +78,8 @@ export async function runPlayoffPhase(
 	for (const c of topN) {
 		playoffResults.set(c.id, { points: 0, wins: 0, losses: 0, draws: 0 });
 	}
+
+	const fileLock = new Semaphore(1);
 
 	// Check for resume
 	const resumePlayoff =
@@ -232,7 +235,12 @@ export async function runPlayoffPhase(
 				resultA.losses++;
 			}
 
-			await appendFile(playoffLogPath, logEntry, "utf-8");
+			await fileLock.acquire();
+			try {
+				await appendFile(playoffLogPath, logEntry, "utf-8");
+			} finally {
+				fileLock.release();
+			}
 		});
 
 		await Promise.all(playoffPromises);
