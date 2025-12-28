@@ -9,8 +9,8 @@
 
 | Phase | Description | Default Config |
 |-------|-------------|----------------|
-| **1. Generate** | Each model creates initial drafts. | `initialGenerations: 1` |
-| **2. Initial Leaderboard** | *(Optional)* Round-robin to pick best seed per model. | `initialLeaderboard.enabled: false` |
+| **1. Generate** | Each model creates initial drafts. State saved per model. | `initialGenerations: 1` |
+| **2. Initial Leaderboard** | *(Optional)* Per-model pairwise to pick best seed. | `style: per-model-pairwise` |
 | **3. Review** | Cross-review: each model reviews all selected drafts (including self). | 9 reviews (3×3) |
 | **4. Revise** | All models revise each draft based on each review. | 27 revisions (3 seeds × 3 reviewers × 3 revisers) |
 | **5. Swiss Tournament** | 1v1v1 Swiss system ranks revisions. | 7 rounds, Claude (low) judge |
@@ -134,6 +134,7 @@ swissFormat = "1v1v1"  # "1v1" or "1v1v1"
 
 [tournament.initialLeaderboard]
 enabled = false
+style = "per-model-pairwise"  # See styles below
 
 [concurrency]
 maxParallel = 5  # Limit parallel API calls
@@ -149,6 +150,23 @@ runsDirectory = "runs"
 | `model` | string | *required* | OpenRouter slug (e.g., `"anthropic/claude-sonnet-4"`) |
 | `effort` | string | `"high"` | Reasoning effort: `"xhigh"`, `"high"`, `"medium"`, `"low"`, `"minimal"`, `"none"`. Optional. |
 | `temperature` | number | *none* | Optional temperature override |
+
+### Initial Leaderboard Styles
+
+When `initialGenerations > 1` and `initialLeaderboard.enabled = true`, choose how the best draft per model is selected:
+
+| Style | Description | API Calls (3 models × 5 drafts) |
+|-------|-------------|--------------------------------|
+| `per-model-pairwise` | Each model's drafts compete internally (default) | 30 |
+| `global-pairwise` | All drafts compete in one tournament | 105 |
+| `per-model-rank` | Single ranking call per model | 3 |
+| `global-rank` | Single ranking call for all drafts | 1 |
+
+```toml
+[tournament.initialLeaderboard]
+enabled = true
+style = "per-model-pairwise"  # Recommended for balance of cost and quality
+```
 
 ### Swiss Match Format
 

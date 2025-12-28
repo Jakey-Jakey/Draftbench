@@ -78,6 +78,7 @@ swissFormat = "1v1v1"       # "1v1" or "1v1v1"
 
 [tournament.initialLeaderboard]
 enabled = false             # Enable seed selection round-robin (TURN THIS ON IF YOU HAVE MORE THAN 1 INITIAL GENERATION)
+# style = "per-model-pairwise"  # per-model-pairwise (default), global-pairwise, per-model-rank, global-rank
 
 # -----------------------------------------------------------------------------
 # CONCURRENCY (Optional)

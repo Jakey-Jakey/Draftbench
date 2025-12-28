@@ -43,8 +43,17 @@ export interface RolesConfig {
 	initialLeaderboardJudges?: RoleEntry[];
 }
 
+/** Initial leaderboard tournament style */
+export type InitialLeaderboardStyle =
+	| "per-model-pairwise"
+	| "global-pairwise"
+	| "per-model-rank"
+	| "global-rank";
+
 export interface InitialLeaderboardConfig {
 	enabled: boolean;
+	/** Tournament style for selecting best draft per model. Default: per-model-pairwise */
+	style?: InitialLeaderboardStyle;
 }
 
 export interface TournamentConfig {
@@ -324,6 +333,7 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			const ilRaw = tournamentRaw.initialLeaderboard as Record<string, unknown>;
 			result.tournament.initialLeaderboard = {
 				enabled: ilRaw.enabled as boolean,
+				style: ilRaw.style as InitialLeaderboardStyle | undefined,
 			};
 		}
 	}

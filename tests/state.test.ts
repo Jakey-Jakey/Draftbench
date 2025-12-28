@@ -293,7 +293,13 @@ describe("PipelineState", () => {
 			await saveState(TEST_RUN_DIR, state);
 			const loaded = await loadState(TEST_RUN_DIR);
 
-			expect(loaded).toEqual(state);
+			// Compare all fields except timestamp (which is updated on save)
+			expect(loaded).not.toBeNull();
+			if (loaded) {
+				const { timestamp: _, ...loadedWithoutTimestamp } = loaded;
+				const { timestamp: __, ...stateWithoutTimestamp } = state;
+				expect(loadedWithoutTimestamp).toEqual(stateWithoutTimestamp);
+			}
 		});
 
 		test("handles missing optional fields", async () => {

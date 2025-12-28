@@ -6,4 +6,4 @@ initialGenerations = 3  # Generate 3 drafts per model
 
 [tournament.initialLeaderboard]
 enabled = true
-# judges = [] means use playoffJudges by default
+# style = "per-model-pairwise"  # Options: per-model-pairwise (default), global-pairwise, per-model-rank, global-rank
