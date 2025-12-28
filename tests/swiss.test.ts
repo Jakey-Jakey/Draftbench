@@ -62,7 +62,7 @@ describe("generateSwissTriples", () => {
 
 		const { triples } = generateSwissTriples(contestants, 1);
 		// High-pointed contestant should be in first position
-		expect(triples[0]![0]).toBe("High");
+		expect(triples[0]?.[0]).toBe("High");
 	});
 	test("handles odd number of contestants (27)", () => {
 		const contestants = Array.from({ length: 27 }, (_, i) =>
@@ -97,7 +97,7 @@ describe("generateSwissTriples", () => {
 
 		// A, B, C should ideally be split up
 		const firstTriple = triples[0]!;
-		const hasABC =
+		const _hasABC =
 			firstTriple.includes("A") &&
 			firstTriple.includes("B") &&
 			firstTriple.includes("C");
@@ -118,9 +118,9 @@ describe("generateSwissTriples", () => {
 
 		// Get the contestants back
 		const conMap = new Map(contestants.map((c) => [c.id, c]));
-		const firstPoints = conMap.get(first!)!.points;
-		const secondPoints = conMap.get(second!)!.points;
-		const thirdPoints = conMap.get(third!)!.points;
+		const firstPoints = conMap.get(first!)?.points;
+		const secondPoints = conMap.get(second!)?.points;
+		const thirdPoints = conMap.get(third!)?.points;
 
 		// Should be grouped by similar points
 		expect(firstPoints).toBeGreaterThanOrEqual(secondPoints - 3);
@@ -171,8 +171,8 @@ describe("generateSwissPairs", () => {
 		];
 
 		// A has already played B
-		contestants[0]!.opponents.add("B");
-		contestants[1]!.opponents.add("A");
+		contestants[0]?.opponents.add("B");
+		contestants[1]?.opponents.add("A");
 
 		const { pairs } = generateSwissPairs(contestants);
 
@@ -254,8 +254,8 @@ describe("generateSwissPairs (1v1)", () => {
 		const conMap = new Map(contestants.map((c) => [c.id, c]));
 		for (const pair of pairs) {
 			const [a, b] = pair;
-			const pointsA = conMap.get(a!)!.points;
-			const pointsB = conMap.get(b!)!.points;
+			const pointsA = conMap.get(a!)?.points;
+			const pointsB = conMap.get(b!)?.points;
 			// Should be within a reasonable range
 			expect(Math.abs(pointsA - pointsB)).toBeLessThanOrEqual(5);
 		}

@@ -6,7 +6,7 @@ import {
 	type ReviewResult,
 	reviewStatblock,
 } from "../aiClient";
-import { getConfig, getRoleEntries } from "../config";
+import { getRoleEntries } from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -85,7 +85,7 @@ export async function runReviewPhase(
 			const reviewerShort = getShortModelName(reviewer.model);
 			for (const reviewedSlug of draftModels) {
 				const reviewedShort = getShortModelName(reviewedSlug);
-				const statblock = selectedByModel.get(reviewedSlug)!.text;
+				const statblock = selectedByModel.get(reviewedSlug)?.text;
 				reviewPromises.push(
 					(async () => {
 						const review = await reviewStatblock(

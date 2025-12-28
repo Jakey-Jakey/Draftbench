@@ -2,7 +2,6 @@ import { getConfig, getPlayoffJudges, getSwissJudge } from "./config";
 import type {
 	StoredInitialLeaderboardResult,
 	StoredSwissContestant,
-	StoredSwissMatch,
 } from "./state";
 import { getShortModelName } from "./utils";
 
@@ -105,7 +104,7 @@ function capitalizeFirst(str: string): string {
  */
 export function getLeaderboard(
 	contestants: SwissContestant[],
-	swissMatches: SwissMatch[],
+	_swissMatches: SwissMatch[],
 	playoffResults: Map<string, PlayoffResult> | null,
 	// Optional revisions map to add metadata
 	revisionsById?: Map<string, any>,
@@ -217,7 +216,7 @@ export function computeLeaderboard(
  */
 function formatLeaderboardMarkdown(
 	sorted: LeaderboardEntry[],
-	swissMatches: SwissMatch[],
+	_swissMatches: SwissMatch[],
 	playoffResults: Map<string, PlayoffResult> | null,
 	initialLeaderboardResults?: StoredInitialLeaderboardResult[] | null,
 ): string {

@@ -17,7 +17,6 @@ import {
 	markPhaseCompleted,
 	type PipelineState,
 	type StoredGenerateResult,
-	type StoredInitialLeaderboardResult,
 	saveState,
 } from "../state";
 import { getShortModelName } from "../utils";
@@ -141,7 +140,7 @@ async function runPerModelPairwise(
 
 				const votes = Array.from(voteCounts.entries());
 				votes.sort((x, y) => y[1]! - x[1]!);
-				const topCount = votes[0]![1];
+				const topCount = votes[0]?.[1];
 				const topWinners = votes
 					.filter(([, count]) => count === topCount)
 					.map(([standing]) => standing);
@@ -165,7 +164,7 @@ async function runPerModelPairwise(
 					const idB = `${shortName}_draft${b.draftIndex}`;
 					let logEntry = `- ${idA} vs ${idB}: `;
 					if (topWinners.length === 1) {
-						const winnerId = `${shortName}_draft${topWinners[0]!.draftIndex}`;
+						const winnerId = `${shortName}_draft${topWinners[0]?.draftIndex}`;
 						logEntry += `**${winnerId}** wins`;
 					} else {
 						logEntry += "**DRAW**";
@@ -392,12 +391,12 @@ export async function runInitialLeaderboardPhase(
 
 				// Save state after this model completes
 				if (!dryRun) {
-					state.selectedDrafts!.set(
+					state.selectedDrafts?.set(
 						modelSlug,
 						winner.result as StoredGenerateResult,
 					);
 					state.completedLeaderboardModels.push(modelSlug);
-					state.initialLeaderboardResults!.push({
+					state.initialLeaderboardResults?.push({
 						model: modelSlug,
 						selectedDraftIndex: winner.draftIndex,
 						wins: winner.wins,
@@ -432,12 +431,12 @@ export async function runInitialLeaderboardPhase(
 
 				// Save state
 				if (!dryRun) {
-					state.selectedDrafts!.set(
+					state.selectedDrafts?.set(
 						modelSlug,
 						winner.result as StoredGenerateResult,
 					);
 					state.completedLeaderboardModels.push(modelSlug);
-					state.initialLeaderboardResults!.push({
+					state.initialLeaderboardResults?.push({
 						model: modelSlug,
 						selectedDraftIndex: winner.draftIndex,
 						wins: 0,
@@ -488,7 +487,7 @@ export async function runInitialLeaderboardPhase(
 					const b = allStandings.get(idB)!;
 					const swapped = Math.random() > 0.5;
 					const [first, second] = swapped ? [b, a] : [a, b];
-					const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
+					const [_firstId, _secondId] = swapped ? [idB, idA] : [idA, idB];
 
 					const judgeResults = await Promise.all(
 						leaderboardJudges.map((judge) =>
@@ -560,7 +559,7 @@ export async function runInitialLeaderboardPhase(
 			if (!selectedByModel.has(standing.model)) {
 				selectedByModel.set(standing.model, standing.result);
 				if (!dryRun) {
-					state.initialLeaderboardResults!.push({
+					state.initialLeaderboardResults?.push({
 						model: standing.model,
 						selectedDraftIndex: standing.draftIndex,
 						wins: standing.wins,
@@ -628,7 +627,7 @@ export async function runInitialLeaderboardPhase(
 			if (!selectedByModel.has(standing.model)) {
 				selectedByModel.set(standing.model, standing.result);
 				if (!dryRun) {
-					state.initialLeaderboardResults!.push({
+					state.initialLeaderboardResults?.push({
 						model: standing.model,
 						selectedDraftIndex: standing.draftIndex,
 						wins: 0,

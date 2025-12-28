@@ -6,7 +6,6 @@ import {
 	isPhaseCompleted,
 	loadState,
 	markPhaseCompleted,
-	type PipelineState,
 	saveState,
 } from "../state";
 
@@ -155,8 +154,8 @@ describe("PipelineState", () => {
 			expect(loaded).not.toBeNull();
 			if (loaded) {
 				expect(loaded.contestants).toBeDefined();
-				expect(loaded.contestants![0]!.id).toBe("contestant1");
-				expect(loaded.contestants![0]!.points).toBe(2);
+				expect(loaded.contestants?.[0]?.id).toBe("contestant1");
+				expect(loaded.contestants?.[0]?.points).toBe(2);
 			}
 		});
 
@@ -179,8 +178,8 @@ describe("PipelineState", () => {
 			expect(loaded).not.toBeNull();
 			if (loaded) {
 				expect(loaded.swissMatches).toBeDefined();
-				expect(loaded.swissMatches![0]!.round).toBe(1);
-				expect(loaded.swissMatches![0]!.first).toBe("id1");
+				expect(loaded.swissMatches?.[0]?.round).toBe(1);
+				expect(loaded.swissMatches?.[0]?.first).toBe("id1");
 			}
 		});
 
@@ -202,8 +201,8 @@ describe("PipelineState", () => {
 			expect(loaded).not.toBeNull();
 			if (loaded) {
 				expect(loaded.playoffResults).toBeDefined();
-				expect(loaded.playoffResults![0]!.id).toBe("contestant1");
-				expect(loaded.playoffResults![0]!.points).toBe(3.5);
+				expect(loaded.playoffResults?.[0]?.id).toBe("contestant1");
+				expect(loaded.playoffResults?.[0]?.points).toBe(3.5);
 			}
 		});
 	});

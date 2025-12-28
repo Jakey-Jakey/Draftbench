@@ -150,7 +150,10 @@ export async function runGeneratePhase(
 
 			// Write immediately
 			const safeFileName = shortName.replace(/[^a-zA-Z0-9-_]/g, "_");
-			const path = join(runDir, `${safeFileName}_original_${draftIndex + 1}.md`);
+			const path = join(
+				runDir,
+				`${safeFileName}_original_${draftIndex + 1}.md`,
+			);
 			await writeFile(
 				path,
 				`# Original Statblock (${shortName} draft ${draftIndex + 1})\n\n${result.text}`,
@@ -168,7 +171,10 @@ export async function runGeneratePhase(
 			draftsByModel.set(generator.model, drafts);
 
 			// Save state for this model
-			state.generatedDrafts!.set(generator.model, drafts as StoredGenerateResult[]);
+			state.generatedDrafts?.set(
+				generator.model,
+				drafts as StoredGenerateResult[],
+			);
 			state.completedGenerators.push(generator.model);
 		}
 		saveState(runDir, state);

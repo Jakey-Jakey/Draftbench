@@ -1,6 +1,6 @@
 import { appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type ModelSlug, pairwiseJudge, threeWayJudge } from "../aiClient";
+import { pairwiseJudge, threeWayJudge } from "../aiClient";
 import { getConfig, getSwissJudge } from "../config";
 import type { SwissContestant, SwissMatch } from "../leaderboard";
 import { Semaphore } from "../semaphore";
@@ -50,7 +50,7 @@ export function generateSwissTriples(
 		// Find best 2nd: closest in points, hasn't faced first
 		let secondIdx = -1;
 		for (let i = 1; i < available.length; i++) {
-			if (!first.opponents.has(available[i]!.id)) {
+			if (!first.opponents.has(available[i]?.id)) {
 				secondIdx = i;
 				break;
 			}
@@ -62,10 +62,10 @@ export function generateSwissTriples(
 		// Find best 3rd: closest in points, hasn't faced first or second
 		let thirdIdx = -1;
 		for (let i = 1; i < available.length; i++) {
-			if (available[i]!.id === second.id) continue;
+			if (available[i]?.id === second.id) continue;
 			if (
-				!first.opponents.has(available[i]!.id) &&
-				!second.opponents.has(available[i]!.id)
+				!first.opponents.has(available[i]?.id) &&
+				!second.opponents.has(available[i]?.id)
 			) {
 				thirdIdx = i;
 				break;
@@ -73,7 +73,7 @@ export function generateSwissTriples(
 		}
 		if (thirdIdx === -1) {
 			for (let i = 1; i < available.length; i++) {
-				if (available[i]!.id !== second.id) {
+				if (available[i]?.id !== second.id) {
 					thirdIdx = i;
 					break;
 				}
@@ -111,7 +111,7 @@ export function generateSwissPairs(contestants: SwissContestant[]): {
 		// Find opponent who hasn't faced first
 		let secondIdx = -1;
 		for (let i = 1; i < available.length; i++) {
-			if (!first.opponents.has(available[i]!.id)) {
+			if (!first.opponents.has(available[i]?.id)) {
 				secondIdx = i;
 				break;
 			}
@@ -124,7 +124,7 @@ export function generateSwissPairs(contestants: SwissContestant[]): {
 	}
 
 	const remaining = sorted.filter((c) => !used.has(c.id));
-	const bye = remaining.length === 1 ? remaining[0]!.id : null;
+	const bye = remaining.length === 1 ? remaining[0]?.id : null;
 
 	return { pairs, bye };
 }
@@ -212,8 +212,8 @@ export async function runSwissPhase(
 			const pairPromises = pairs.map(
 				async ([idA, idB]): Promise<SwissMatch> => {
 					const entries: [string, string][] = [
-						[idA, revisionsById.get(idA)!.result.text],
-						[idB, revisionsById.get(idB)!.result.text],
+						[idA, revisionsById.get(idA)?.result.text],
+						[idB, revisionsById.get(idB)?.result.text],
 					];
 					// Shuffle presentation order
 					const shuffled = shuffleArray(entries);
@@ -380,9 +380,9 @@ export async function runSwissPhase(
 				const triplePromises = triples.map(
 					async ([idA, idB, idC]): Promise<SwissMatch> => {
 						const entries: [string, string][] = [
-							[idA, revisionsById.get(idA)!.result.text],
-							[idB, revisionsById.get(idB)!.result.text],
-							[idC, revisionsById.get(idC)!.result.text],
+							[idA, revisionsById.get(idA)?.result.text],
+							[idB, revisionsById.get(idB)?.result.text],
+							[idC, revisionsById.get(idC)?.result.text],
 						];
 						const shuffled = shuffleArray(entries);
 						const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];

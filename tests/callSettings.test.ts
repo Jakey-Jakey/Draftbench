@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import {
-	getCallSettings,
-	getEffort,
-	getJudgeSettings,
-	type Phase,
-} from "../callSettings";
+import { getCallSettings, getEffort, getJudgeSettings } from "../callSettings";
 import { loadConfig, type RoleEntry, resetConfig } from "../config";
 
 describe("callSettings", () => {

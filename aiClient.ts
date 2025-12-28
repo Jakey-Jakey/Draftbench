@@ -1,12 +1,7 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
 
-import {
-	getConfig,
-	interpolate,
-	type ReasoningEffort,
-	type RoleEntry,
-} from "./config";
+import { getConfig, interpolate, type ReasoningEffort } from "./config";
 import {
 	JudgeStatblocksResponseSchema,
 	PairwiseJudgeResponseSchema,
@@ -195,7 +190,7 @@ export async function judgeStatblocks(
 	temperature?: number,
 ): Promise<JudgeResult> {
 	return withConcurrencyLimit(async () => {
-		const config = getConfig();
+		const _config = getConfig();
 
 		const statblockEntries = Array.from(statblocks.entries())
 			.map(([id, text]) => `## Statblock ID: ${id}\n\n${text}`)

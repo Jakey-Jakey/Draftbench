@@ -7,7 +7,7 @@ import {
 	type ReviseResult,
 	reviseStatblock,
 } from "../aiClient";
-import { getConfig, getRoleEntries } from "../config";
+import { getRoleEntries } from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -124,7 +124,7 @@ export async function runRevisePhase(
 	} else {
 		// Real API calls
 		const revisePromises = revisionTasks.map(async (task) => {
-			const originalStatblock = selectedByModel.get(task.generator)!.text;
+			const originalStatblock = selectedByModel.get(task.generator)?.text;
 			const review = reviews.find(
 				(r) => r.reviewed === task.generator && r.reviewer === task.reviewer,
 			)!;

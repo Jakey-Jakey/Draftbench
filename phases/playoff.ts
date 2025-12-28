@@ -1,6 +1,6 @@
 import { appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type ModelSlug, pairwiseJudge } from "../aiClient";
+import { pairwiseJudge } from "../aiClient";
 import { getConfig, getPlayoffJudges } from "../config";
 import type { PlayoffResult, SwissContestant } from "../leaderboard";
 import { Semaphore } from "../semaphore";
@@ -89,7 +89,7 @@ export async function runPlayoffPhase(
 	const playoffPairs: [string, string][] = [];
 	for (let i = 0; i < topN.length; i++) {
 		for (let j = i + 1; j < topN.length; j++) {
-			playoffPairs.push([topN[i]!.id, topN[j]!.id]);
+			playoffPairs.push([topN[i]?.id, topN[j]?.id]);
 		}
 	}
 
@@ -143,8 +143,8 @@ export async function runPlayoffPhase(
 	} else {
 		// Real API calls
 		const playoffPromises = playoffPairs.map(async ([idA, idB]) => {
-			const textA = revisionsById.get(idA)!.result.text;
-			const textB = revisionsById.get(idB)!.result.text;
+			const textA = revisionsById.get(idA)?.result.text;
+			const textB = revisionsById.get(idB)?.result.text;
 
 			const swapped = Math.random() > 0.5;
 			const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
@@ -178,7 +178,7 @@ export async function runPlayoffPhase(
 
 			const votes = Array.from(voteCounts.entries());
 			votes.sort((a, b) => b[1]! - a[1]!);
-			const topCount = votes[0]![1];
+			const topCount = votes[0]?.[1];
 			const topWinners = votes
 				.filter(([, count]) => count === topCount)
 				.map(([id]) => id);
