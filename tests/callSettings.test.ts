@@ -106,11 +106,18 @@ describe("callSettings", () => {
 		});
 
 		test("handles all effort levels", () => {
-			const efforts = ["xhigh", "high", "medium", "low", "minimal", "none"];
+			const efforts = [
+				"xhigh",
+				"high",
+				"medium",
+				"low",
+				"minimal",
+				"none",
+			] as const;
 			for (const effort of efforts) {
 				const judgeEntry: RoleEntry = {
 					model: "test/model",
-					effort: effort as any,
+					effort: effort,
 				};
 				const settings = getJudgeSettings(judgeEntry);
 				expect(settings.effort).toBe(effort);
@@ -125,7 +132,7 @@ describe("callSettings", () => {
 			// temperature may or may not be present
 			expect(
 				typeof settings.temperature === "number" ||
-					settings.temperature === undefined,
+				settings.temperature === undefined,
 			).toBe(true);
 		});
 	});

@@ -11,6 +11,7 @@ import {
 	getModelsForRole,
 	getSwissJudge,
 	type InitialLeaderboardStyle,
+	type RoleEntry,
 } from "../config";
 import {
 	isPhaseCompleted,
@@ -62,7 +63,7 @@ function getEffectiveStyle(
 async function runPerModelPairwise(
 	modelSlug: ModelSlug,
 	drafts: GenerateResult[],
-	leaderboardJudges: { model: string; effort?: string }[],
+	leaderboardJudges: RoleEntry[],
 	dryRun: boolean,
 	initialLeaderboardLogPath: string | null,
 ): Promise<{ winner: DraftStanding; standings: DraftStanding[] }> {
@@ -124,7 +125,7 @@ async function runPerModelPairwise(
 							"S2",
 							second.text,
 							judge.model,
-							(judge.effort as any) ?? "high",
+							judge.effort,
 						),
 					),
 				);
@@ -197,7 +198,7 @@ async function runPerModelPairwise(
 async function runPerModelRank(
 	modelSlug: ModelSlug,
 	drafts: GenerateResult[],
-	swissJudge: { model: string; effort?: string },
+	swissJudge: RoleEntry,
 	dryRun: boolean,
 ): Promise<{ winner: DraftStanding; standings: DraftStanding[] }> {
 	const shortName = getShortModelName(modelSlug);
@@ -229,7 +230,7 @@ async function runPerModelRank(
 		const result = await judgeStatblocks(
 			swissJudge.model,
 			statblockMap,
-			(swissJudge.effort as any) ?? "high",
+			swissJudge.effort,
 		);
 
 		// Apply rankings to standings
@@ -522,7 +523,7 @@ export async function runInitialLeaderboardPhase(
 								"S2",
 								second.text,
 								judge.model,
-								(judge.effort as any) ?? "high",
+								judge.effort,
 							),
 						),
 					);
@@ -625,7 +626,7 @@ export async function runInitialLeaderboardPhase(
 			const result = await judgeStatblocks(
 				swissJudge.model,
 				statblockMap,
-				(swissJudge.effort as any) ?? "high",
+				swissJudge.effort,
 			);
 
 			// Assign points based on rank

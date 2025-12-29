@@ -7,7 +7,7 @@ import {
 	type ReviseResult,
 	reviseStatblock,
 } from "../aiClient";
-import { getRoleEntries } from "../config";
+import { getRoleEntries, type ReasoningEffort } from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -144,13 +144,7 @@ export async function runRevisePhase(
 				task.reviser,
 				originalStatblock,
 				feedback,
-				task.reviserEffort as
-				| "high"
-				| "medium"
-				| "low"
-				| "xhigh"
-				| "minimal"
-				| "none",
+				task.reviserEffort as ReasoningEffort,
 				task.reviserTemperature,
 			);
 			revisionsById.set(task.id, { result, task });
