@@ -85,7 +85,13 @@ export async function runReviewPhase(
 			const reviewerShort = getShortModelName(reviewer.model);
 			for (const reviewedSlug of draftModels) {
 				const reviewedShort = getShortModelName(reviewedSlug);
-				const statblock = selectedByModel.get(reviewedSlug)?.text;
+				const selected = selectedByModel.get(reviewedSlug);
+				if (!selected) {
+					throw new Error(
+						`Missing draft for model ${reviewedSlug} during review phase`,
+					);
+				}
+				const statblock = selected.text;
 				reviewPromises.push(
 					(async () => {
 						const review = await reviewStatblock(

@@ -50,7 +50,7 @@ export function generateSwissTriples(
 		// Find best 2nd: closest in points, hasn't faced first
 		let secondIdx = -1;
 		for (let i = 1; i < available.length; i++) {
-			if (!first.opponents.has(available[i]?.id)) {
+			if (!first.opponents.has(available[i]!.id)) {
 				secondIdx = i;
 				break;
 			}
@@ -62,10 +62,10 @@ export function generateSwissTriples(
 		// Find best 3rd: closest in points, hasn't faced first or second
 		let thirdIdx = -1;
 		for (let i = 1; i < available.length; i++) {
-			if (available[i]?.id === second.id) continue;
+			if (available[i]!.id === second.id) continue;
 			if (
-				!first.opponents.has(available[i]?.id) &&
-				!second.opponents.has(available[i]?.id)
+				!first.opponents.has(available[i]!.id) &&
+				!second.opponents.has(available[i]!.id)
 			) {
 				thirdIdx = i;
 				break;
@@ -73,7 +73,7 @@ export function generateSwissTriples(
 		}
 		if (thirdIdx === -1) {
 			for (let i = 1; i < available.length; i++) {
-				if (available[i]?.id !== second.id) {
+				if (available[i]!.id !== second.id) {
 					thirdIdx = i;
 					break;
 				}
@@ -111,7 +111,7 @@ export function generateSwissPairs(contestants: SwissContestant[]): {
 		// Find opponent who hasn't faced first
 		let secondIdx = -1;
 		for (let i = 1; i < available.length; i++) {
-			if (!first.opponents.has(available[i]?.id)) {
+			if (!first.opponents.has(available[i]!.id)) {
 				secondIdx = i;
 				break;
 			}
@@ -124,7 +124,7 @@ export function generateSwissPairs(contestants: SwissContestant[]): {
 	}
 
 	const remaining = sorted.filter((c) => !used.has(c.id));
-	const bye = remaining.length === 1 ? remaining[0]?.id : null;
+	const bye = remaining.length === 1 ? remaining[0]!.id : null;
 
 	return { pairs, bye };
 }
@@ -168,25 +168,25 @@ export async function runSwissPhase(
 	// Initialize contestants
 	const contestants: SwissContestant[] = resumeSwiss
 		? (state.contestants as StoredSwissContestant[]).map((c) => ({
-				id: c.id,
-				text: revisionsById.get(c.id)?.result.text ?? "",
-				points: c.points,
-				opponents: new Set(c.opponents),
-				placements: c.placements,
-				wins: c.wins ?? 0,
-				losses: c.losses ?? 0,
-				draws: c.draws ?? 0,
-			}))
+			id: c.id,
+			text: revisionsById.get(c.id)?.result.text ?? "",
+			points: c.points,
+			opponents: new Set(c.opponents),
+			placements: c.placements,
+			wins: c.wins ?? 0,
+			losses: c.losses ?? 0,
+			draws: c.draws ?? 0,
+		}))
 		: Array.from(revisionsById.entries()).map(([id, data]) => ({
-				id,
-				text: data.result.text,
-				points: 0,
-				opponents: new Set<string>(),
-				placements: { first: 0, second: 0, third: 0 },
-				wins: 0,
-				losses: 0,
-				draws: 0,
-			}));
+			id,
+			text: data.result.text,
+			points: 0,
+			opponents: new Set<string>(),
+			placements: { first: 0, second: 0, third: 0 },
+			wins: 0,
+			losses: 0,
+			draws: 0,
+		}));
 
 	const allSwissMatches: SwissMatch[] = resumeSwiss
 		? [...(state.swissMatches as StoredSwissMatch[])]
@@ -211,9 +211,16 @@ export async function runSwissPhase(
 			const { pairs, bye } = generateSwissPairs(contestants);
 			const pairPromises = pairs.map(
 				async ([idA, idB]): Promise<SwissMatch> => {
+					const textA = revisionsById.get(idA)?.result.text;
+					const textB = revisionsById.get(idB)?.result.text;
+					if (!textA || !textB) {
+						throw new Error(
+							`Missing revision text for Swiss 1v1 match: ${!textA ? idA : idB}`,
+						);
+					}
 					const entries: [string, string][] = [
-						[idA, revisionsById.get(idA)?.result.text],
-						[idB, revisionsById.get(idB)?.result.text],
+						[idA, textA],
+						[idB, textB],
 					];
 					// Shuffle presentation order
 					const shuffled = shuffleArray(entries);
@@ -379,10 +386,19 @@ export async function runSwissPhase(
 				// Real API calls
 				const triplePromises = triples.map(
 					async ([idA, idB, idC]): Promise<SwissMatch> => {
+						const textA = revisionsById.get(idA)?.result.text;
+						const textB = revisionsById.get(idB)?.result.text;
+						const textC = revisionsById.get(idC)?.result.text;
+						if (!textA || !textB || !textC) {
+							const missingId = !textA ? idA : !textB ? idB : idC;
+							throw new Error(
+								`Missing revision text for Swiss 1v1v1 match: ${missingId}`,
+							);
+						}
 						const entries: [string, string][] = [
-							[idA, revisionsById.get(idA)?.result.text],
-							[idB, revisionsById.get(idB)?.result.text],
-							[idC, revisionsById.get(idC)?.result.text],
+							[idA, textA],
+							[idB, textB],
+							[idC, textC],
 						];
 						const shuffled = shuffleArray(entries);
 						const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];

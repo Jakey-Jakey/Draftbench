@@ -124,7 +124,13 @@ export async function runRevisePhase(
 	} else {
 		// Real API calls
 		const revisePromises = revisionTasks.map(async (task) => {
-			const originalStatblock = selectedByModel.get(task.generator)?.text;
+			const selected = selectedByModel.get(task.generator);
+			if (!selected) {
+				throw new Error(
+					`Missing original statblock for generator ${task.generator} during revise phase`,
+				);
+			}
+			const originalStatblock = selected.text;
 			const review = reviews.find(
 				(r) => r.reviewed === task.generator && r.reviewer === task.reviewer,
 			)!;
@@ -134,12 +140,12 @@ export async function runRevisePhase(
 				originalStatblock,
 				feedback,
 				task.reviserEffort as
-					| "high"
-					| "medium"
-					| "low"
-					| "xhigh"
-					| "minimal"
-					| "none",
+				| "high"
+				| "medium"
+				| "low"
+				| "xhigh"
+				| "minimal"
+				| "none",
 				task.reviserTemperature,
 			);
 			revisionsById.set(task.id, { result, task });

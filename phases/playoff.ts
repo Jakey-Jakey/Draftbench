@@ -89,7 +89,7 @@ export async function runPlayoffPhase(
 	const playoffPairs: [string, string][] = [];
 	for (let i = 0; i < topN.length; i++) {
 		for (let j = i + 1; j < topN.length; j++) {
-			playoffPairs.push([topN[i]?.id, topN[j]?.id]);
+			playoffPairs.push([topN[i]!.id, topN[j]!.id]);
 		}
 	}
 
@@ -143,8 +143,15 @@ export async function runPlayoffPhase(
 	} else {
 		// Real API calls
 		const playoffPromises = playoffPairs.map(async ([idA, idB]) => {
-			const textA = revisionsById.get(idA)?.result.text;
-			const textB = revisionsById.get(idB)?.result.text;
+			const revisionA = revisionsById.get(idA);
+			const revisionB = revisionsById.get(idB);
+			if (!revisionA || !revisionB) {
+				throw new Error(
+					`Missing revision for playoff match: ${!revisionA ? idA : idB}`,
+				);
+			}
+			const textA = revisionA.result.text;
+			const textB = revisionB.result.text;
 
 			const swapped = Math.random() > 0.5;
 			const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
