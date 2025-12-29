@@ -48,7 +48,6 @@ const TOP_N_PLAYOFF = config.tournament.playoffSize;
 const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
 const SWISS_JUDGE = getSwissJudge();
 const PLAYOFF_JUDGES = getPlayoffJudges();
-const GENERATOR_COUNT = getRoleEntries("generators").length;
 const DRY_RUN = cliArgs.dryRun;
 const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 
@@ -249,6 +248,8 @@ async function runCrossReviewPipeline(): Promise<void> {
 		contestants,
 		allSwissMatches,
 		playoffResults,
+		revisionsById,
+		state.initialLeaderboardResults,
 	);
 	const leaderboardPath = join(runDir, "leaderboard.md");
 	if (!DRY_RUN) {
@@ -261,7 +262,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 	// Print summary stats
 	const playoffPairCount = (TOP_N_PLAYOFF * (TOP_N_PLAYOFF - 1)) / 2;
 
-	console.log("\n" + "=".repeat(60));
+	console.log(`\n${"=".repeat(60)}`);
 	console.log("📊 TOURNAMENT SUMMARY");
 	console.log("=".repeat(60));
 	if (DRY_RUN) {

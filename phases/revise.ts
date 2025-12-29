@@ -7,7 +7,7 @@ import {
 	type ReviseResult,
 	reviseStatblock,
 } from "../aiClient";
-import { getConfig, getRoleEntries } from "../config";
+import { getRoleEntries, type ReasoningEffort } from "../config";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -124,22 +124,27 @@ export async function runRevisePhase(
 	} else {
 		// Real API calls
 		const revisePromises = revisionTasks.map(async (task) => {
-			const originalStatblock = selectedByModel.get(task.generator)!.text;
+			const selected = selectedByModel.get(task.generator);
+			if (!selected) {
+				throw new Error(
+					`Missing original statblock for generator ${task.generator} during revise phase`,
+				);
+			}
+			const originalStatblock = selected.text;
 			const review = reviews.find(
 				(r) => r.reviewed === task.generator && r.reviewer === task.reviewer,
-			)!;
+			);
+			if (!review) {
+				throw new Error(
+					`Missing review for revision task: generator=${task.generator}, reviewer=${task.reviewer}`,
+				);
+			}
 			const feedback = `## Feedback:\n${review.text}`;
 			const result = await reviseStatblock(
 				task.reviser,
 				originalStatblock,
 				feedback,
-				task.reviserEffort as
-					| "high"
-					| "medium"
-					| "low"
-					| "xhigh"
-					| "minimal"
-					| "none",
+				task.reviserEffort as ReasoningEffort,
 				task.reviserTemperature,
 			);
 			revisionsById.set(task.id, { result, task });

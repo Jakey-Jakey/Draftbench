@@ -18,8 +18,9 @@ This pipeline benchmarks AI models on creative artifact generation end-to-end:
 - **Position Randomization**: All matches randomize presentation order to eliminate position bias
 - **Multi-Judge Playoff**: Configurable judges vote on each playoff match
 - **Anonymized Judging**: All artifacts are presented with anonymous IDs (S1, S2, S3)
-- **Resumable Runs**: Interrupted pipelines can be resumed with `--resume`
+- **Resumable Runs**: Interrupted pipelines can be resumed with `--resume`—state saved per model
 - **Incremental Writes**: Results are written immediately as they complete
+- **Cost-Efficient Initial Leaderboard**: Multiple tournament styles from 30 matches (per-model) to 1 call (global-rank)
 
 ## Prerequisites
 

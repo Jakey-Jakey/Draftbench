@@ -2,12 +2,14 @@
 
 ## Overview
 
-This document summarizes the comprehensive test coverage added to the Draftbench AI benchmarking pipeline project.
+This document summarizes the comprehensive test coverage for the Draftbench AI benchmarking pipeline project.
 
-## Test Files Created
+**Total: 271 tests across 11 test files**
 
-### 1. `tests/callSettings.test.ts` (NEW - ~170 lines)
-**Purpose**: Tests the new callSettings module that handles model configuration resolution.
+## Test Files
+
+### 1. `tests/callSettings.test.ts` (~170 lines)
+**Purpose**: Tests the callSettings module that handles model configuration resolution.
 
 **Coverage**:
 - `getCallSettings()` - Resolves effort and temperature for models in specific roles
@@ -16,14 +18,9 @@ This document summarizes the comprehensive test coverage added to the Draftbench
 - Edge cases: missing models, empty slugs, all effort levels
 - Role-specific settings for generators, reviewers, revisers
 
-**Key Test Scenarios**:
-- Returns correct settings for each role (generators/reviewers/revisers)
-- Defaults to "high" effort when model not configured
-- Handles all effort levels: xhigh, high, medium, low, minimal, none
-- Optional temperature override support
-- Different roles can have different settings for same model
+---
 
-### 2. `tests/semaphore.test.ts` (NEW - ~400 lines)
+### 2. `tests/semaphore.test.ts` (~400 lines)
 **Purpose**: Comprehensive concurrency control testing.
 
 **Coverage**:
@@ -32,35 +29,21 @@ This document summarizes the comprehensive test coverage added to the Draftbench
 - `withConcurrencyLimit()` - Function wrapper for concurrency control
 - Edge cases: zero permits, large permit counts, error handling
 
-**Key Test Scenarios**:
-- Acquire/release mechanics with single and multiple permits
-- Blocking behavior when permits exhausted
-- FIFO ordering for waiting acquires
-- Concurrent access limits enforced correctly
-- Error propagation and permit release on exceptions
-- Performance tests: unlimited vs limited concurrency
-- Integration with global limiter (null = unlimited)
+---
 
-### 3. `tests/state.test.ts` (NEW - ~350 lines)
+### 3. `tests/state.test.ts` (~350 lines)
 **Purpose**: Pipeline state management and persistence testing.
 
 **Coverage**:
-- `createInitialState()` - State initialization
+- `createInitialState()` - State initialization with new tracking fields
 - `saveState()` / `loadState()` - Serialization/deserialization
 - `isPhaseCompleted()` / `markPhaseCompleted()` - Phase tracking
 - Map/Set conversion for JSON compatibility
-- Error handling for corrupted files
+- New fields: `completedGenerators`, `completedLeaderboardModels`, `initialLeaderboardResults`
 
-**Key Test Scenarios**:
-- State survives save/load cycle without data loss
-- All phase types tracked correctly (generate, review, revise, swiss, playoff)
-- Swiss contestants with Set<opponents> serialize properly
-- Playoff results with fractional points preserved
-- Handles missing files gracefully (returns initial state)
-- Directory creation on save
-- Corrupted JSON returns initial state instead of throwing
+---
 
-### 4. `tests/leaderboard.test.ts` (NEW - ~400 lines)
+### 4. `tests/leaderboard.test.ts` (~330 lines)
 **Purpose**: Leaderboard computation and ranking logic testing.
 
 **Coverage**:
@@ -70,131 +53,118 @@ This document summarizes the comprehensive test coverage added to the Draftbench
 - Tiebreaker cascades (points → 1sts → 2nds → 3rds)
 - Revision metadata mapping
 
-**Key Test Scenarios**:
-- Sorts by Swiss points descending
-- Tiebreaker 1: Most first-place finishes
-- Tiebreaker 2: Most second-place finishes (when 1sts tied)
-- Playoff results included when available (with 2× weight)
-- Handles fractional playoff points (0.5 for draws)
-- Edge cases: empty array, single contestant, all zero points
-- Complex 8-contestant tournament scenarios
-- Metadata (generator/reviewer/reviser) properly mapped
+---
 
-## Enhanced Existing Test Files
+### 5. `tests/leaderboard.extended.test.ts` (~200 lines) ✨NEW
+**Purpose**: Extended leaderboard tests for new formatting features.
 
-### 5. `tests/config.test.ts` (ENHANCED - ~350 lines added)
-**New Coverage Added**:
-- **TOML Configuration Parsing**:
-  - Role entries with model slugs and effort levels
-  - Swiss format variants (1v1 vs 1v1v1)
-  - Draft leaderboard config
-  - Concurrency settings (optional)
-  - Output directory configuration
+**Coverage**:
+- New markdown formatting (winner cards, per-role tables)
+- Seed selection section when initial leaderboard results provided
+- `storedToRuntimeContestants()` / `runtimeToStoredContestants()` conversion
+- Ranking logic edge cases
 
-- **Prompt Configuration**:
-  - Generate/review/revise prompts structure
-  - Template variable validation ({statblock}, {feedback}, etc.)
-  - Judge prompt templates (pairwise and three-way)
-  - System/user prompt separation
+---
 
-- **Config Helper Functions**:
-  - `getRoleEntries()` - Returns role-specific model arrays
-  - `getModelsForRole()` - Extracts model slugs
-  - `getSwissJudge()` / `getPlayoffJudges()` - Judge accessors
-  - `interpolate()` - Template variable substitution
+### 6. `tests/config.test.ts` (~365 lines)
+**Purpose**: TOML configuration loading and validation testing.
 
-**Key Test Scenarios**:
-- Partial configs merge with defaults correctly
-- All TOML preset files load successfully
-- Model slug validation (must contain "/")
-- Template interpolation with multiple variables
-- Special characters in interpolated values
+**Coverage**:
+- TOML configuration parsing with role entries
+- Swiss format variants (1v1 vs 1v1v1)
+- Initial leaderboard config (enabled, style)
+- Concurrency settings (optional)
+- Prompt configuration and template validation
+- Config helper functions (`getRoleEntries`, `getModelsForRole`, etc.)
 
-### 6. `tests/swiss.test.ts` (ENHANCED - ~200 lines added)
-**New Coverage Added**:
-- **Pairwise Pairing (1v1)**:
-  - Even/odd contestant handling
-  - Bye assignment for odd numbers
-  - Opponent tracking prevents rematches
-  - Point-bracket pairing
+---
 
-- **Edge Cases**:
-  - Empty contestant arrays
-  - Single contestant (bye only)
-  - All contestants with same points
-  - Repeat opponent avoidance logic
+### 7. `tests/initialLeaderboard.test.ts` (~200 lines) ✨NEW
+**Purpose**: Initial leaderboard configuration and validation tests.
 
-- **Contestant Tracking**:
-  - Opponent Set management
-  - Placement accumulation
-  - Points tracking
+**Coverage**:
+- Initial leaderboard style options (per-model-pairwise, global-pairwise, per-model-rank, global-rank)
+- Config validation edge cases
+- Role helper functions
+- Prompts configuration validation
 
-**Key Test Scenarios**:
-- 9 contestants → 3 triples (perfect fit)
-- 10 contestants → 3 triples + 1 leftover
-- 27 contestants → 9 triples (perfect fit)
-- Avoids pairing previous opponents when possible
-- Sorts by points for fair matchmaking
-- Handles 2 contestants (single pair minimum)
+---
 
-### 7. `tests/utils.test.ts` (ENHANCED - ~150 lines added)
-**New Coverage Added**:
-- **Timestamp Generation**:
-  - Format validation (YYYY-MM-DDTHH-MM-SS)
-  - Chronological sortability
-  - Uniqueness over time
+### 8. `tests/swiss.test.ts` (~300 lines)
+**Purpose**: Swiss tournament pairing algorithm testing.
 
-- **Directory Management**:
-  - `ensureRunsDirectory()` with dry-run mode
-  - Subdirectory path handling
-  - Dry-run prevents actual creation
+**Coverage**:
+- Triple generation (1v1v1 format)
+- Pair generation (1v1 format)
+- Bye handling for odd contestant counts
+- Opponent tracking and rematch avoidance
+- Point-bracket pairing
 
-- **Mock Data Generation**:
-  - `createMockStatblock()` - Includes model and phase
-  - `createMockReview()` - Includes reviewer and reviewed
-  - Uniqueness per model
+---
 
-- **Edge Case Handling**:
-  - Shuffle with duplicates preserves count
-  - Model name extraction edge cases
-  - Special regex characters in interpolation
-  - Braces in interpolated values
+### 9. `tests/utils.test.ts` (~200 lines)
+**Purpose**: Utility function testing.
+
+**Coverage**:
+- `getTimestamp()` - Format validation, sortability
+- `ensureRunsDirectory()` - Directory creation, dry-run mode
+- `createMockStatblock()` / `createMockReview()` - Mock generation
+- `shuffleArray()` - Array shuffling
+- Edge case handling
+
+---
+
+### 10. `tests/utils.extended.test.ts` (~220 lines) ✨NEW
+**Purpose**: Extended utility tests for edge cases.
+
+**Coverage**:
+- Mock generator edge cases (special characters, empty tags)
+- `getShortModelName()` edge cases (multi-slash, no slash, empty)
+- `shuffleArray()` with duplicates, single element, empty array
+- `interpolate()` from config.ts (multiline, unicode, regex chars)
+
+---
+
+### 11. `tests/schemas.test.ts` (~325 lines) ✨NEW
+**Purpose**: Schema validation and JSON parsing tests.
+
+**Coverage**:
+- `PairwiseJudgeResponseSchema` validation
+- `ThreeWayJudgeResponseSchema` validation
+- `JudgeStatblocksResponseSchema` validation
+- `parseJsonResponse()` function:
+  - JSON extraction from LLM text
+  - Malformed JSON handling
+  - Schema validation failures
+  - Edge cases: empty input, truncated JSON, unicode
+- LLM response parsing scenarios
+
+---
 
 ## Test Statistics
 
-### Overall Coverage
-- **Total Test Files**: 7 (4 new + 3 enhanced)
-- **Total Test Suites**: 50+
-- **Total Individual Tests**: 170+
-- **Lines of Test Code**: ~2,000+
-- **Code Coverage**: Core modules at 80%+
+| Metric | Value |
+|--------|-------|
+| Total Test Files | 11 |
+| Total Tests | 271 |
+| Total expect() calls | 559 |
+| Test Code Lines | ~3,500 |
+| Execution Time | ~2.5 seconds |
 
-### Files Covered
-✅ **New Files** (100% coverage):
-- `callSettings.ts` - 47 lines, 30+ tests
-- `semaphore.ts` - 75 lines, 50+ tests
+## Files Covered
 
-✅ **Modified Files** (comprehensive coverage):
-- `config.ts` - TOML parsing, role resolution, interpolation
-- `state.ts` - State management, persistence
-- `leaderboard.ts` - Ranking computation, tiebreakers
-- `utils.ts` - Helper functions, mocks
-- `phases/swiss.ts` - Pairing algorithms (both formats)
+✅ **Full Coverage**:
+- `callSettings.ts`
+- `semaphore.ts`
+- `schemas.ts`
+- `leaderboard.ts`
+- `state.ts`
+- `config.ts`
+- `utils.ts`
 
-## Test Organization
-
-### By Category
-- **Configuration**: 40+ tests (loading, merging, validation)
-- **Concurrency**: 30+ tests (semaphore, limits, errors)
-- **State Management**: 25+ tests (save, load, phases)
-- **Tournament Logic**: 30+ tests (Swiss, playoff, leaderboard)
-- **Utilities**: 25+ tests (timestamps, strings, arrays)
-- **Schema Validation**: Covered via integration tests
-
-### By Test Type
-- **Unit Tests**: 85% - Pure function testing
-- **Integration Tests**: 10% - Multi-module scenarios
-- **Edge Case Tests**: 5% - Boundary conditions, errors
+⚠️ **Partial Coverage** (tested via integration):
+- `aiClient.ts` - Requires API mocking
+- `phases/*.ts` - Would benefit from more unit tests
 
 ## Running Tests
 
@@ -203,10 +173,10 @@ This document summarizes the comprehensive test coverage added to the Draftbench
 bun test
 
 # Run specific test file
-bun test tests/semaphore.test.ts
+bun test tests/schemas.test.ts
 
 # Run tests matching pattern
-bun test --grep "concurrency"
+bun test --grep "parseJsonResponse"
 
 # Watch mode
 bun test --watch
@@ -214,70 +184,22 @@ bun test --watch
 
 ## Test Quality Standards
 
-### Applied Best Practices
-✅ **Descriptive Names**: Each test clearly states what it tests
-✅ **Arrange-Act-Assert**: Clear test structure throughout
-✅ **Isolation**: Tests don't depend on each other
-✅ **Fast**: All tests complete in < 5 seconds total
-✅ **Deterministic**: No flaky tests, consistent results
-✅ **Edge Cases**: Comprehensive boundary condition testing
-✅ **Type Safety**: Full TypeScript typing with proper types
+✅ **Descriptive Names** - Each test clearly states what it tests  
+✅ **Arrange-Act-Assert** - Clear test structure throughout  
+✅ **Isolation** - Tests don't depend on each other  
+✅ **Fast** - All tests complete in ~2.5 seconds  
+✅ **Deterministic** - Consistent results (1 known intermittent timing test)  
+✅ **Edge Cases** - Comprehensive boundary condition testing  
+✅ **Type Safety** - Full TypeScript typing  
 
-### Coverage Goals Met
-✅ **Happy Paths**: Normal operation scenarios
-✅ **Error Paths**: Invalid inputs, missing data
-✅ **Edge Cases**: Empty arrays, null values, boundaries
-✅ **Integration**: Module interactions work correctly
-✅ **Performance**: Concurrency limits enforced properly
+## Recent Changes
 
-## Key Testing Insights
+### 2024-12-28 - Added 97 New Tests
 
-### Configuration System
-- TOML parsing is robust with good error messages
-- Deep merge correctly prioritizes user config over defaults
-- Template interpolation handles edge cases well
-- Config validation catches invalid model slugs
+Added 4 new test files covering:
+1. **Schema validation** (`schemas.test.ts`) - JSON parsing, Zod schemas
+2. **Initial leaderboard** (`initialLeaderboard.test.ts`) - Config styles
+3. **Utils extended** (`utils.extended.test.ts`) - Edge cases for utilities
+4. **Leaderboard extended** (`leaderboard.extended.test.ts`) - New formatting
 
-### Concurrency Control
-- Semaphore correctly enforces permit limits
-- Global limiter integrates seamlessly
-- Error handling releases permits properly
-- Performance difference measurable between limited/unlimited
-
-### State Management
-- Serialization preserves all data types (Maps, Sets, Arrays)
-- Resume functionality works across all phases
-- Corrupted state files handled gracefully
-- Directory creation on-demand works correctly
-
-### Tournament Logic
-- Swiss pairing avoids rematches effectively
-- Tiebreaker cascade works as designed
-- Playoff integration weights correctly (2× multiplier)
-- Both 1v1 and 1v1v1 formats work properly
-
-## Future Test Enhancements
-
-### Potential Additions
-1. **Integration Tests**: Full pipeline end-to-end with mocked API
-2. **Performance Tests**: Large contestant counts (100+)
-3. **Schema Tests**: Explicit Zod schema validation tests
-4. **Phase Tests**: Individual phase modules (generate, review, revise)
-5. **Error Recovery**: Network failures, timeout handling
-
-### Known Gaps
-- API client tests require mocking OpenRouter
-- Phase modules tested via integration, could use more unit tests
-- No explicit tests for prompt templates (validated via integration)
-
-## Conclusion
-
-The Draftbench test suite now provides comprehensive coverage of:
-- ✅ All new functionality (callSettings, semaphore)
-- ✅ Core configuration system (TOML parsing, roles)
-- ✅ State management (persistence, resume)
-- ✅ Tournament logic (Swiss, playoff, leaderboard)
-- ✅ Utility functions (timestamps, strings, arrays)
-- ✅ Edge cases and error conditions
-
-**Total Test Effort**: ~2,000 lines of high-quality, maintainable test code providing confidence in the system's correctness and robustness.
+Total tests increased from **174 → 271** (56% increase).

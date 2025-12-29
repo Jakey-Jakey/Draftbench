@@ -44,6 +44,23 @@ bun x @biomejs/biome check --write
 **Configuration is TOML-based** (not JSON). Edit `config.toml` for settings.
 See `agents.md` for full documentation.
 
+### Initial Leaderboard Styles
+
+When `initialGenerations > 1`, you can configure how the best draft per model is selected:
+
+```toml
+[tournament.initialLeaderboard]
+enabled = true
+style = "per-model-pairwise"  # Default: each model's drafts compete internally
+# style = "global-pairwise"   # All drafts compete (expensive!)
+# style = "per-model-rank"    # Single ranking call per model (cheap)
+# style = "global-rank"       # Single ranking call for all (cheapest)
+```
+
+### Resumability
+
+The pipeline saves state after each model completes its generation or leaderboard matches. If interrupted, use `--resume` to continue from where it left off.
+
 ## APIs
 
 - `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.

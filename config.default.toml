@@ -75,6 +75,7 @@ swissFormat = "1v1v1"       # "1v1" (pairwise) or "1v1v1" (three-way)
 
 [tournament.initialLeaderboard]
 enabled = false             # Run round-robin to pick best draft per model
+# style = "per-model-pairwise"  # Options: per-model-pairwise (default), global-pairwise, per-model-rank, global-rank
 
 # -----------------------------------------------------------------------------
 # CONCURRENCY

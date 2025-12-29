@@ -61,6 +61,18 @@ export interface StoredSwissContestant {
 }
 
 /**
+ * Initial leaderboard result for a single model.
+ */
+export interface StoredInitialLeaderboardResult {
+	model: string;
+	selectedDraftIndex: number;
+	wins: number;
+	draws: number;
+	losses: number;
+	totalDrafts: number;
+}
+
+/**
  * Playoff result for a single contestant.
  */
 export interface StoredPlayoffResult {
@@ -84,9 +96,12 @@ export interface PipelineState {
 
 	// Phase 1: Generation
 	generatedDrafts: Map<ModelName, StoredGenerateResult[]> | null;
+	completedGenerators: string[]; // Models that have finished generating
 
 	// Phase 2: Initial Leaderboard / Draft Selection
 	selectedDrafts: Map<ModelName, StoredGenerateResult> | null;
+	completedLeaderboardModels: string[]; // Models that have finished their leaderboard matches
+	initialLeaderboardResults: StoredInitialLeaderboardResult[] | null; // For enhanced output
 
 	// Phase 3: Reviews
 	reviews: StoredReviewResult[] | null;
@@ -136,6 +151,7 @@ function deserializeState(obj: Record<string, unknown>): PipelineState {
 					),
 				)
 			: null,
+		completedGenerators: (obj.completedGenerators as string[]) ?? [],
 		selectedDrafts: obj.selectedDrafts
 			? new Map(
 					Object.entries(
@@ -143,6 +159,11 @@ function deserializeState(obj: Record<string, unknown>): PipelineState {
 					),
 				)
 			: null,
+		completedLeaderboardModels:
+			(obj.completedLeaderboardModels as string[]) ?? [],
+		initialLeaderboardResults:
+			(obj.initialLeaderboardResults as StoredInitialLeaderboardResult[]) ??
+			null,
 		revisions: obj.revisions
 			? new Map(
 					Object.entries(obj.revisions as Record<string, StoredRevisionResult>),
@@ -205,6 +226,15 @@ const StoredPlayoffResultSchema = z.object({
 	draws: z.number(),
 });
 
+const StoredInitialLeaderboardResultSchema = z.object({
+	model: z.string(),
+	selectedDraftIndex: z.number(),
+	wins: z.number(),
+	draws: z.number(),
+	losses: z.number(),
+	totalDrafts: z.number(),
+});
+
 const PipelineStateSchema = z.object({
 	version: z.literal(1),
 	timestamp: z.string(),
@@ -213,7 +243,13 @@ const PipelineStateSchema = z.object({
 	generatedDrafts: z
 		.record(z.string(), z.array(StoredGenerateResultSchema))
 		.nullable(),
+	completedGenerators: z.array(z.string()).optional(),
 	selectedDrafts: z.record(z.string(), StoredGenerateResultSchema).nullable(),
+	completedLeaderboardModels: z.array(z.string()).optional(),
+	initialLeaderboardResults: z
+		.array(StoredInitialLeaderboardResultSchema)
+		.nullable()
+		.optional(),
 	reviews: z.array(StoredReviewResultSchema).nullable(),
 	revisions: z.record(z.string(), StoredRevisionResultSchema).nullable(),
 	swissRound: z.number(),
@@ -238,7 +274,10 @@ export function createInitialState(): PipelineState {
 		phase: 0,
 		phasesCompleted: [],
 		generatedDrafts: null,
+		completedGenerators: [],
 		selectedDrafts: null,
+		completedLeaderboardModels: [],
+		initialLeaderboardResults: null,
 		reviews: null,
 		revisions: null,
 		swissRound: 0,

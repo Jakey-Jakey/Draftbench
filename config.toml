@@ -14,7 +14,7 @@
 # Generators: Create initial drafts
 [[roles.generators]]
 model = "openai/gpt-5.2"
-effort = "high"
+effort = "xhigh"
 
 [[roles.generators]]
 model = "anthropic/claude-opus-4.5"
@@ -69,13 +69,13 @@ effort = "medium"
 # -----------------------------------------------------------------------------
 
 [tournament]
-initialGenerations = 1
+initialGenerations = 5
 swissRounds = 7
 playoffSize = 8
 swissFormat = "1v1v1"
 
 [tournament.initialLeaderboard]
-enabled = false
+enabled = true
 
 # -----------------------------------------------------------------------------
 # CONCURRENCY (uncomment to limit parallel API calls)

@@ -1,6 +1,7 @@
 import { appendFile } from "node:fs/promises";
 import {
 	type GenerateResult,
+	judgeStatblocks,
 	type ModelSlug,
 	pairwiseJudge,
 } from "../aiClient";
@@ -8,6 +9,8 @@ import {
 	getConfig,
 	getInitialLeaderboardJudges,
 	getModelsForRole,
+	getSwissJudge,
+	type InitialLeaderboardStyle,
 	type RoleEntry,
 } from "../config";
 import {
@@ -40,8 +43,219 @@ export interface InitialLeaderboardResult {
 }
 
 /**
- * Phase 2: Optional initial round robin to pick the best draft per model.
- * If disabled or only 1 generation per model, simply uses the first draft.
+ * Determines the effective style based on config and draft count.
+ * Defaults to per-model-pairwise if initialGenerations > 1.
+ */
+function getEffectiveStyle(
+	configStyle: InitialLeaderboardStyle | undefined,
+	initialGenerations: number,
+): InitialLeaderboardStyle {
+	// If only 1 generation, no tournament needed
+	if (initialGenerations <= 1) {
+		return "per-model-pairwise"; // Will be skipped anyway
+	}
+	return configStyle ?? "per-model-pairwise";
+}
+
+/**
+ * Runs pairwise tournament for a single model's drafts.
+ */
+async function runPerModelPairwise(
+	modelSlug: ModelSlug,
+	drafts: GenerateResult[],
+	leaderboardJudges: RoleEntry[],
+	dryRun: boolean,
+	initialLeaderboardLogPath: string | null,
+): Promise<{ winner: DraftStanding; standings: DraftStanding[] }> {
+	const shortName = getShortModelName(modelSlug);
+	const standings: DraftStanding[] = drafts.map((draft, idx) => ({
+		model: modelSlug,
+		draftIndex: idx + 1,
+		text: draft.text,
+		result: draft,
+		points: 0,
+		wins: 0,
+		draws: 0,
+		losses: 0,
+	}));
+
+	// Generate all pairs for this model's drafts
+	const pairs: [number, number][] = [];
+	for (let i = 0; i < standings.length; i++) {
+		for (let j = i + 1; j < standings.length; j++) {
+			pairs.push([i, j]);
+		}
+	}
+
+	console.log(`  ${shortName}: ${pairs.length} matches`);
+
+	if (dryRun) {
+		// Mock matchups
+		for (const [i, j] of pairs) {
+			const outcome = Math.random();
+			if (outcome < 0.4) {
+				standings[i]!.points += 1;
+				standings[i]!.wins += 1;
+				standings[j]!.losses += 1;
+			} else if (outcome < 0.8) {
+				standings[j]!.points += 1;
+				standings[j]!.wins += 1;
+				standings[i]!.losses += 1;
+			} else {
+				standings[i]!.points += 0.5;
+				standings[j]!.points += 0.5;
+				standings[i]!.draws += 1;
+				standings[j]!.draws += 1;
+			}
+		}
+	} else {
+		// Real API calls - all pairs in parallel
+		await Promise.all(
+			pairs.map(async ([i, j]) => {
+				const a = standings[i]!;
+				const b = standings[j]!;
+				const swapped = Math.random() > 0.5;
+				const [first, second] = swapped ? [b, a] : [a, b];
+
+				const judgeResults = await Promise.all(
+					leaderboardJudges.map((judge) =>
+						pairwiseJudge(
+							"S1",
+							first.text,
+							"S2",
+							second.text,
+							judge.model,
+							judge.effort,
+						),
+					),
+				);
+
+				const voteCounts = new Map<DraftStanding, number>([
+					[first, 0],
+					[second, 0],
+				]);
+				for (const result of judgeResults) {
+					const winner = result.winner === "S1" ? first : second;
+					voteCounts.set(winner, (voteCounts.get(winner) ?? 0) + 1);
+				}
+
+				const votes = Array.from(voteCounts.entries());
+				votes.sort((x, y) => y[1]! - x[1]!);
+				const topCount = votes[0]?.[1];
+				const topWinners = votes
+					.filter(([, count]) => count === topCount)
+					.map(([standing]) => standing);
+
+				if (topWinners.length === 1) {
+					const winner = topWinners[0]!;
+					const loser = winner === first ? second : first;
+					winner.points += 1;
+					winner.wins += 1;
+					loser.losses += 1;
+				} else {
+					first.points += 0.5;
+					second.points += 0.5;
+					first.draws += 1;
+					second.draws += 1;
+				}
+
+				// Log to file
+				if (initialLeaderboardLogPath) {
+					const idA = `${shortName}_draft${a.draftIndex}`;
+					const idB = `${shortName}_draft${b.draftIndex}`;
+					let logEntry = `- ${idA} vs ${idB}: `;
+					if (topWinners.length === 1) {
+						const winnerId = `${shortName}_draft${topWinners[0]?.draftIndex}`;
+						logEntry += `**${winnerId}** wins`;
+					} else {
+						logEntry += "**DRAW**";
+					}
+					logEntry += "\n";
+					await appendFile(initialLeaderboardLogPath, logEntry, "utf-8");
+				}
+			}),
+		);
+	}
+
+	// Sort standings
+	standings.sort((a, b) => {
+		if (b.points !== a.points) return b.points - a.points;
+		if (b.wins !== a.wins) return b.wins - a.wins;
+		return a.draftIndex - b.draftIndex;
+	});
+
+	const winner = standings[0]!;
+	console.log(
+		`  ✓ ${shortName}: Draft ${winner.draftIndex} wins (${winner.wins}W/${winner.draws}D/${winner.losses}L)`,
+	);
+
+	return { winner, standings };
+}
+
+/**
+ * Runs ranking-based selection for a single model using the Swiss judge.
+ */
+async function runPerModelRank(
+	modelSlug: ModelSlug,
+	drafts: GenerateResult[],
+	swissJudge: RoleEntry,
+	dryRun: boolean,
+): Promise<{ winner: DraftStanding; standings: DraftStanding[] }> {
+	const shortName = getShortModelName(modelSlug);
+	const standings: DraftStanding[] = drafts.map((draft, idx) => ({
+		model: modelSlug,
+		draftIndex: idx + 1,
+		text: draft.text,
+		result: draft,
+		points: 0,
+		wins: 0,
+		draws: 0,
+		losses: 0,
+	}));
+
+	console.log(`  ${shortName}: 1 ranking call`);
+
+	if (dryRun) {
+		// Mock: random winner
+		const winnerIdx = Math.floor(Math.random() * standings.length);
+		standings[winnerIdx]!.points = 1;
+		standings[winnerIdx]!.wins = 1;
+	} else {
+		// Real API call - single ranking
+		const statblockMap = new Map<string, string>();
+		for (const s of standings) {
+			statblockMap.set(`Draft${s.draftIndex}`, s.text);
+		}
+
+		const result = await judgeStatblocks(
+			swissJudge.model,
+			statblockMap,
+			swissJudge.effort,
+		);
+
+		// Apply rankings to standings
+		for (const ranking of result.rankings) {
+			const draftNum = parseInt(ranking.id.replace("Draft", ""), 10);
+			const standing = standings.find((s) => s.draftIndex === draftNum);
+			if (standing) {
+				standing.points =
+					(standings.length - ranking.rank + 1) / standings.length;
+			}
+		}
+	}
+
+	// Sort standings
+	standings.sort((a, b) => b.points - a.points);
+	const winner = standings[0]!;
+	console.log(`  ✓ ${shortName}: Draft ${winner.draftIndex} selected`);
+
+	return { winner, standings };
+}
+
+/**
+ * Phase 2: Optional initial leaderboard to pick the best draft per model.
+ * Supports multiple styles: per-model-pairwise, global-pairwise, per-model-rank, global-rank.
+ * State is saved after each model completes for granular resumability.
  */
 export async function runInitialLeaderboardPhase(
 	runDir: string,
@@ -54,38 +268,25 @@ export async function runInitialLeaderboardPhase(
 	const config = getConfig();
 	const generatorSlugs = getModelsForRole("generators");
 	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
+	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
 	const leaderboardJudges = getInitialLeaderboardJudges();
+	const swissJudge = getSwissJudge();
+
+	const style = getEffectiveStyle(
+		INITIAL_LEADERBOARD.style,
+		INITIAL_GENERATIONS,
+	);
 
 	console.log("Phase 2/6: Ranking initial drafts for seeding...");
 
 	const selectedByModel = new Map<ModelSlug, GenerateResult>();
 
-	// Build standings map
-	const draftStandings = new Map<string, DraftStanding>();
-	for (const modelSlug of generatorSlugs) {
-		const drafts = draftsByModel.get(modelSlug) ?? [];
-		const shortName = getShortModelName(modelSlug);
-		drafts.forEach((draft, idx) => {
-			draftStandings.set(`${shortName}_draft${idx + 1}`, {
-				model: modelSlug,
-				draftIndex: idx + 1,
-				text: draft.text,
-				result: draft,
-				points: 0,
-				wins: 0,
-				draws: 0,
-				losses: 0,
-			});
-		});
-	}
-
-	// Resume from state if available
-	const resumeSelected =
+	// Resume from state if phase fully completed
+	if (
 		isResuming &&
 		isPhaseCompleted(state, "initial_leaderboard") &&
-		state.selectedDrafts;
-
-	if (resumeSelected) {
+		state.selectedDrafts
+	) {
 		for (const [model, draft] of state.selectedDrafts as Map<
 			ModelSlug,
 			StoredGenerateResult
@@ -98,24 +299,203 @@ export async function runInitialLeaderboardPhase(
 		return { selectedByModel };
 	}
 
-	// If leaderboard disabled or no judges, just take first draft
-	if (!INITIAL_LEADERBOARD.enabled || leaderboardJudges.length === 0) {
+	// Handle disabled leaderboard or single generation
+	if (!INITIAL_LEADERBOARD.enabled || INITIAL_GENERATIONS <= 1) {
 		for (const modelSlug of generatorSlugs) {
 			const drafts = draftsByModel.get(modelSlug) ?? [];
 			if (drafts[0]) {
 				selectedByModel.set(modelSlug, drafts[0]!);
 			}
 		}
-		console.log(
-			`  ✓ ${
-				INITIAL_LEADERBOARD.enabled && leaderboardJudges.length === 0
-					? "Initial leaderboard skipped (no judges configured)"
-					: "Initial leaderboard disabled"
-			}\n`,
-		);
-	} else {
-		// Run round robin
-		const draftIds = Array.from(draftStandings.keys());
+		const reason =
+			INITIAL_GENERATIONS <= 1
+				? "Only 1 draft per model"
+				: "Initial leaderboard disabled";
+		console.log(`  ✓ ${reason} - using first drafts\n`);
+
+		if (!dryRun) {
+			state.selectedDrafts = selectedByModel as Map<
+				string,
+				StoredGenerateResult
+			>;
+			markPhaseCompleted(state, "initial_leaderboard");
+			saveState(runDir, state);
+		}
+		return { selectedByModel };
+	}
+
+	// Handle no judges configured
+	if (leaderboardJudges.length === 0 && !style.includes("rank")) {
+		for (const modelSlug of generatorSlugs) {
+			const drafts = draftsByModel.get(modelSlug) ?? [];
+			if (drafts[0]) {
+				selectedByModel.set(modelSlug, drafts[0]!);
+			}
+		}
+		console.log("  ✓ No judges configured - using first drafts\n");
+
+		if (!dryRun) {
+			state.selectedDrafts = selectedByModel as Map<
+				string,
+				StoredGenerateResult
+			>;
+			markPhaseCompleted(state, "initial_leaderboard");
+			saveState(runDir, state);
+		}
+		return { selectedByModel };
+	}
+
+	console.log(`  Style: ${style}`);
+
+	// Load partially completed models from state
+	const completedModels = new Set(state.completedLeaderboardModels ?? []);
+	if (isResuming && state.selectedDrafts) {
+		for (const [model, draft] of state.selectedDrafts as Map<
+			ModelSlug,
+			StoredGenerateResult
+		>) {
+			if (completedModels.has(model)) {
+				selectedByModel.set(model, draft as GenerateResult);
+				console.log(
+					`  ↩︎ Loaded winner for ${getShortModelName(model)} from state`,
+				);
+			}
+		}
+	}
+
+	// Initialize state fields if needed
+	if (!state.selectedDrafts) {
+		state.selectedDrafts = new Map<string, StoredGenerateResult>();
+	}
+	if (!state.initialLeaderboardResults) {
+		state.initialLeaderboardResults = [];
+	}
+	if (!state.completedLeaderboardModels) {
+		state.completedLeaderboardModels = [];
+	}
+
+	// Run tournaments based on style
+	if (style === "per-model-pairwise") {
+		// Run each model's tournament in parallel, returning results
+		const modelPromises = generatorSlugs
+			.filter((m) => !completedModels.has(m))
+			.map(async (modelSlug) => {
+				const drafts = draftsByModel.get(modelSlug) ?? [];
+				if (drafts.length === 0) return null;
+
+				const { winner } = await runPerModelPairwise(
+					modelSlug,
+					drafts,
+					leaderboardJudges,
+					dryRun,
+					initialLeaderboardLogPath,
+				);
+
+				return {
+					modelSlug,
+					winner,
+					totalDrafts: drafts.length,
+				};
+			});
+
+		const results = await Promise.all(modelPromises);
+
+		// Process results sequentially to avoid race conditions on state
+		for (const result of results) {
+			if (!result) continue;
+			const { modelSlug, winner, totalDrafts } = result;
+
+			selectedByModel.set(modelSlug, winner.result);
+
+			if (!dryRun) {
+				state.selectedDrafts?.set(
+					modelSlug,
+					winner.result as StoredGenerateResult,
+				);
+				state.completedLeaderboardModels.push(modelSlug);
+				state.initialLeaderboardResults?.push({
+					model: modelSlug,
+					selectedDraftIndex: winner.draftIndex,
+					wins: winner.wins,
+					draws: winner.draws,
+					losses: winner.losses,
+					totalDrafts,
+				});
+				saveState(runDir, state);
+				console.log(
+					`  💾 State saved after ${getShortModelName(modelSlug)} tournament`,
+				);
+			}
+		}
+	} else if (style === "per-model-rank") {
+		// Run each model's ranking in parallel, returning results
+		const modelPromises = generatorSlugs
+			.filter((m) => !completedModels.has(m))
+			.map(async (modelSlug) => {
+				const drafts = draftsByModel.get(modelSlug) ?? [];
+				if (drafts.length === 0) return null;
+
+				const { winner } = await runPerModelRank(
+					modelSlug,
+					drafts,
+					swissJudge,
+					dryRun,
+				);
+
+				return {
+					modelSlug,
+					winner,
+					totalDrafts: drafts.length,
+				};
+			});
+
+		const results = await Promise.all(modelPromises);
+
+		// Process results sequentially to avoid race conditions on state
+		for (const result of results) {
+			if (!result) continue;
+			const { modelSlug, winner, totalDrafts } = result;
+
+			selectedByModel.set(modelSlug, winner.result);
+
+			if (!dryRun) {
+				state.selectedDrafts?.set(
+					modelSlug,
+					winner.result as StoredGenerateResult,
+				);
+				state.completedLeaderboardModels.push(modelSlug);
+				state.initialLeaderboardResults?.push({
+					model: modelSlug,
+					selectedDraftIndex: winner.draftIndex,
+					wins: 0,
+					draws: 0,
+					losses: 0,
+					totalDrafts,
+				});
+				saveState(runDir, state);
+			}
+		}
+	} else if (style === "global-pairwise") {
+		// Legacy: global round robin (expensive but thorough)
+		const allStandings = new Map<string, DraftStanding>();
+		for (const modelSlug of generatorSlugs) {
+			const drafts = draftsByModel.get(modelSlug) ?? [];
+			const shortName = getShortModelName(modelSlug);
+			drafts.forEach((draft, idx) => {
+				allStandings.set(`${shortName}_draft${idx + 1}`, {
+					model: modelSlug,
+					draftIndex: idx + 1,
+					text: draft.text,
+					result: draft,
+					points: 0,
+					wins: 0,
+					draws: 0,
+					losses: 0,
+				});
+			});
+		}
+
+		const draftIds = Array.from(allStandings.keys());
 		const pairs: [string, string][] = [];
 		for (let i = 0; i < draftIds.length; i++) {
 			for (let j = i + 1; j < draftIds.length; j++) {
@@ -123,161 +503,183 @@ export async function runInitialLeaderboardPhase(
 			}
 		}
 
-		console.log(
-			`  Running ${pairs.length} matchups with judges: ${leaderboardJudges.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")}`,
-		);
+		console.log(`  Running ${pairs.length} global matchups`);
 
-		if (dryRun) {
-			// Mock matchups
+		// Run all pairs in parallel
+		if (!dryRun) {
+			await Promise.all(
+				pairs.map(async ([idA, idB]) => {
+					const a = allStandings.get(idA)!;
+					const b = allStandings.get(idB)!;
+					const swapped = Math.random() > 0.5;
+					const [first, second] = swapped ? [b, a] : [a, b];
+					const [_firstId, _secondId] = swapped ? [idB, idA] : [idA, idB];
+
+					const judgeResults = await Promise.all(
+						leaderboardJudges.map((judge) =>
+							pairwiseJudge(
+								"S1",
+								first.text,
+								"S2",
+								second.text,
+								judge.model,
+								judge.effort,
+							),
+						),
+					);
+
+					let firstVotes = 0;
+					let secondVotes = 0;
+					for (const result of judgeResults) {
+						if (result.winner === "S1") firstVotes++;
+						else secondVotes++;
+					}
+
+					if (firstVotes > secondVotes) {
+						first.points += 1;
+						first.wins += 1;
+						second.losses += 1;
+					} else if (secondVotes > firstVotes) {
+						second.points += 1;
+						second.wins += 1;
+						first.losses += 1;
+					} else {
+						first.points += 0.5;
+						second.points += 0.5;
+						first.draws += 1;
+						second.draws += 1;
+					}
+				}),
+			);
+		} else {
+			// Mock
 			for (const [idA, idB] of pairs) {
+				const a = allStandings.get(idA)!;
+				const b = allStandings.get(idB)!;
 				const outcome = Math.random();
 				if (outcome < 0.4) {
-					draftStandings.get(idA)!.points += 1;
-					draftStandings.get(idA)!.wins += 1;
-					draftStandings.get(idB)!.losses += 1;
+					a.points += 1;
+					a.wins += 1;
+					b.losses += 1;
 				} else if (outcome < 0.8) {
-					draftStandings.get(idB)!.points += 1;
-					draftStandings.get(idB)!.wins += 1;
-					draftStandings.get(idA)!.losses += 1;
+					b.points += 1;
+					b.wins += 1;
+					a.losses += 1;
 				} else {
-					draftStandings.get(idA)!.points += 0.5;
-					draftStandings.get(idB)!.points += 0.5;
-					draftStandings.get(idA)!.draws += 1;
-					draftStandings.get(idB)!.draws += 1;
+					a.points += 0.5;
+					b.points += 0.5;
+					a.draws += 1;
+					b.draws += 1;
+				}
+			}
+		}
+
+		// Select best per model
+		const sorted = Array.from(allStandings.entries()).sort((a, b) => {
+			if (b[1].points !== a[1].points) return b[1].points - a[1].points;
+			if (b[1].wins !== a[1].wins) return b[1].wins - a[1].wins;
+			return a[1].draftIndex - b[1].draftIndex;
+		});
+
+		for (const [, standing] of sorted) {
+			if (!selectedByModel.has(standing.model)) {
+				selectedByModel.set(standing.model, standing.result);
+				if (!dryRun) {
+					state.initialLeaderboardResults?.push({
+						model: standing.model,
+						selectedDraftIndex: standing.draftIndex,
+						wins: standing.wins,
+						draws: standing.draws,
+						losses: standing.losses,
+						totalDrafts: draftsByModel.get(standing.model)?.length ?? 0,
+					});
+				}
+			}
+		}
+	} else if (style === "global-rank") {
+		// Single ranking call for all drafts
+		console.log("  Running 1 global ranking call");
+
+		const statblockMap = new Map<string, string>();
+		const idToStanding = new Map<string, DraftStanding>();
+
+		for (const modelSlug of generatorSlugs) {
+			const drafts = draftsByModel.get(modelSlug) ?? [];
+			const shortName = getShortModelName(modelSlug);
+			drafts.forEach((draft, idx) => {
+				const id = `${shortName}_d${idx + 1}`;
+				statblockMap.set(id, draft.text);
+				idToStanding.set(id, {
+					model: modelSlug,
+					draftIndex: idx + 1,
+					text: draft.text,
+					result: draft,
+					points: 0,
+					wins: 0,
+					draws: 0,
+					losses: 0,
+				});
+			});
+		}
+
+		if (!dryRun) {
+			const result = await judgeStatblocks(
+				swissJudge.model,
+				statblockMap,
+				swissJudge.effort,
+			);
+
+			// Assign points based on rank
+			const total = statblockMap.size;
+			for (const ranking of result.rankings) {
+				const standing = idToStanding.get(ranking.id);
+				if (standing) {
+					standing.points = (total - ranking.rank + 1) / total;
 				}
 			}
 		} else {
-			// Real API calls
-			const leaderboardPromises = pairs.map(async ([idA, idB]) => {
-				const a = draftStandings.get(idA)!;
-				const b = draftStandings.get(idB)!;
-				const swapped = Math.random() > 0.5;
-				const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
-				const [firstText, secondText] = swapped
-					? [b.text, a.text]
-					: [a.text, b.text];
-
-				const judgeResults = await Promise.all(
-					leaderboardJudges.map((judge) =>
-						pairwiseJudge(
-							"S1",
-							firstText,
-							"S2",
-							secondText,
-							judge.model,
-							judge.effort ?? "high",
-						),
-					),
-				);
-
-				const voteCounts = new Map<string, number>([
-					[firstId, 0],
-					[secondId, 0],
-				]);
-				for (const result of judgeResults) {
-					const winner = result.winner === "S1" ? firstId : secondId;
-					voteCounts.set(winner, (voteCounts.get(winner) ?? 0) + 1);
-				}
-
-				const votes = Array.from(voteCounts.entries());
-				votes.sort((a, b) => b[1]! - a[1]!);
-				const topCount = votes[0]![1];
-				const topWinners = votes
-					.filter(([, count]) => count === topCount)
-					.map(([id]) => id);
-
-				if (topWinners.length === 1) {
-					const winner = topWinners[0]!;
-					const loser = winner === firstId ? secondId : firstId;
-					draftStandings.get(winner)!.points += 1;
-					draftStandings.get(winner)!.wins += 1;
-					draftStandings.get(loser)!.losses += 1;
-				} else {
-					draftStandings.get(firstId)!.points += 0.5;
-					draftStandings.get(secondId)!.points += 0.5;
-					draftStandings.get(firstId)!.draws += 1;
-					draftStandings.get(secondId)!.draws += 1;
-				}
-
-				if (initialLeaderboardLogPath) {
-					let logEntry = `- ${idA} vs ${idB}: `;
-					if (topWinners.length === 1) {
-						const winnerVotes = voteCounts.get(topWinners[0]!) ?? 0;
-						const loserVotes =
-							voteCounts.get(topWinners[0] === firstId ? secondId : firstId) ??
-							0;
-						logEntry += `**${topWinners[0]}** wins (${winnerVotes}-${loserVotes})`;
-					} else {
-						logEntry += `**DRAW** (${voteCounts.get(firstId)}-${voteCounts.get(secondId)})`;
-					}
-					logEntry += "\n";
-					for (const result of judgeResults) {
-						const resolvedWinner = result.winner === "S1" ? firstId : secondId;
-						logEntry += `  - ${getShortModelName(result.judge)} picked ${resolvedWinner}: *${result.reasoning}*\n`;
-					}
-					await appendFile(initialLeaderboardLogPath, logEntry, "utf-8");
-				}
-			});
-
-			await Promise.all(leaderboardPromises);
+			// Mock: random points
+			for (const standing of idToStanding.values()) {
+				standing.points = Math.random();
+			}
 		}
 
-		// Sort and select winners
-		const sortedStandings = Array.from(draftStandings.entries()).sort(
-			(a, b) => {
-				if (b[1].points !== a[1].points) return b[1].points - a[1].points;
-				if (b[1].wins !== a[1].wins) return b[1].wins - a[1].wins;
-				return a[1].draftIndex - b[1].draftIndex;
-			},
+		// Select best per model
+		const sorted = Array.from(idToStanding.values()).sort(
+			(a, b) => b.points - a.points,
 		);
 
-		const winners = new Map<ModelSlug, DraftStanding>();
-		for (const [, standing] of sortedStandings) {
-			if (!winners.has(standing.model)) {
-				winners.set(standing.model, standing);
+		for (const standing of sorted) {
+			if (!selectedByModel.has(standing.model)) {
 				selectedByModel.set(standing.model, standing.result);
+				if (!dryRun) {
+					state.initialLeaderboardResults?.push({
+						model: standing.model,
+						selectedDraftIndex: standing.draftIndex,
+						wins: 0,
+						draws: 0,
+						losses: 0,
+						totalDrafts: draftsByModel.get(standing.model)?.length ?? 0,
+					});
+				}
 			}
 		}
-
-		// Write standings
-		if (!dryRun && initialLeaderboardLogPath) {
-			await appendFile(
-				initialLeaderboardLogPath,
-				"\n## Standings\n\n",
-				"utf-8",
-			);
-			await appendFile(
-				initialLeaderboardLogPath,
-				"| Rank | Draft | Model | Points | W | D | L |\n",
-				"utf-8",
-			);
-			await appendFile(
-				initialLeaderboardLogPath,
-				"|------|-------|-------|--------|---|---|---|\n",
-				"utf-8",
-			);
-			for (let i = 0; i < sortedStandings.length; i++) {
-				const [id, s] = sortedStandings[i]!;
-				await appendFile(
-					initialLeaderboardLogPath,
-					`| ${i + 1} | ${id} | ${getShortModelName(s.model)} | ${s.points} | ${s.wins} | ${s.draws} | ${s.losses} |\n`,
-					"utf-8",
-				);
-			}
-		}
-
-		console.log(
-			`  ✓ Selected winners: ${generatorSlugs
-				.map(
-					(m) =>
-						`${getShortModelName(m)} draft ${winners.get(m)?.draftIndex ?? 1}`,
-				)
-				.join(", ")}\n`,
-		);
 	}
 
-	// Save state
-	if (!dryRun && !resumeSelected) {
+	// Log selected winners
+	console.log(
+		`  ✓ Selected: ${generatorSlugs
+			.map((m) => {
+				const result = state.initialLeaderboardResults?.find(
+					(r) => r.model === m,
+				);
+				return `${getShortModelName(m)} #${result?.selectedDraftIndex ?? 1}`;
+			})
+			.join(", ")}\n`,
+	);
+
+	// Mark phase completed
+	if (!dryRun) {
 		state.selectedDrafts = selectedByModel as Map<string, StoredGenerateResult>;
 		markPhaseCompleted(state, "initial_leaderboard");
 		saveState(runDir, state);

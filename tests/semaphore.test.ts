@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
 	initConcurrencyLimiter,
 	Semaphore,
@@ -282,7 +282,7 @@ describe("Global Concurrency Limiter", () => {
 				await withConcurrencyLimit(async () => {
 					throw new Error("fail");
 				});
-			} catch (e) {
+			} catch (_e) {
 				// Expected
 			}
 

@@ -27,6 +27,7 @@ export interface GeneratePhaseResult {
 /**
  * Phase 1: Generate initial statblocks from all generator models.
  * Each model generates `initialGenerations` drafts in parallel.
+ * State is saved after each model completes for granular resumability.
  */
 export async function runGeneratePhase(
 	runDir: string,
@@ -44,7 +45,7 @@ export async function runGeneratePhase(
 	let generateCount = 0;
 	const totalGenerations = generators.length * INITIAL_GENERATIONS;
 
-	// Resume from state if available
+	// Resume from state if phase fully completed
 	if (
 		isResuming &&
 		isPhaseCompleted(state, "generate") &&
@@ -62,9 +63,38 @@ export async function runGeneratePhase(
 		return { draftsByModel };
 	}
 
+	// Load partially completed models from state (for granular resume)
+	const completedGenerators = new Set(state.completedGenerators ?? []);
+	if (isResuming && state.generatedDrafts) {
+		for (const [model, drafts] of state.generatedDrafts as Map<
+			ModelSlug,
+			StoredGenerateResult[]
+		>) {
+			if (completedGenerators.has(model)) {
+				draftsByModel.set(model, drafts as GenerateResult[]);
+				generateCount += drafts.length;
+				console.log(
+					`  ↩︎ Loaded ${drafts.length} drafts for ${getShortModelName(model)} from state`,
+				);
+			}
+		}
+	}
+
+	// Initialize generatedDrafts map if not already set
+	if (!state.generatedDrafts) {
+		state.generatedDrafts = new Map<string, StoredGenerateResult[]>();
+	}
+
+	// Initialize completedGenerators array if not already set
+	if (!state.completedGenerators) {
+		state.completedGenerators = [];
+	}
+
 	if (dryRun) {
 		// Mock data for dry run
 		for (const generator of generators) {
+			if (completedGenerators.has(generator.model)) continue;
+
 			const drafts: GenerateResult[] = [];
 			const shortName = getShortModelName(generator.model);
 			for (let i = 0; i < INITIAL_GENERATIONS; i++) {
@@ -81,34 +111,79 @@ export async function runGeneratePhase(
 			draftsByModel.set(generator.model, drafts);
 		}
 	} else {
-		// Real API calls with immediate writes
-		const generatePromises = generators.map(async (generator) => {
-			const drafts: GenerateResult[] = [];
-			const shortName = getShortModelName(generator.model);
+		// Real API calls - ALL drafts run in parallel
+		// Build flat list of all generation tasks
+		const pendingGenerators = generators.filter(
+			(g) => !completedGenerators.has(g.model),
+		);
+
+		interface GenerationTask {
+			generator: (typeof generators)[0];
+			draftIndex: number;
+		}
+
+		const tasks: GenerationTask[] = [];
+		for (const generator of pendingGenerators) {
 			for (let i = 0; i < INITIAL_GENERATIONS; i++) {
-				const result = await generateStatblock(
-					generator.model,
-					generator.effort ?? "high",
-					generator.temperature,
-				);
-				drafts.push(result);
-				generateCount++;
-				console.log(
-					`  ✓ ${shortName} draft ${i + 1} generated (${generateCount}/${totalGenerations})`,
-				);
-				// Write immediately
-				const safeFileName = shortName.replace(/[^a-zA-Z0-9-_]/g, "_");
-				const path = join(runDir, `${safeFileName}_original_${i + 1}.md`);
-				await writeFile(
-					path,
-					`# Original Statblock (${shortName} draft ${i + 1})\n\n${result.text}`,
-					"utf-8",
-				);
+				tasks.push({ generator, draftIndex: i });
 			}
-			draftsByModel.set(generator.model, drafts);
-			return drafts;
+		}
+
+		// Track results by model
+		const resultsByModel = new Map<string, GenerateResult[]>();
+		for (const generator of pendingGenerators) {
+			resultsByModel.set(generator.model, []);
+		}
+
+		// Run all tasks in parallel
+		const generatePromises = tasks.map(async ({ generator, draftIndex }) => {
+			const shortName = getShortModelName(generator.model);
+			const result = await generateStatblock(
+				generator.model,
+				generator.effort ?? "high",
+				generator.temperature,
+			);
+
+			// Store result
+			const modelResults = resultsByModel.get(generator.model)!;
+			modelResults[draftIndex] = result;
+
+			generateCount++;
+			console.log(
+				`  ✓ ${shortName} draft ${draftIndex + 1} generated (${generateCount}/${totalGenerations})`,
+			);
+
+			// Write immediately
+			const safeFileName = shortName.replace(/[^a-zA-Z0-9-_]/g, "_");
+			const path = join(
+				runDir,
+				`${safeFileName}_original_${draftIndex + 1}.md`,
+			);
+			await writeFile(
+				path,
+				`# Original Statblock (${shortName} draft ${draftIndex + 1})\n\n${result.text}`,
+				"utf-8",
+			);
+
+			return { generator, draftIndex, result };
 		});
+
 		await Promise.all(generatePromises);
+
+		// Populate draftsByModel and save state
+		for (const generator of pendingGenerators) {
+			const drafts = resultsByModel.get(generator.model)!;
+			draftsByModel.set(generator.model, drafts);
+
+			// Save state for this model
+			state.generatedDrafts?.set(
+				generator.model,
+				drafts as StoredGenerateResult[],
+			);
+			state.completedGenerators.push(generator.model);
+		}
+		saveState(runDir, state);
+		console.log(`  💾 State saved`);
 		console.log(`  ✓ Wrote originals to ${runDir}\n`);
 	}
 
@@ -118,7 +193,7 @@ export async function runGeneratePhase(
 		);
 	}
 
-	// Save state
+	// Mark phase completed
 	if (!dryRun) {
 		state.generatedDrafts = draftsByModel as Map<
 			string,

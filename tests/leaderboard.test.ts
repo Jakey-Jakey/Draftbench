@@ -4,7 +4,6 @@ import {
 	getLeaderboard,
 	type PlayoffResult,
 	type SwissContestant,
-	type SwissMatch,
 } from "../leaderboard";
 
 function createContestant(
@@ -39,9 +38,9 @@ describe("getLeaderboard", () => {
 
 			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
-			expect(leaderboard[0]!.id).toBe("C"); // 15 points
-			expect(leaderboard[1]!.id).toBe("A"); // 10 points
-			expect(leaderboard[2]!.id).toBe("B"); // 5 points
+			expect(leaderboard[0]?.id).toBe("C"); // 15 points
+			expect(leaderboard[1]?.id).toBe("A"); // 10 points
+			expect(leaderboard[2]?.id).toBe("B"); // 5 points
 		});
 
 		test("breaks ties by first place finishes", () => {
@@ -53,9 +52,9 @@ describe("getLeaderboard", () => {
 
 			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
-			expect(leaderboard[0]!.id).toBe("B"); // Most 1sts
-			expect(leaderboard[1]!.id).toBe("A");
-			expect(leaderboard[2]!.id).toBe("C");
+			expect(leaderboard[0]?.id).toBe("B"); // Most 1sts
+			expect(leaderboard[1]?.id).toBe("A");
+			expect(leaderboard[2]?.id).toBe("C");
 		});
 
 		test("breaks ties by second place when first place tied", () => {
@@ -67,9 +66,9 @@ describe("getLeaderboard", () => {
 
 			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
-			expect(leaderboard[0]!.id).toBe("B"); // Most 2nds
-			expect(leaderboard[1]!.id).toBe("A");
-			expect(leaderboard[2]!.id).toBe("C");
+			expect(leaderboard[0]?.id).toBe("B"); // Most 2nds
+			expect(leaderboard[1]?.id).toBe("A");
+			expect(leaderboard[2]?.id).toBe("C");
 		});
 
 		test("includes rank in leaderboard entries", () => {
@@ -77,8 +76,8 @@ describe("getLeaderboard", () => {
 
 			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
-			expect(leaderboard[0]!.rank).toBe(1);
-			expect(leaderboard[1]!.rank).toBe(2);
+			expect(leaderboard[0]?.rank).toBe(1);
+			expect(leaderboard[1]?.rank).toBe(2);
 		});
 
 		test("includes all contestant data", () => {
@@ -111,10 +110,10 @@ describe("getLeaderboard", () => {
 				new Map(),
 			);
 
-			expect(leaderboard[0]!.playoffPoints).toBe(5);
-			expect(leaderboard[0]!.playoffWins).toBe(5);
-			expect(leaderboard[1]!.playoffPoints).toBe(3);
-			expect(leaderboard[1]!.playoffWins).toBe(3);
+			expect(leaderboard[0]?.playoffPoints).toBe(5);
+			expect(leaderboard[0]?.playoffWins).toBe(5);
+			expect(leaderboard[1]?.playoffPoints).toBe(3);
+			expect(leaderboard[1]?.playoffWins).toBe(3);
 		});
 
 		test("omits playoff data for non-playoff contestants", () => {
@@ -131,8 +130,8 @@ describe("getLeaderboard", () => {
 				new Map(),
 			);
 
-			expect(leaderboard[0]!.playoffPoints).toBe(5);
-			expect(leaderboard[1]!.playoffPoints).toBeUndefined();
+			expect(leaderboard[0]?.playoffPoints).toBe(5);
+			expect(leaderboard[1]?.playoffPoints).toBeUndefined();
 		});
 
 		test("includes draws in playoff results", () => {
@@ -149,8 +148,8 @@ describe("getLeaderboard", () => {
 				new Map(),
 			);
 
-			expect(leaderboard[0]!.playoffPoints).toBe(3.5);
-			expect(leaderboard[0]!.playoffDraws).toBe(1);
+			expect(leaderboard[0]?.playoffPoints).toBe(3.5);
+			expect(leaderboard[0]?.playoffDraws).toBe(1);
 		});
 	});
 
@@ -181,9 +180,9 @@ describe("getLeaderboard", () => {
 				revisionsById,
 			);
 
-			expect(leaderboard[0]!.generator).toBe("gen1");
-			expect(leaderboard[0]!.reviewer).toBe("rev1");
-			expect(leaderboard[0]!.reviser).toBe("reviser1");
+			expect(leaderboard[0]?.generator).toBe("gen1");
+			expect(leaderboard[0]?.reviewer).toBe("rev1");
+			expect(leaderboard[0]?.reviser).toBe("reviser1");
 		});
 
 		test("handles missing revision metadata gracefully", () => {
@@ -194,7 +193,7 @@ describe("getLeaderboard", () => {
 			// Defaults gracefully or uses ID parts
 			// In implementation, it falls back to ID split if metadata missing
 			// "unknown" -> gen="unknown", rev=undefined, revi=undefined
-			expect(leaderboard[0]!.generator).toBe("unknown");
+			expect(leaderboard[0]?.generator).toBe("unknown");
 		});
 	});
 
@@ -210,7 +209,7 @@ describe("getLeaderboard", () => {
 			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
 			expect(leaderboard.length).toBe(1);
-			expect(leaderboard[0]!.rank).toBe(1);
+			expect(leaderboard[0]?.rank).toBe(1);
 		});
 
 		test("handles all contestants with 0 points", () => {
@@ -235,8 +234,8 @@ describe("getLeaderboard", () => {
 
 			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
-			expect(leaderboard[0]!.id).toBe("B"); // Positive points first
-			expect(leaderboard[1]!.id).toBe("A");
+			expect(leaderboard[0]?.id).toBe("B"); // Positive points first
+			expect(leaderboard[1]?.id).toBe("A");
 		});
 
 		test("handles very large point values", () => {
@@ -247,8 +246,8 @@ describe("getLeaderboard", () => {
 
 			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
-			expect(leaderboard[0]!.id).toBe("A");
-			expect(leaderboard[0]!.points).toBe(1000000);
+			expect(leaderboard[0]?.id).toBe("A");
+			expect(leaderboard[0]?.points).toBe(1000000);
 		});
 
 		test("handles fractional playoff points", () => {
@@ -265,7 +264,7 @@ describe("getLeaderboard", () => {
 				new Map(),
 			);
 
-			expect(leaderboard[0]!.playoffPoints).toBe(4.5);
+			expect(leaderboard[0]?.playoffPoints).toBe(4.5);
 		});
 	});
 
@@ -298,15 +297,15 @@ describe("getLeaderboard", () => {
 			);
 
 			// C1 should be first (most swiss points, most 1sts, won playoff)
-			expect(leaderboard[0]!.id).toBe("C1");
-			expect(leaderboard[0]!.rank).toBe(1);
+			expect(leaderboard[0]?.id).toBe("C1");
+			expect(leaderboard[0]?.rank).toBe(1);
 
 			// C2 should be second
-			expect(leaderboard[1]!.id).toBe("C2");
+			expect(leaderboard[1]?.id).toBe("C2");
 
 			// Verify all have ranks
 			for (let i = 0; i < leaderboard.length; i++) {
-				expect(leaderboard[i]!.rank).toBe(i + 1);
+				expect(leaderboard[i]?.rank).toBe(i + 1);
 			}
 		});
 
@@ -321,10 +320,10 @@ describe("getLeaderboard", () => {
 
 			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
-			expect(leaderboard[0]!.id).toBe("A"); // Most 1sts
-			expect(leaderboard[1]!.id).toBe("B"); // Second most 1sts, has 2nd
-			expect(leaderboard[2]!.id).toBe("C"); // Same 1sts as B, no 2nds (but more 1sts than D)
-			expect(leaderboard[3]!.id).toBe("D"); // Fewer 1sts than C
+			expect(leaderboard[0]?.id).toBe("A"); // Most 1sts
+			expect(leaderboard[1]?.id).toBe("B"); // Second most 1sts, has 2nd
+			expect(leaderboard[2]?.id).toBe("C"); // Same 1sts as B, no 2nds (but more 1sts than D)
+			expect(leaderboard[3]?.id).toBe("D"); // Fewer 1sts than C
 		});
 	});
 });
