@@ -85,6 +85,11 @@ export async function runGeneratePhase(
 		state.generatedDrafts = new Map<string, StoredGenerateResult[]>();
 	}
 
+	// Initialize completedGenerators array if not already set
+	if (!state.completedGenerators) {
+		state.completedGenerators = [];
+	}
+
 	if (dryRun) {
 		// Mock data for dry run
 		for (const generator of generators) {
