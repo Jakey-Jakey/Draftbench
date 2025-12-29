@@ -369,6 +369,9 @@ export async function runInitialLeaderboardPhase(
 	if (!state.initialLeaderboardResults) {
 		state.initialLeaderboardResults = [];
 	}
+	if (!state.completedLeaderboardModels) {
+		state.completedLeaderboardModels = [];
+	}
 
 	// Run tournaments based on style
 	if (style === "per-model-pairwise") {

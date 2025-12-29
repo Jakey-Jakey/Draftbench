@@ -133,7 +133,12 @@ export async function runRevisePhase(
 			const originalStatblock = selected.text;
 			const review = reviews.find(
 				(r) => r.reviewed === task.generator && r.reviewer === task.reviewer,
-			)!;
+			);
+			if (!review) {
+				throw new Error(
+					`Missing review for revision task: generator=${task.generator}, reviewer=${task.reviewer}`,
+				);
+			}
 			const feedback = `## Feedback:\n${review.text}`;
 			const result = await reviseStatblock(
 				task.reviser,
