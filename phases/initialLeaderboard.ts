@@ -372,14 +372,14 @@ export async function runInitialLeaderboardPhase(
 
 	// Run tournaments based on style
 	if (style === "per-model-pairwise") {
-		// Run each model's tournament in parallel
+		// Run each model's tournament in parallel, returning results
 		const modelPromises = generatorSlugs
 			.filter((m) => !completedModels.has(m))
 			.map(async (modelSlug) => {
 				const drafts = draftsByModel.get(modelSlug) ?? [];
-				if (drafts.length === 0) return;
+				if (drafts.length === 0) return null;
 
-				const { winner, standings } = await runPerModelPairwise(
+				const { winner } = await runPerModelPairwise(
 					modelSlug,
 					drafts,
 					leaderboardJudges,
@@ -387,38 +387,49 @@ export async function runInitialLeaderboardPhase(
 					initialLeaderboardLogPath,
 				);
 
-				selectedByModel.set(modelSlug, winner.result);
-
-				// Save state after this model completes
-				if (!dryRun) {
-					state.selectedDrafts?.set(
-						modelSlug,
-						winner.result as StoredGenerateResult,
-					);
-					state.completedLeaderboardModels.push(modelSlug);
-					state.initialLeaderboardResults?.push({
-						model: modelSlug,
-						selectedDraftIndex: winner.draftIndex,
-						wins: winner.wins,
-						draws: winner.draws,
-						losses: winner.losses,
-						totalDrafts: drafts.length,
-					});
-					saveState(runDir, state);
-					console.log(
-						`  💾 State saved after ${getShortModelName(modelSlug)} tournament`,
-					);
-				}
+				return {
+					modelSlug,
+					winner,
+					totalDrafts: drafts.length,
+				};
 			});
 
-		await Promise.all(modelPromises);
+		const results = await Promise.all(modelPromises);
+
+		// Process results sequentially to avoid race conditions on state
+		for (const result of results) {
+			if (!result) continue;
+			const { modelSlug, winner, totalDrafts } = result;
+
+			selectedByModel.set(modelSlug, winner.result);
+
+			if (!dryRun) {
+				state.selectedDrafts?.set(
+					modelSlug,
+					winner.result as StoredGenerateResult,
+				);
+				state.completedLeaderboardModels.push(modelSlug);
+				state.initialLeaderboardResults?.push({
+					model: modelSlug,
+					selectedDraftIndex: winner.draftIndex,
+					wins: winner.wins,
+					draws: winner.draws,
+					losses: winner.losses,
+					totalDrafts,
+				});
+				saveState(runDir, state);
+				console.log(
+					`  💾 State saved after ${getShortModelName(modelSlug)} tournament`,
+				);
+			}
+		}
 	} else if (style === "per-model-rank") {
-		// Run each model's ranking in parallel
+		// Run each model's ranking in parallel, returning results
 		const modelPromises = generatorSlugs
 			.filter((m) => !completedModels.has(m))
 			.map(async (modelSlug) => {
 				const drafts = draftsByModel.get(modelSlug) ?? [];
-				if (drafts.length === 0) return;
+				if (drafts.length === 0) return null;
 
 				const { winner } = await runPerModelRank(
 					modelSlug,
@@ -427,28 +438,39 @@ export async function runInitialLeaderboardPhase(
 					dryRun,
 				);
 
-				selectedByModel.set(modelSlug, winner.result);
-
-				// Save state
-				if (!dryRun) {
-					state.selectedDrafts?.set(
-						modelSlug,
-						winner.result as StoredGenerateResult,
-					);
-					state.completedLeaderboardModels.push(modelSlug);
-					state.initialLeaderboardResults?.push({
-						model: modelSlug,
-						selectedDraftIndex: winner.draftIndex,
-						wins: 0,
-						draws: 0,
-						losses: 0,
-						totalDrafts: drafts.length,
-					});
-					saveState(runDir, state);
-				}
+				return {
+					modelSlug,
+					winner,
+					totalDrafts: drafts.length,
+				};
 			});
 
-		await Promise.all(modelPromises);
+		const results = await Promise.all(modelPromises);
+
+		// Process results sequentially to avoid race conditions on state
+		for (const result of results) {
+			if (!result) continue;
+			const { modelSlug, winner, totalDrafts } = result;
+
+			selectedByModel.set(modelSlug, winner.result);
+
+			if (!dryRun) {
+				state.selectedDrafts?.set(
+					modelSlug,
+					winner.result as StoredGenerateResult,
+				);
+				state.completedLeaderboardModels.push(modelSlug);
+				state.initialLeaderboardResults?.push({
+					model: modelSlug,
+					selectedDraftIndex: winner.draftIndex,
+					wins: 0,
+					draws: 0,
+					losses: 0,
+					totalDrafts,
+				});
+				saveState(runDir, state);
+			}
+		}
 	} else if (style === "global-pairwise") {
 		// Legacy: global round robin (expensive but thorough)
 		const allStandings = new Map<string, DraftStanding>();
