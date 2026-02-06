@@ -44,6 +44,10 @@
 |------|---------|
 | `utils.ts` | Shared utilities: directory creation, timestamps, shuffle, dry-run helpers. |
 | `leaderboard.ts` | Leaderboard computation and Swiss/Playoff type definitions. |
+| `rating/engine.ts` | Elo and Bradley-Terry rating backend used by Swiss standings. |
+| `rating/convert.ts` | Converts Swiss match outcomes into pairwise observations for rating updates. |
+| `scheduling/adaptive.ts` | Adaptive pair scheduler for Swiss `1v1`. |
+| `scheduling/stopRules.ts` | Confidence/stability stop-rule evaluator for early Swiss termination. |
 
 ### Configuration Files
 | File | Purpose |
@@ -136,6 +140,22 @@ swissFormat = "1v1v1"  # "1v1" or "1v1v1"
 enabled = false
 style = "per-model-pairwise"  # See styles below
 
+[tournament.rating]
+enabled = true
+backend = "elo"  # "elo" or "bradley-terry"
+
+[tournament.scheduling]
+mode = "adaptive"  # "adaptive" or "static"
+
+[tournament.stopRules]
+enabled = true
+minBatches = 3
+maxBatches = 7
+topK = 8
+minSeparation = 65
+confidence = 0.9
+stabilityBatches = 2
+
 [concurrency]
 maxParallel = 5  # Limit parallel API calls
 
@@ -175,6 +195,30 @@ style = "per-model-pairwise"  # Recommended for balance of cost and quality
 swissFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
 # swissFormat = "1v1"  # Alternative: pairwise matches
 ```
+
+### Rating, Scheduling, and Stop Rules
+
+```toml
+[tournament.rating]
+enabled = true
+backend = "elo"
+
+[tournament.scheduling]
+mode = "adaptive"
+exploration = 0.15
+avoidRepeatPenalty = 0.35
+maxRepeatPairs = 2
+
+[tournament.stopRules]
+enabled = true
+minBatches = 3
+maxBatches = 7
+topK = 8
+```
+
+- `rating.enabled`: when true, Swiss standings and playoff seeding use rating estimates instead of raw Swiss points.
+- `scheduling.mode = "adaptive"`: prioritizes uncertain/close matchups and penalizes repeats (for `1v1` Swiss).
+- `stopRules.enabled`: allows Swiss to stop early once top-K is stable and sufficiently separated/confident.
 
 ---
 

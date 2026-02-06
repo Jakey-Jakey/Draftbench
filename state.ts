@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import type { ModelName } from "./config";
+import type { PairwiseObservation, StoredRatingState } from "./rating/types";
 
 // ============================================================================
 // State Types
@@ -60,6 +61,10 @@ export interface StoredSwissContestant {
 	wins?: number;
 	losses?: number;
 	draws?: number;
+	rating?: number;
+	ratingUncertainty?: number;
+	ratingCiLow?: number;
+	ratingCiHigh?: number;
 }
 
 /**
@@ -115,6 +120,10 @@ export interface PipelineState {
 	swissRound: number;
 	swissMatches: StoredSwissMatch[];
 	contestants: StoredSwissContestant[] | null;
+	ratingState?: StoredRatingState | null;
+	pairwiseHistory?: PairwiseObservation[];
+	topKHistory?: string[][];
+	swissStopReason?: string | null;
 
 	// Phase 6: Playoffs
 	playoffResults: StoredPlayoffResult[] | null;
@@ -172,6 +181,10 @@ function deserializeState(obj: Record<string, unknown>): PipelineState {
 					Object.entries(obj.revisions as Record<string, StoredRevisionResult>),
 				)
 			: null,
+		ratingState: (obj.ratingState as StoredRatingState | null) ?? null,
+		pairwiseHistory: (obj.pairwiseHistory as PairwiseObservation[]) ?? [],
+		topKHistory: (obj.topKHistory as string[][]) ?? [],
+		swissStopReason: (obj.swissStopReason as string | null) ?? null,
 		completedPlayoffPairs: (obj.completedPlayoffPairs as string[]) ?? [],
 	} as PipelineState;
 }
@@ -225,6 +238,45 @@ const StoredSwissContestantSchema = z.object({
 	wins: z.number().optional(),
 	losses: z.number().optional(),
 	draws: z.number().optional(),
+	rating: z.number().optional(),
+	ratingUncertainty: z.number().optional(),
+	ratingCiLow: z.number().optional(),
+	ratingCiHigh: z.number().optional(),
+});
+
+const PairwiseObservationSchema = z.object({
+	aId: z.string(),
+	bId: z.string(),
+	scoreA: z.number(),
+	scoreB: z.number(),
+	round: z.number(),
+	sourceMatchId: z.string().optional(),
+});
+
+const RatingConfigSchema = z.object({
+	backend: z.enum(["elo", "bradley-terry"]),
+	initialRating: z.number(),
+	kFactor: z.number(),
+	tieValue: z.number(),
+	provisionalMatches: z.number(),
+	btIterations: z.number(),
+	btTolerance: z.number(),
+});
+
+const RatingRecordSchema = z.object({
+	id: z.string(),
+	rating: z.number(),
+	matches: z.number(),
+	wins: z.number(),
+	losses: z.number(),
+	draws: z.number(),
+	uncertainty: z.number(),
+});
+
+const StoredRatingStateSchema = z.object({
+	config: RatingConfigSchema,
+	records: z.array(RatingRecordSchema),
+	history: z.array(PairwiseObservationSchema),
 });
 
 const StoredPlayoffResultSchema = z.object({
@@ -264,6 +316,10 @@ const PipelineStateSchema = z.object({
 	swissRound: z.number(),
 	swissMatches: z.array(StoredSwissMatchSchema),
 	contestants: z.array(StoredSwissContestantSchema).nullable(),
+	ratingState: StoredRatingStateSchema.nullable().optional(),
+	pairwiseHistory: z.array(PairwiseObservationSchema).optional(),
+	topKHistory: z.array(z.array(z.string())).optional(),
+	swissStopReason: z.string().nullable().optional(),
 	playoffResults: z.array(StoredPlayoffResultSchema).nullable(),
 	completedPlayoffPairs: z.array(z.string()).default([]),
 });
@@ -293,6 +349,10 @@ export function createInitialState(): PipelineState {
 		swissRound: 0,
 		swissMatches: [],
 		contestants: null,
+		ratingState: null,
+		pairwiseHistory: [],
+		topKHistory: [],
+		swissStopReason: null,
 		playoffResults: null,
 		completedPlayoffPairs: [],
 	};

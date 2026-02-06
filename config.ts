@@ -56,6 +56,39 @@ export interface InitialLeaderboardConfig {
 	style?: InitialLeaderboardStyle;
 }
 
+export type RatingBackend = "elo" | "bradley-terry";
+export type SchedulingMode = "adaptive" | "static";
+
+export interface RatingConfig {
+	enabled: boolean;
+	backend: RatingBackend;
+	kFactor: number;
+	initialRating: number;
+	provisionalMatches: number;
+	tieValue: number;
+	btIterations: number;
+	btTolerance: number;
+	ciBootstrapSamples: number;
+}
+
+export interface SchedulingConfig {
+	mode: SchedulingMode;
+	exploration: number;
+	avoidRepeatPenalty: number;
+	maxRepeatPairs: number;
+}
+
+export interface StopRulesConfig {
+	enabled: boolean;
+	minBatches: number;
+	maxBatches: number;
+	topK: number;
+	minSeparation: number;
+	confidence: number;
+	stabilityBatches: number;
+	budgetMaxCalls?: number;
+}
+
 export interface TournamentConfig {
 	swissRounds: number;
 	playoffSize: number;
@@ -63,6 +96,9 @@ export interface TournamentConfig {
 	initialLeaderboard: InitialLeaderboardConfig;
 	/** Swiss match format: 1v1 (pairwise) or 1v1v1 (three-way). Default: 1v1v1 */
 	swissFormat?: "1v1" | "1v1v1";
+	rating: RatingConfig;
+	scheduling: SchedulingConfig;
+	stopRules: StopRulesConfig;
 }
 
 export interface OutputConfig {
@@ -136,8 +172,35 @@ const DEFAULT_CONFIG: PipelineConfig = {
 		swissRounds: 7,
 		playoffSize: 8,
 		initialGenerations: 1,
+		swissFormat: "1v1v1",
 		initialLeaderboard: {
 			enabled: false,
+		},
+		rating: {
+			enabled: true,
+			backend: "elo",
+			kFactor: 24,
+			initialRating: 1500,
+			provisionalMatches: 12,
+			tieValue: 0.5,
+			btIterations: 200,
+			btTolerance: 1e-6,
+			ciBootstrapSamples: 200,
+		},
+		scheduling: {
+			mode: "adaptive",
+			exploration: 0.15,
+			avoidRepeatPenalty: 0.35,
+			maxRepeatPairs: 2,
+		},
+		stopRules: {
+			enabled: true,
+			minBatches: 3,
+			maxBatches: 7,
+			topK: 8,
+			minSeparation: 65,
+			confidence: 0.9,
+			stabilityBatches: 2,
 		},
 	},
 	output: {
@@ -262,6 +325,18 @@ function deepMerge(
 			initialLeaderboard: {
 				...target.tournament.initialLeaderboard,
 				...source.tournament.initialLeaderboard,
+			},
+			rating: {
+				...target.tournament.rating,
+				...source.tournament.rating,
+			},
+			scheduling: {
+				...target.tournament.scheduling,
+				...source.tournament.scheduling,
+			},
+			stopRules: {
+				...target.tournament.stopRules,
+				...source.tournament.stopRules,
 			},
 		};
 	}
@@ -394,8 +469,13 @@ function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 		(config.tournament.swissFormat ?? "1v1v1") === "1v1"
 			? Math.floor(contestants / 2)
 			: Math.floor(contestants / 3);
-	const swiss =
-		swissMatchesPerRound * config.tournament.swissRounds * swissJudgeCount;
+	const effectiveSwissBatches = config.tournament.stopRules.enabled
+		? Math.min(
+				config.tournament.swissRounds,
+				config.tournament.stopRules.maxBatches,
+			)
+		: config.tournament.swissRounds;
+	const swiss = swissMatchesPerRound * effectiveSwissBatches * swissJudgeCount;
 	const playoffContestants = Math.max(
 		1,
 		Math.min(config.tournament.playoffSize, contestants),
@@ -489,6 +569,9 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			"initialGenerations",
 			"swissFormat",
 			"initialLeaderboard",
+			"rating",
+			"scheduling",
+			"stopRules",
 		]);
 		for (const key of Object.keys(tournamentRaw)) {
 			if (!knownTournamentKeys.has(key)) {
@@ -517,6 +600,95 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 				enabled: ilRaw.enabled as boolean,
 				style: ilRaw.style as InitialLeaderboardStyle | undefined,
 			};
+		}
+		if (tournamentRaw.rating) {
+			const ratingRaw = tournamentRaw.rating as Record<string, unknown>;
+			result.tournament.rating = {} as TournamentConfig["rating"];
+			if (ratingRaw.enabled !== undefined) {
+				result.tournament.rating.enabled = ratingRaw.enabled as boolean;
+			}
+			if (ratingRaw.backend !== undefined) {
+				result.tournament.rating.backend = ratingRaw.backend as RatingBackend;
+			}
+			if (ratingRaw.kFactor !== undefined) {
+				result.tournament.rating.kFactor = ratingRaw.kFactor as number;
+			}
+			if (ratingRaw.initialRating !== undefined) {
+				result.tournament.rating.initialRating =
+					ratingRaw.initialRating as number;
+			}
+			if (ratingRaw.provisionalMatches !== undefined) {
+				result.tournament.rating.provisionalMatches =
+					ratingRaw.provisionalMatches as number;
+			}
+			if (ratingRaw.tieValue !== undefined) {
+				result.tournament.rating.tieValue = ratingRaw.tieValue as number;
+			}
+			if (ratingRaw.btIterations !== undefined) {
+				result.tournament.rating.btIterations =
+					ratingRaw.btIterations as number;
+			}
+			if (ratingRaw.btTolerance !== undefined) {
+				result.tournament.rating.btTolerance = ratingRaw.btTolerance as number;
+			}
+			if (ratingRaw.ciBootstrapSamples !== undefined) {
+				result.tournament.rating.ciBootstrapSamples =
+					ratingRaw.ciBootstrapSamples as number;
+			}
+		}
+		if (tournamentRaw.scheduling) {
+			const schedulingRaw = tournamentRaw.scheduling as Record<string, unknown>;
+			result.tournament.scheduling = {} as TournamentConfig["scheduling"];
+			if (schedulingRaw.mode !== undefined) {
+				result.tournament.scheduling.mode =
+					schedulingRaw.mode as SchedulingMode;
+			}
+			if (schedulingRaw.exploration !== undefined) {
+				result.tournament.scheduling.exploration =
+					schedulingRaw.exploration as number;
+			}
+			if (schedulingRaw.avoidRepeatPenalty !== undefined) {
+				result.tournament.scheduling.avoidRepeatPenalty =
+					schedulingRaw.avoidRepeatPenalty as number;
+			}
+			if (schedulingRaw.maxRepeatPairs !== undefined) {
+				result.tournament.scheduling.maxRepeatPairs =
+					schedulingRaw.maxRepeatPairs as number;
+			}
+		}
+		if (tournamentRaw.stopRules) {
+			const stopRulesRaw = tournamentRaw.stopRules as Record<string, unknown>;
+			result.tournament.stopRules = {} as TournamentConfig["stopRules"];
+			if (stopRulesRaw.enabled !== undefined) {
+				result.tournament.stopRules.enabled = stopRulesRaw.enabled as boolean;
+			}
+			if (stopRulesRaw.minBatches !== undefined) {
+				result.tournament.stopRules.minBatches =
+					stopRulesRaw.minBatches as number;
+			}
+			if (stopRulesRaw.maxBatches !== undefined) {
+				result.tournament.stopRules.maxBatches =
+					stopRulesRaw.maxBatches as number;
+			}
+			if (stopRulesRaw.topK !== undefined) {
+				result.tournament.stopRules.topK = stopRulesRaw.topK as number;
+			}
+			if (stopRulesRaw.minSeparation !== undefined) {
+				result.tournament.stopRules.minSeparation =
+					stopRulesRaw.minSeparation as number;
+			}
+			if (stopRulesRaw.confidence !== undefined) {
+				result.tournament.stopRules.confidence =
+					stopRulesRaw.confidence as number;
+			}
+			if (stopRulesRaw.stabilityBatches !== undefined) {
+				result.tournament.stopRules.stabilityBatches =
+					stopRulesRaw.stabilityBatches as number;
+			}
+			if (stopRulesRaw.budgetMaxCalls !== undefined) {
+				result.tournament.stopRules.budgetMaxCalls =
+					stopRulesRaw.budgetMaxCalls as number;
+			}
 		}
 	}
 
@@ -907,6 +1079,144 @@ function validateConfig(config: PipelineConfig): string[] {
 	) {
 		throw new Error('tournament.swissFormat must be either "1v1" or "1v1v1"');
 	}
+	if (
+		config.tournament.rating.backend !== "elo" &&
+		config.tournament.rating.backend !== "bradley-terry"
+	) {
+		throw new Error(
+			'tournament.rating.backend must be either "elo" or "bradley-terry"',
+		);
+	}
+	if (
+		!Number.isFinite(config.tournament.rating.kFactor) ||
+		config.tournament.rating.kFactor <= 0
+	) {
+		throw new Error("tournament.rating.kFactor must be a number > 0");
+	}
+	if (
+		!Number.isFinite(config.tournament.rating.initialRating) ||
+		config.tournament.rating.initialRating <= 0
+	) {
+		throw new Error("tournament.rating.initialRating must be a number > 0");
+	}
+	if (
+		!Number.isInteger(config.tournament.rating.provisionalMatches) ||
+		config.tournament.rating.provisionalMatches < 0
+	) {
+		throw new Error(
+			"tournament.rating.provisionalMatches must be an integer >= 0",
+		);
+	}
+	if (
+		!Number.isFinite(config.tournament.rating.tieValue) ||
+		config.tournament.rating.tieValue < 0 ||
+		config.tournament.rating.tieValue > 1
+	) {
+		throw new Error("tournament.rating.tieValue must be between 0 and 1");
+	}
+	if (
+		!Number.isInteger(config.tournament.rating.btIterations) ||
+		config.tournament.rating.btIterations < 1
+	) {
+		throw new Error("tournament.rating.btIterations must be an integer >= 1");
+	}
+	if (
+		!Number.isFinite(config.tournament.rating.btTolerance) ||
+		config.tournament.rating.btTolerance <= 0
+	) {
+		throw new Error("tournament.rating.btTolerance must be a number > 0");
+	}
+	if (
+		!Number.isInteger(config.tournament.rating.ciBootstrapSamples) ||
+		config.tournament.rating.ciBootstrapSamples < 1
+	) {
+		throw new Error(
+			"tournament.rating.ciBootstrapSamples must be an integer >= 1",
+		);
+	}
+	if (
+		config.tournament.scheduling.mode !== "adaptive" &&
+		config.tournament.scheduling.mode !== "static"
+	) {
+		throw new Error(
+			'tournament.scheduling.mode must be either "adaptive" or "static"',
+		);
+	}
+	if (
+		!Number.isFinite(config.tournament.scheduling.exploration) ||
+		config.tournament.scheduling.exploration < 0 ||
+		config.tournament.scheduling.exploration > 1
+	) {
+		throw new Error(
+			"tournament.scheduling.exploration must be a number between 0 and 1",
+		);
+	}
+	if (
+		!Number.isFinite(config.tournament.scheduling.avoidRepeatPenalty) ||
+		config.tournament.scheduling.avoidRepeatPenalty < 0
+	) {
+		throw new Error(
+			"tournament.scheduling.avoidRepeatPenalty must be a number >= 0",
+		);
+	}
+	if (
+		!Number.isInteger(config.tournament.scheduling.maxRepeatPairs) ||
+		config.tournament.scheduling.maxRepeatPairs < 1
+	) {
+		throw new Error(
+			"tournament.scheduling.maxRepeatPairs must be an integer >= 1",
+		);
+	}
+	if (
+		!Number.isInteger(config.tournament.stopRules.minBatches) ||
+		config.tournament.stopRules.minBatches < 1
+	) {
+		throw new Error("tournament.stopRules.minBatches must be an integer >= 1");
+	}
+	if (
+		!Number.isInteger(config.tournament.stopRules.maxBatches) ||
+		config.tournament.stopRules.maxBatches < 1
+	) {
+		throw new Error("tournament.stopRules.maxBatches must be an integer >= 1");
+	}
+	if (
+		!Number.isInteger(config.tournament.stopRules.topK) ||
+		config.tournament.stopRules.topK < 1
+	) {
+		throw new Error("tournament.stopRules.topK must be an integer >= 1");
+	}
+	if (
+		!Number.isFinite(config.tournament.stopRules.minSeparation) ||
+		config.tournament.stopRules.minSeparation < 0
+	) {
+		throw new Error("tournament.stopRules.minSeparation must be a number >= 0");
+	}
+	if (
+		!Number.isFinite(config.tournament.stopRules.confidence) ||
+		config.tournament.stopRules.confidence <= 0 ||
+		config.tournament.stopRules.confidence >= 1
+	) {
+		throw new Error(
+			"tournament.stopRules.confidence must be a number in the open interval (0, 1)",
+		);
+	}
+	if (
+		!Number.isInteger(config.tournament.stopRules.stabilityBatches) ||
+		config.tournament.stopRules.stabilityBatches < 1
+	) {
+		throw new Error(
+			"tournament.stopRules.stabilityBatches must be an integer >= 1",
+		);
+	}
+	if (
+		config.tournament.stopRules.budgetMaxCalls !== undefined &&
+		(!Number.isInteger(config.tournament.stopRules.budgetMaxCalls) ||
+			config.tournament.stopRules.budgetMaxCalls < 1)
+	) {
+		throw new Error(
+			"tournament.stopRules.budgetMaxCalls must be an integer >= 1 when set",
+		);
+	}
 
 	// Validate that all role entries have valid model slugs
 	const allEntries = [
@@ -945,6 +1255,40 @@ function validateConfig(config: PipelineConfig): string[] {
 		warnings.push(
 			`Only ${estimatedContestants} contestant expected from current role counts; playoff rounds will be minimal.`,
 		);
+	}
+	if (config.tournament.stopRules.maxBatches > config.tournament.swissRounds) {
+		warnings.push(
+			`tournament.stopRules.maxBatches (${config.tournament.stopRules.maxBatches}) exceeds swissRounds (${config.tournament.swissRounds}); clamping to ${config.tournament.swissRounds}.`,
+		);
+		config.tournament.stopRules.maxBatches = config.tournament.swissRounds;
+	}
+	if (
+		config.tournament.stopRules.minBatches >
+		config.tournament.stopRules.maxBatches
+	) {
+		warnings.push(
+			`tournament.stopRules.minBatches (${config.tournament.stopRules.minBatches}) exceeds maxBatches (${config.tournament.stopRules.maxBatches}); clamping minBatches to ${config.tournament.stopRules.maxBatches}.`,
+		);
+		config.tournament.stopRules.minBatches =
+			config.tournament.stopRules.maxBatches;
+	}
+	if (
+		config.tournament.stopRules.topK > config.tournament.playoffSize &&
+		config.tournament.stopRules.enabled
+	) {
+		warnings.push(
+			`tournament.stopRules.topK (${config.tournament.stopRules.topK}) exceeds playoffSize (${config.tournament.playoffSize}); clamping to ${config.tournament.playoffSize}.`,
+		);
+		config.tournament.stopRules.topK = config.tournament.playoffSize;
+	}
+	if (
+		config.tournament.stopRules.enabled &&
+		!config.tournament.rating.enabled
+	) {
+		warnings.push(
+			"tournament.stopRules.enabled requires tournament.rating.enabled; disabling stop rules.",
+		);
+		config.tournament.stopRules.enabled = false;
 	}
 
 	const estimate = estimateApiCalls(config);

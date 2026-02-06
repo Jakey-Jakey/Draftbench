@@ -77,6 +77,32 @@ swissFormat = "1v1v1"
 [tournament.initialLeaderboard]
 enabled = true
 
+[tournament.rating]
+enabled = true
+backend = "elo"
+kFactor = 24
+initialRating = 1500
+provisionalMatches = 12
+tieValue = 0.5
+btIterations = 200
+btTolerance = 0.000001
+ciBootstrapSamples = 200
+
+[tournament.scheduling]
+mode = "adaptive"
+exploration = 0.15
+avoidRepeatPenalty = 0.35
+maxRepeatPairs = 2
+
+[tournament.stopRules]
+enabled = true
+minBatches = 3
+maxBatches = 7
+topK = 8
+minSeparation = 65
+confidence = 0.9
+stabilityBatches = 2
+
 # -----------------------------------------------------------------------------
 # CONCURRENCY (uncomment to limit parallel API calls)
 # -----------------------------------------------------------------------------

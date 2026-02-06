@@ -15,6 +15,9 @@ This pipeline benchmarks AI models on creative artifact generation end-to-end:
 ## Features
 
 - **1v1v1 Format**: Each Swiss match compares 3 artifacts simultaneously for 3× data efficiency
+- **Formal Rating Backend**: Swiss can rank by `elo` or `bradley-terry` instead of raw points
+- **Adaptive Swiss Scheduling**: Prioritizes informative comparisons and avoids redundant rematches
+- **Optional Early Stop Rules**: End Swiss when top-K is stable/confident or budget/round caps are hit
 - **Position Randomization**: All matches randomize presentation order to eliminate position bias
 - **Multi-Judge Swiss (Optional)**: Swiss can use one or many judges with majority/tie aggregation
 - **Multi-Judge Playoff**: Configurable judges vote on each playoff match
@@ -100,6 +103,19 @@ effort = "medium"
 swissFormat = "1v1v1"    # "1v1" or "1v1v1"
 swissRounds = 7
 playoffSize = 8
+
+[tournament.rating]
+enabled = true
+backend = "elo"          # "elo" or "bradley-terry"
+
+[tournament.scheduling]
+mode = "adaptive"        # "adaptive" or "static"
+
+[tournament.stopRules]
+enabled = true
+minBatches = 3
+maxBatches = 7
+topK = 8
 
 [concurrency]
 maxParallel = 5          # Limit parallel API calls
@@ -195,12 +211,15 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 
 ## Scoring
 
-### Swiss Rounds (1v1v1)
+### Swiss Rounds (points + optional ratings)
 - 1st place: 2 points
 - 2nd place: 1 point
 - 3rd place: 0 points
 - With multiple Swiss judges, points are aggregated per match and ties split points (for example, 1.5/1.5/0)
 - Positions are randomized each match
+- When `tournament.rating.enabled = true`, Swiss standings and playoff seeding use rating estimates (with confidence), while points remain visible for readability
+- When `tournament.scheduling.mode = "adaptive"`, matchups are selected by uncertainty/closeness/repeat-penalty scoring
+- When `tournament.stopRules.enabled = true`, Swiss may stop before `swissRounds` once configured criteria are met
 
 ### Playoff (Multi-Judge Round Robin)
 - Configurable judges vote on each match

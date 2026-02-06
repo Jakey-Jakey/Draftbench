@@ -52,6 +52,9 @@ export async function runPlayoffPhase(
 
 	// Get top N by Swiss points
 	const sortedBySwiss = [...contestants].sort((a, b) => {
+		if (typeof a.rating === "number" && typeof b.rating === "number") {
+			if (b.rating !== a.rating) return b.rating - a.rating;
+		}
 		if (b.points !== a.points) return b.points - a.points;
 		// Tiebreaker for 1v1: wins
 		const winsA = a.wins ?? 0;

@@ -5,3 +5,9 @@
 [tournament]
 swissFormat = "1v1"
 swissRounds = 5
+
+[tournament.scheduling]
+mode = "adaptive"
+
+[tournament.stopRules]
+maxBatches = 5

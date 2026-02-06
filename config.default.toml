@@ -82,6 +82,33 @@ swissFormat = "1v1v1"       # "1v1" (pairwise) or "1v1v1" (three-way)
 enabled = false             # Run round-robin to pick best draft per model
 # style = "per-model-pairwise"  # Options: per-model-pairwise (default), global-pairwise, per-model-rank, global-rank
 
+[tournament.rating]
+enabled = true
+backend = "elo"             # "elo" or "bradley-terry"
+kFactor = 24
+initialRating = 1500
+provisionalMatches = 12
+tieValue = 0.5              # Draw score in pairwise space
+btIterations = 200
+btTolerance = 0.000001
+ciBootstrapSamples = 200
+
+[tournament.scheduling]
+mode = "adaptive"           # "adaptive" or "static"
+exploration = 0.15          # 0-1 random exploration budget
+avoidRepeatPenalty = 0.35   # Penalty weight for repeated pairs
+maxRepeatPairs = 2          # Hard repeat cap per pair before fallback
+
+[tournament.stopRules]
+enabled = true
+minBatches = 3
+maxBatches = 7              # Hard cap for swiss batches (<= swissRounds)
+topK = 8                    # Evaluate separation at playoff boundary
+minSeparation = 65          # Rating-point separation target
+confidence = 0.9
+stabilityBatches = 2        # Require same topK for N consecutive batches
+# budgetMaxCalls = 600       # Optional hard API-call budget for Swiss phase
+
 # -----------------------------------------------------------------------------
 # CONCURRENCY
 # -----------------------------------------------------------------------------

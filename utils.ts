@@ -197,6 +197,13 @@ export function printDryRunConfig(): void {
 	console.log(`  Playoff Size: ${TOP_N_PLAYOFF}`);
 	console.log(`  Initial Generations per Model: ${INITIAL_GENERATIONS}`);
 	console.log(`  Initial Leaderboard Enabled: ${INITIAL_LEADERBOARD.enabled}`);
+	console.log(
+		`  Rating Backend: ${config.tournament.rating.enabled ? config.tournament.rating.backend : "disabled"}`,
+	);
+	console.log(`  Scheduling Mode: ${config.tournament.scheduling.mode}`);
+	console.log(
+		`  Stop Rules: ${config.tournament.stopRules.enabled ? `enabled (min ${config.tournament.stopRules.minBatches}, max ${config.tournament.stopRules.maxBatches}, topK ${config.tournament.stopRules.topK})` : "disabled"}`,
+	);
 	console.log(`  Total Contestants: ${totalContestants}`);
 	console.log(`\nOutput:`);
 	console.log(`  Runs Directory: ${RUNS_DIR}`);

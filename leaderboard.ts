@@ -21,6 +21,10 @@ export interface SwissContestant {
 	wins?: number;
 	losses?: number;
 	draws?: number;
+	rating?: number;
+	ratingUncertainty?: number;
+	ratingCiLow?: number;
+	ratingCiHigh?: number;
 }
 
 /**
@@ -122,9 +126,12 @@ export function getLeaderboard(
 	// Combine Swiss and Playoff scores for top-8
 	const finalScores = new Map<string, number>();
 	const playoffOnly = new Map<string, PlayoffResult>();
+	const useRating =
+		getConfig().tournament.rating.enabled &&
+		contestants.some((c) => typeof c.rating === "number");
 
 	for (const c of contestants) {
-		finalScores.set(c.id, c.points);
+		finalScores.set(c.id, useRating ? (c.rating ?? c.points) : c.points);
 	}
 
 	// Add playoff bonus for top-8 (weighted higher)
@@ -237,6 +244,9 @@ function formatLeaderboardMarkdown(
 	const PLAYOFF_JUDGES = getPlayoffJudges();
 	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 	const is1v1 = SWISS_FORMAT === "1v1";
+	const showRating =
+		config.tournament.rating.enabled &&
+		sorted.some((entry) => typeof entry.rating === "number");
 
 	// Calculate model-level stats (using short nicknames)
 	const modelStats = {
@@ -300,6 +310,13 @@ function formatLeaderboardMarkdown(
 			md += ` (${winner.placements.first} firsts, ${winner.placements.second} seconds)`;
 		}
 		md += "\n";
+		if (showRating && winner.rating !== undefined) {
+			const ciLow =
+				winner.ratingCiLow ?? winner.rating - (winner.ratingUncertainty ?? 0);
+			const ciHigh =
+				winner.ratingCiHigh ?? winner.rating + (winner.ratingUncertainty ?? 0);
+			md += `- **Rating:** ${winner.rating.toFixed(1)} (CI ${ciLow.toFixed(1)}–${ciHigh.toFixed(1)})\n`;
+		}
 		if (winner.playoffWins !== undefined) {
 			md += `- **Playoff:** ${winner.playoffWins}W / ${winner.playoffDraws}D / ${winner.playoffLosses}L\n`;
 		}
@@ -372,8 +389,16 @@ function formatLeaderboardMarkdown(
 
 	// Final Rankings Table (simplified)
 	md += "## 🏅 Final Rankings\n\n";
-	md += "| # | Revision | Swiss | Playoff | Total |\n";
-	md += "|---|----------|-------|---------|-------|\n";
+	md += "| # | Revision | Swiss |";
+	if (showRating) {
+		md += " Rating |";
+	}
+	md += " Playoff | Total |\n";
+	md += "|---|----------|-------|";
+	if (showRating) {
+		md += "--------|";
+	}
+	md += "---------|-------|\n";
 
 	sorted.forEach((c) => {
 		const medal = c.rank <= 3 ? ["🥇", "🥈", "🥉"][c.rank - 1] : "";
@@ -383,7 +408,12 @@ function formatLeaderboardMarkdown(
 				? `${c.playoffWins}W/${c.playoffDraws}D/${c.playoffLosses}L`
 				: "-";
 
-		md += `| ${medal}${c.rank} | ${nickname} | ${c.points} | ${playoffStr} | ${c.totalScore.toFixed(1)} |\n`;
+		md += `| ${medal}${c.rank} | ${nickname} | ${c.points} |`;
+		if (showRating) {
+			const ratingStr = c.rating !== undefined ? c.rating.toFixed(1) : "-";
+			md += ` ${ratingStr} |`;
+		}
+		md += ` ${playoffStr} | ${c.totalScore.toFixed(1)} |\n`;
 	});
 
 	md += "\n---\n\n";
@@ -470,6 +500,10 @@ export function storedToRuntimeContestants(
 		wins: c.wins ?? 0,
 		losses: c.losses ?? 0,
 		draws: c.draws ?? 0,
+		rating: c.rating,
+		ratingUncertainty: c.ratingUncertainty,
+		ratingCiLow: c.ratingCiLow,
+		ratingCiHigh: c.ratingCiHigh,
 	}));
 }
 
@@ -487,5 +521,9 @@ export function runtimeToStoredContestants(
 		wins: c.wins ?? 0,
 		losses: c.losses ?? 0,
 		draws: c.draws ?? 0,
+		rating: c.rating,
+		ratingUncertainty: c.ratingUncertainty,
+		ratingCiLow: c.ratingCiLow,
+		ratingCiHigh: c.ratingCiHigh,
 	}));
 }
