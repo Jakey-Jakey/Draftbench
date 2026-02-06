@@ -1,3 +1,4 @@
+import { confidenceMultiplier } from "../utils";
 import type {
 	PairwiseObservation,
 	RatingEngineConfig,
@@ -162,15 +163,6 @@ function applyBradleyTerryBatch(
 		record.rating =
 			state.config.initialRating + (theta.get(id) ?? 0) * 173.7178;
 	}
-}
-
-function confidenceMultiplier(confidence: number): number {
-	// Normal approximation; used for the cheap CI display path.
-	if (confidence >= 0.99) return 2.58;
-	if (confidence >= 0.95) return 1.96;
-	if (confidence >= 0.9) return 1.64;
-	if (confidence >= 0.8) return 1.28;
-	return 1.0;
 }
 
 function mulberry32(seed: number): () => number {

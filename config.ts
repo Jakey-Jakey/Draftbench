@@ -1274,6 +1274,31 @@ function validateConfig(config: PipelineConfig): string[] {
 	) {
 		throw new Error("tournament.initialGenerations must be an integer >= 1");
 	}
+
+	// Initial leaderboard: pairwise styles require at least one judge.
+	// getInitialLeaderboardJudges() falls back to finaleJudges when initialLeaderboardJudges is unset.
+	if (config.tournament.initialLeaderboard.enabled) {
+		const gens = config.tournament.initialGenerations;
+		const effectiveStyle =
+			gens <= 1
+				? "per-model-pairwise"
+				: (config.tournament.initialLeaderboard.style ?? "per-model-pairwise");
+		const usesPairwise =
+			effectiveStyle === "per-model-pairwise" ||
+			effectiveStyle === "global-pairwise";
+		if (gens > 1 && usesPairwise) {
+			const judges =
+				config.roles.initialLeaderboardJudges ??
+				config.roles.finaleJudges ??
+				[];
+			if (judges.length === 0) {
+				throw new Error(
+					"Initial leaderboard pairwise styles require at least one judge in roles.initialLeaderboardJudges (or roles.finaleJudges fallback).",
+				);
+			}
+		}
+	}
+
 	if (
 		config.tournament.swissFormat &&
 		config.tournament.swissFormat !== "1v1" &&

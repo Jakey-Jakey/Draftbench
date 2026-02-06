@@ -89,6 +89,18 @@ export function requireDefined<T>(
 	return value;
 }
 
+/**
+ * Converts a confidence level to an approximate z multiplier for two-sided CIs.
+ * Used across stop rules and finale separation checks.
+ */
+export function confidenceMultiplier(confidence: number): number {
+	if (confidence >= 0.99) return 2.58;
+	if (confidence >= 0.95) return 1.96;
+	if (confidence >= 0.9) return 1.64;
+	if (confidence >= 0.8) return 1.28;
+	return 1.0;
+}
+
 // ============================================================================
 // Array Utilities
 // ============================================================================

@@ -1,5 +1,6 @@
 import { estimateWinProbability } from "../rating/engine";
 import type { RatingStanding, RatingState } from "../rating/types";
+import { confidenceMultiplier } from "../utils";
 import { pairKey } from "./pairs";
 
 export interface ActiveRankingContext {
@@ -14,16 +15,6 @@ export interface ActiveRankingResult {
 	pairs: [string, string][];
 	allSeparated: boolean;
 	unseparatedPairs: [string, string][];
-}
-
-function confidenceMultiplier(confidence: number): number {
-	// Step-function z-score approximation at common confidence thresholds.
-	// Values between thresholds fall to the next lower tier (e.g. 0.97 -> 1.96).
-	if (confidence >= 0.99) return 2.58;
-	if (confidence >= 0.95) return 1.96;
-	if (confidence >= 0.9) return 1.64;
-	if (confidence >= 0.8) return 1.28;
-	return 1.0;
 }
 
 function getCi(

@@ -20,7 +20,11 @@ import {
 	type StoredFinaleMatch,
 	saveState,
 } from "../state";
-import { getShortModelName, requireDefined } from "../utils";
+import {
+	confidenceMultiplier,
+	getShortModelName,
+	requireDefined,
+} from "../utils";
 import type { RevisionEntry } from "./revise";
 
 // ============================================================================
@@ -51,14 +55,6 @@ function mulberry32(seed: number): () => number {
 		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
 		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 	};
-}
-
-function confidenceMultiplier(confidence: number): number {
-	if (confidence >= 0.99) return 2.58;
-	if (confidence >= 0.95) return 1.96;
-	if (confidence >= 0.9) return 1.64;
-	if (confidence >= 0.8) return 1.28;
-	return 1.0;
 }
 
 function allAdjacentSeparatedWithMinGap(args: {
@@ -178,21 +174,23 @@ export async function runFinalePhase(
 	const fileLock = new Semaphore(1);
 	const stateLock = new Semaphore(1);
 
-	if (isPhaseCompleted(state, "finale") && converged) {
+	if (isPhaseCompleted(state, "finale")) {
 		// On resume, Swiss phase loads contestants from state, but the stored ratingState
 		// may already include finale updates. Sync in-memory contestants so the final
 		// leaderboard reflects the latest ratings.
-		const standings = getRatingStandingsWithOptions(ratingState, {
-			bootstrapCi: false,
-			confidence: finaleConfig.confidence,
+		const standings95 = getRatingStandingsWithOptions(ratingState, {
+			bootstrapCi: true,
+			confidence: 0.95,
 		});
-		syncContestantsWithRatings(contestants, standings);
-		console.log("Phase 6/6: Finale already complete, skipping.\n");
+		syncContestantsWithRatings(contestants, standings95);
+		console.log(
+			`Phase 6/6: Finale already complete (resumed), skipping. (converged: ${converged ? "yes" : "no"})\n`,
+		);
 		return { finaleMatches: storedMatches, iterations: iteration, converged };
 	}
 
 	const judgeLabel = FINALE_JUDGES.map(
-		(j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`,
+		(j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`,
 	).join(", ");
 	console.log(
 		`Phase 6/6: Active Learning Finale (topK ${stopRulesConfig.topK}, judges: ${judgeLabel})...`,
@@ -406,6 +404,25 @@ export async function runFinalePhase(
 		} finally {
 			stateLock.release();
 		}
+	}
+
+	// If we stopped due to budget, we may have achieved separation on the final batch.
+	// Re-check convergence on the final rating state.
+	if (!converged) {
+		const standings = getRatingStandingsWithOptions(ratingState, {
+			bootstrapCi: false,
+			confidence: finaleConfig.confidence,
+		});
+		const orderedIds = standings.map((s) => s.id);
+		const topK = Math.max(1, Math.min(stopRulesConfig.topK, orderedIds.length));
+		const scope = orderedIds.slice(0, topK);
+		const sep = allAdjacentSeparatedWithMinGap({
+			standings,
+			scope,
+			confidence: finaleConfig.confidence,
+			minSeparation: finaleConfig.minSeparation,
+		});
+		converged = sep.separated;
 	}
 
 	// Final sync: compute a consistent CI for display (95% by default for leaderboard).
