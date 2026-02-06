@@ -11,7 +11,7 @@ import { join } from "node:path";
 import {
 	getPlayoffJudges,
 	getRoleEntries,
-	getSwissJudge,
+	getSwissJudges,
 	loadConfig,
 	parseArgs,
 } from "./config";
@@ -46,7 +46,7 @@ const RUNS_DIR = config.output.runsDirectory;
 const SWISS_ROUNDS = config.tournament.swissRounds;
 const TOP_N_PLAYOFF = config.tournament.playoffSize;
 const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
-const SWISS_JUDGE = getSwissJudge();
+const SWISS_JUDGES = getSwissJudges();
 const PLAYOFF_JUDGES = getPlayoffJudges();
 const DRY_RUN = cliArgs.dryRun;
 const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
@@ -89,7 +89,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 		`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`,
 	);
 	console.log(
-		`Swiss Judge: ${getShortModelName(SWISS_JUDGE.model)} (${SWISS_JUDGE.effort ?? "low"}) | Initial Leaderboard: ${
+		`Swiss Judges: ${SWISS_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`).join(", ")} | Initial Leaderboard: ${
 			INITIAL_LEADERBOARD.enabled ? "enabled" : "disabled"
 		}\n`,
 	);

@@ -1,4 +1,4 @@
-import { getConfig, getPlayoffJudges, getSwissJudge } from "./config";
+import { getConfig, getPlayoffJudges, getSwissJudges } from "./config";
 import type {
 	StoredInitialLeaderboardResult,
 	StoredSwissContestant,
@@ -17,7 +17,7 @@ export interface SwissContestant {
 	text: string;
 	points: number;
 	opponents: Set<string>;
-	placements: { first: number; second: number; third: number };
+	placements: { first: number; second: number; third: number; ties?: number };
 	wins?: number;
 	losses?: number;
 	draws?: number;
@@ -33,6 +33,8 @@ export interface SwissMatch {
 	second: string;
 	third: string;
 	reasoning: string;
+	tieGroup?: "none" | "top2" | "bottom2" | "all3" | "head_to_head";
+	sharedPoints?: Record<string, number>;
 }
 
 /**
@@ -231,7 +233,7 @@ function formatLeaderboardMarkdown(
 	const config = getConfig();
 	const SWISS_ROUNDS = config.tournament.swissRounds;
 	const TOP_N_PLAYOFF = config.tournament.playoffSize;
-	const SWISS_JUDGE = getSwissJudge();
+	const SWISS_JUDGES = getSwissJudges();
 	const PLAYOFF_JUDGES = getPlayoffJudges();
 	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 	const is1v1 = SWISS_FORMAT === "1v1";
@@ -280,7 +282,7 @@ function formatLeaderboardMarkdown(
 
 	// Header section with tournament config
 	md += `> **${SWISS_ROUNDS} Swiss rounds (${SWISS_FORMAT})** → **Top-${TOP_N_PLAYOFF} Round Robin**\n>\n`;
-	md += `> Swiss: ${getShortNickname(getShortModelName(SWISS_JUDGE.model))} (${SWISS_JUDGE.effort ?? "low"})`;
+	md += `> Swiss: ${SWISS_JUDGES.map((j) => `${getShortNickname(getShortModelName(j.model))} (${j.effort ?? "low"})`).join(" + ")}`;
 	md += ` | Playoff: ${PLAYOFF_JUDGES.map((j) => `${getShortNickname(getShortModelName(j.model))} (${j.effort ?? "high"})`).join(" + ")}\n\n`;
 
 	md += "---\n\n";

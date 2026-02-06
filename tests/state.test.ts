@@ -145,7 +145,7 @@ describe("PipelineState", () => {
 					id: "contestant1",
 					points: 2,
 					opponents: ["contestant2"],
-					placements: { first: 1, second: 0, third: 0 },
+					placements: { first: 1, second: 0, third: 0, ties: 1 },
 				},
 			];
 
@@ -170,6 +170,8 @@ describe("PipelineState", () => {
 					second: "id2",
 					third: "id3",
 					reasoning: "Test reasoning",
+					tieGroup: "none",
+					sharedPoints: { id1: 2, id2: 1, id3: 0 },
 				},
 			];
 

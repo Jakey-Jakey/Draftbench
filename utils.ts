@@ -157,12 +157,8 @@ export function printDryRunConfig(): void {
 	const generatorCount = getRoleEntries("generators").length;
 	const reviewerCount = getRoleEntries("reviewers").length;
 	const reviserCount = getRoleEntries("revisers").length;
-	// Calculate based on standard flow: generators * initialGenerations (or 1) * reviewers * revisers
-	const draftsPerGenerator = INITIAL_LEADERBOARD.enabled
-		? 1
-		: INITIAL_GENERATIONS;
-	const totalContestants =
-		generatorCount * draftsPerGenerator * reviewerCount * reviserCount;
+	// One draft per generator proceeds into review/revise regardless of initial seed style.
+	const totalContestants = generatorCount * reviewerCount * reviserCount;
 
 	console.log("\n📋 DRY RUN - Configuration Details:\n");
 	console.log("Roles:");
@@ -184,11 +180,12 @@ export function printDryRunConfig(): void {
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
-	console.log(`  Swiss Judge:`);
-	const swissJudge = config.roles.swissJudge;
-	console.log(
-		`    - ${getShortModelName(swissJudge.model)} (effort: ${swissJudge.effort ?? "high"})`,
-	);
+	console.log(`  Swiss Judges (${config.roles.swissJudges.length}):`);
+	for (const entry of config.roles.swissJudges) {
+		console.log(
+			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
+		);
+	}
 	console.log(`  Playoff Judges (${config.roles.playoffJudges.length}):`);
 	for (const entry of config.roles.playoffJudges) {
 		console.log(

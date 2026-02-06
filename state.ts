@@ -45,6 +45,8 @@ export interface StoredSwissMatch {
 	second: string;
 	third: string;
 	reasoning: string;
+	tieGroup?: "none" | "top2" | "bottom2" | "all3" | "head_to_head";
+	sharedPoints?: Record<string, number>;
 }
 
 /**
@@ -54,7 +56,7 @@ export interface StoredSwissContestant {
 	id: string;
 	points: number;
 	opponents: string[]; // Stored as array, converted to Set at runtime
-	placements: { first: number; second: number; third: number };
+	placements: { first: number; second: number; third: number; ties?: number };
 	wins?: number;
 	losses?: number;
 	draws?: number;
@@ -204,6 +206,10 @@ const StoredSwissMatchSchema = z.object({
 	second: z.string(),
 	third: z.string(),
 	reasoning: z.string(),
+	tieGroup: z
+		.enum(["none", "top2", "bottom2", "all3", "head_to_head"])
+		.optional(),
+	sharedPoints: z.record(z.string(), z.number()).optional(),
 });
 
 const StoredSwissContestantSchema = z.object({
@@ -214,6 +220,7 @@ const StoredSwissContestantSchema = z.object({
 		first: z.number(),
 		second: z.number(),
 		third: z.number(),
+		ties: z.number().optional(),
 	}),
 	wins: z.number().optional(),
 	losses: z.number().optional(),
