@@ -72,6 +72,98 @@ describe("PipelineState", () => {
 			}
 		});
 
+		test("preserves ratingState config (including ciBootstrapSamples)", async () => {
+			const state = createInitialState();
+			state.ratingState = {
+				config: {
+					backend: "elo",
+					initialRating: 1500,
+					kFactor: 24,
+					tieValue: 0.5,
+					provisionalMatches: 5,
+					btIterations: 200,
+					btTolerance: 1e-6,
+					ciBootstrapSamples: 123,
+				},
+				records: [
+					{
+						id: "a",
+						rating: 1500,
+						matches: 1,
+						wins: 1,
+						losses: 0,
+						draws: 0,
+						uncertainty: 100,
+					},
+				],
+				history: [
+					{
+						aId: "a",
+						bId: "b",
+						scoreA: 1,
+						scoreB: 0,
+						round: 1,
+						sourceMatchId: "m1",
+					},
+				],
+			};
+
+			await saveState(TEST_RUN_DIR, state);
+			const loaded = await loadState(TEST_RUN_DIR);
+
+			expect(loaded).not.toBeNull();
+			if (loaded) {
+				expect(loaded.ratingState?.config.ciBootstrapSamples).toBe(123);
+			}
+		});
+
+		test("defaults ciBootstrapSamples on load when missing from state.json", async () => {
+			const manualState = {
+				version: 1,
+				timestamp: new Date().toISOString(),
+				phase: 0,
+				phasesCompleted: [],
+				generatedDrafts: null,
+				completedGenerators: [],
+				selectedDrafts: null,
+				completedLeaderboardModels: [],
+				initialLeaderboardResults: null,
+				reviews: null,
+				revisions: null,
+				swissRound: 0,
+				swissMatches: [],
+				contestants: null,
+				ratingState: {
+					config: {
+						backend: "elo",
+						initialRating: 1500,
+						kFactor: 24,
+						tieValue: 0.5,
+						provisionalMatches: 5,
+						btIterations: 200,
+						btTolerance: 1e-6,
+						// ciBootstrapSamples intentionally omitted
+					},
+					records: [],
+					history: [],
+				},
+				pairwiseHistory: [],
+				topKHistory: [],
+				swissStopReason: null,
+				playoffResults: null,
+				completedPlayoffPairs: [],
+			};
+
+			const statePath = join(TEST_RUN_DIR, "state.json");
+			writeFileSync(statePath, JSON.stringify(manualState, null, 2));
+
+			const loaded = await loadState(TEST_RUN_DIR);
+			expect(loaded).not.toBeNull();
+			if (loaded) {
+				expect(loaded.ratingState?.config.ciBootstrapSamples).toBe(200);
+			}
+		});
+
 		test("preserves all state fields", async () => {
 			const state = createInitialState();
 			state.phasesCompleted = ["generate", "review"];
