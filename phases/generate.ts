@@ -30,9 +30,15 @@ export interface GeneratePhaseResult {
 }
 
 /**
- * Phase 1: Generate initial statblocks from all generator models.
- * Each model generates `initialGenerations` drafts in parallel.
- * State is saved after each model completes for granular resumability.
+ * Generate initial statblocks from all configured generator models and group the resulting drafts by model.
+ *
+ * Runs generation for each generator producing the configured number of drafts per model. When `dryRun` is true, produces mock drafts instead of calling the API. When `isResuming` and prior state indicates completion or partial progress, restores generated drafts from state and skips or resumes work accordingly. For non-dry runs, originals are written to `runDir` and state is saved after each model completes to enable granular resumability.
+ *
+ * @param runDir - Directory where original draft files and state snapshots will be written
+ * @param state - Pipeline state object that will be read from and updated to record generated drafts and completed generators
+ * @param dryRun - If true, generate mock drafts without making external API calls
+ * @param isResuming - If true, attempt to restore progress from `state` and avoid re-generating already completed work
+ * @returns A mapping of model slug to its array of generated drafts
  */
 export async function runGeneratePhase(
 	runDir: string,
