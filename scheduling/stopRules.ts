@@ -39,6 +39,12 @@ export interface StopRuleResult {
 	};
 }
 
+/**
+ * Map a confidence level to a z-score multiplier used to widen/narrow uncertainty bounds.
+ *
+ * @param confidence - Confidence level in the range [0, 1]
+ * @returns The multiplier corresponding to the given confidence (e.g., 0.95 → 1.96)
+ */
 function confidenceMultiplier(confidence: number): number {
 	if (confidence >= 0.99) return 2.58;
 	if (confidence >= 0.95) return 1.96;
@@ -47,6 +53,13 @@ function confidenceMultiplier(confidence: number): number {
 	return 1.0;
 }
 
+/**
+ * Checks whether the most recent top-K selections have been identical for a given window.
+ *
+ * @param topKHistory - Chronological history of top-K selections, each entry is an array of item identifiers in ranked order.
+ * @param stabilityBatches - Number of most recent batches to compare; values ≤ 1 are treated as immediately stable.
+ * @returns `true` if the last `stabilityBatches` entries in `topKHistory` are identical, `false` otherwise.
+ */
 function isStableTopK(
 	topKHistory: string[][],
 	stabilityBatches: number,
@@ -60,6 +73,16 @@ function isStableTopK(
 	return recent.every((entry) => entry.join("|") === first);
 }
 
+/**
+ * Evaluate configured stop rules against the current scheduling context and decide whether processing should stop.
+ *
+ * This performs the configured checks (disabled flag, optional budget limit, min/max batch bounds, top-K stability window,
+ * rating separation and confidence-based separation) and returns a result describing the decision and diagnostic details.
+ *
+ * @param context - Current runtime state containing `round`, `totalCalls`, `standings`, and `topKHistory`
+ * @param config - Stop rules configuration (enabled, minBatches, maxBatches, topK, minSeparation, confidence, stabilityBatches, optional budgetMaxCalls)
+ * @returns A `StopRuleResult` describing the decision. `shouldStop` is `true` when processing should stop (e.g., rules disabled, budget or max batches reached, or a stable top-K is separated by rating or confidence). `kind` is one of: "disabled", "budget_reached", "max_batches", "below_min_batches", "topk_unstable", "stable_not_separated", "stable_separated". Details (when present) provide diagnostic values such as `topK`, `boundaryLeftId`, `boundaryRightId`, `separation`, `leftLow`, and `rightHigh`.
+ */
 export function evaluateStopRules(
 	context: StopRuleContext,
 	config: StopRulesConfig,

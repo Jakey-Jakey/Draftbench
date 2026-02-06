@@ -12,6 +12,11 @@ const MIN_UNCERTAINTY = 40;
 export const STARTING_UNCERTAINTY = 350;
 const DEFAULT_CI_CONFIDENCE = 0.9;
 
+/**
+ * Clamp a numeric input into the closed interval [0, 1], treating NaN as 0.
+ *
+ * @param value - The numeric input to clamp; if `NaN`, it will be treated as 0.
+ * @returns The input coerced into the range 0 to 1.
 function clampUnit(value: number): number {
 	if (Number.isNaN(value)) return 0;
 	if (value < 0) return 0;
@@ -19,10 +24,25 @@ function clampUnit(value: number): number {
 	return value;
 }
 
+/**
+ * Computes the expected score for player A against player B based on their ratings.
+ *
+ * @param ratingA - Rating of player A
+ * @param ratingB - Rating of player B
+ * @returns The expected score for A (a number between 0 and 1, interpreted as the probability of A winning) 
+ */
 function expectedScore(ratingA: number, ratingB: number): number {
 	return 1 / (1 + 10 ** ((ratingB - ratingA) / RATING_SCALE));
 }
 
+/**
+ * Updates a rating record's uncertainty based on its number of matches.
+ *
+ * Sets `record.uncertainty` to the larger of `MIN_UNCERTAINTY` and
+ * `STARTING_UNCERTAINTY / sqrt(record.matches + 1)`.
+ *
+ * @param record - The RatingRecord whose `uncertainty` field will be updated
+ */
 function updateUncertainty(record: RatingRecord): void {
 	record.uncertainty = Math.max(
 		MIN_UNCERTAINTY,
@@ -30,6 +50,13 @@ function updateUncertainty(record: RatingRecord): void {
 	);
 }
 
+/**
+ * Create a new RatingRecord for the given id initialized to the provided rating.
+ *
+ * @param id - Unique identifier for the record
+ * @param initialRating - Starting numeric rating for the record
+ * @returns A RatingRecord with `rating` set to `initialRating`, `matches`, `wins`, `losses`, and `draws` set to 0, and `uncertainty` set to the starting uncertainty
+ */
 function toRecord(id: string, initialRating: number): RatingRecord {
 	return {
 		id,
@@ -42,6 +69,12 @@ function toRecord(id: string, initialRating: number): RatingRecord {
 	};
 }
 
+/**
+ * Retrieve the RatingRecord for the given id, creating and storing a new record initialized from the state's initialRating if none exists.
+ *
+ * @param id - Identifier for the rating record to retrieve or create
+ * @returns The existing or newly created RatingRecord for `id`
+ */
 function getOrCreateRecord(state: RatingState, id: string): RatingRecord {
 	const existing = state.records.get(id);
 	if (existing) return existing;
@@ -50,6 +83,17 @@ function getOrCreateRecord(state: RatingState, id: string): RatingRecord {
 	return created;
 }
 
+/**
+ * Update two players' match counters and uncertainties based on a single pairwise outcome.
+ *
+ * Increments wins/losses/draws and matches for each provided record according to the numeric
+ * comparison of `scoreA` and `scoreB`, then recalculates each record's uncertainty.
+ *
+ * @param recordA - Rating record for the first player (associated with `scoreA`)
+ * @param recordB - Rating record for the second player (associated with `scoreB`)
+ * @param scoreA - Observed score for the first player (expected in the [0, 1] range)
+ * @param scoreB - Observed score for the second player (expected in the [0, 1] range)
+ */
 function processOutcome(
 	recordA: RatingRecord,
 	recordB: RatingRecord,
@@ -72,6 +116,17 @@ function processOutcome(
 	updateUncertainty(recordB);
 }
 
+/**
+ * Applies an Elo-style update for each pairwise observation, mutating the state's records.
+ *
+ * For each observation this clamps scores to [0,1], computes expected scores from current
+ * ratings, adjusts ratings using the configured K-factor (with a provisional-match boost
+ * for players with fewer than `config.provisionalMatches`), and updates match/win/loss/draw
+ * counts and uncertainties on the affected records.
+ *
+ * @param state - The rating state whose records are updated in place
+ * @param batch - Array of pairwise observations to apply
+ */
 function applyEloBatch(state: RatingState, batch: PairwiseObservation[]): void {
 	for (const observation of batch) {
 		const scoreA = clampUnit(observation.scoreA);
@@ -94,6 +149,14 @@ function applyEloBatch(state: RatingState, batch: PairwiseObservation[]): void {
 	}
 }
 
+/**
+ * Incorporates a batch of pairwise observations into the state using a Bradley–Terry-style update.
+ *
+ * Appends observations to the state's history, updates per-player match/win/loss/draw counts and uncertainties from the batch (scores are clamped to [0,1]), then fits latent skill parameters (`theta`) over the accumulated history using iterative gradient updates. After convergence or reaching the iteration limit, rescales the optimized `theta` values into the rating space and writes them back to each record.
+ *
+ * @param state - The rating state to update; contains records, history, and Bradley–Terry configuration.
+ * @param batch - Array of pairwise observations to apply; each observation's scores will be clamped to the [0,1] range before processing.
+ */
 function applyBradleyTerryBatch(
 	state: RatingState,
 	batch: PairwiseObservation[],
@@ -166,6 +229,12 @@ function applyBradleyTerryBatch(
 	}
 }
 
+/**
+ * Map a confidence level to a z-score multiplier for a normal-approximation confidence interval.
+ *
+ * @param confidence - Desired confidence level in the range 0..1
+ * @returns The z-score multiplier corresponding to `confidence` (e.g., 1.96 for 0.95). Returns 1.0 for confidences below 0.8.
+ */
 function confidenceMultiplier(confidence: number): number {
 	// Normal approximation; used for the cheap CI display path.
 	if (confidence >= 0.99) return 2.58;
@@ -175,6 +244,12 @@ function confidenceMultiplier(confidence: number): number {
 	return 1.0;
 }
 
+/**
+ * Creates a deterministic pseudorandom number generator seeded with `seed`.
+ *
+ * @param seed - 32-bit integer seed used to initialize the generator
+ * @returns A function that, when called, returns a pseudorandom number in the range [0, 1)
+ */
 function mulberry32(seed: number): () => number {
 	let a = seed >>> 0;
 	return () => {
@@ -186,6 +261,12 @@ function mulberry32(seed: number): () => number {
 	};
 }
 
+/**
+ * Derives a deterministic 32-bit integer seed from a sequence of pairwise observations.
+ *
+ * @param history - Array of pairwise observations used to compute the seed
+ * @returns A 32-bit unsigned integer seed deterministically computed from `history`
+ */
 function seedFromHistory(history: PairwiseObservation[]): number {
 	// Deterministic seed based on observations to avoid nondeterministic CIs.
 	let h = 2166136261; // FNV-1a 32-bit offset basis
@@ -199,6 +280,17 @@ function seedFromHistory(history: PairwiseObservation[]): number {
 	return h >>> 0;
 }
 
+/**
+ * Computes the q-th quantile from an array of numbers.
+ *
+ * The input array must be sorted in ascending order; if empty, returns 0. Values of `q` outside
+ * [0, 1] are clamped to that range. For indices between array elements the function returns a
+ * linearly interpolated value.
+ *
+ * @param sorted - Array of numbers sorted in ascending order
+ * @param q - Quantile to compute, where 0 corresponds to the minimum and 1 to the maximum
+ * @returns The value at the q-th quantile (interpolated when necessary), or 0 for an empty array
+ */
 function quantile(sorted: number[], q: number): number {
 	if (sorted.length === 0) return 0;
 	const clamped = Math.max(0, Math.min(1, q));
@@ -212,6 +304,19 @@ function quantile(sorted: number[], q: number): number {
 	return a + (b - a) * t;
 }
 
+/**
+ * Estimates per-player rating confidence intervals by bootstrap-resampling the match history.
+ *
+ * Performs `state.config.ciBootstrapSamples` bootstrap resamples of `state.history`, recomputes ratings
+ * on each resample, and returns the empirical lower and upper quantiles for each player at the
+ * specified confidence level.
+ *
+ * @param state - The current rating state containing records, history, and bootstrap configuration.
+ * @param confidence - Desired confidence level (e.g., 0.95 for a 95% interval); value should be in (0,1).
+ * @returns A map from player id to an object with `low` and `high` fields representing the bootstrap
+ *          confidence interval bounds for that player's rating. Returns an empty map if bootstrapping
+ *          is disabled or there is insufficient history or fewer than two players. 
+ */
 function bootstrapCi(
 	state: RatingState,
 	confidence: number,
@@ -264,6 +369,17 @@ function bootstrapCi(
 	return result;
 }
 
+/**
+ * Create a RatingState initialized with records for the given ids and a config merged with defaults.
+ *
+ * The provided partialConfig overrides defaults for any missing fields; defaults are:
+ * backend: "elo", initialRating: 1500, kFactor: 24, tieValue: 0.5, provisionalMatches: 12,
+ * btIterations: 200, btTolerance: 1e-6, ciBootstrapSamples: 0.
+ *
+ * @param ids - Array of player identifiers to initialize in the state's records map
+ * @param partialConfig - Partial engine configuration that will be merged with defaults
+ * @returns A RatingState containing the resolved config, a records Map with each id initialized, and an empty history array
+ */
 export function createRatingState(
 	ids: string[],
 	partialConfig: Partial<RatingEngineConfig>,
@@ -291,6 +407,15 @@ export function createRatingState(
 	};
 }
 
+/**
+ * Applies a batch of pairwise observations to the given rating state using the configured backend.
+ *
+ * If the state's backend is "bradley-terry", ratings are updated with the Bradley–Terry procedure;
+ * otherwise ratings are updated with the Elo-style procedure and the observations are appended to the state's history.
+ *
+ * @param state - The rating state to update
+ * @param batch - Array of pairwise observations to apply; no action is taken for an empty array
+ */
 export function applyPairwiseBatch(
 	state: RatingState,
 	batch: PairwiseObservation[],
@@ -305,10 +430,25 @@ export function applyPairwiseBatch(
 	}
 }
 
+/**
+ * Produce rating standings from the given RatingState using default options.
+ *
+ * @param state - The rating state to derive standings from
+ * @returns An array of standings sorted by rating (descending), then wins (descending), then id (ascending); each entry contains the record's current rating and related metadata (and confidence interval bounds when available)
+ */
 export function getRatingStandings(state: RatingState): RatingStanding[] {
 	return getRatingStandingsWithOptions(state, {});
 }
 
+/**
+ * Produce sorted rating standings with optional confidence intervals.
+ *
+ * @param state - The rating state to derive standings from
+ * @param options - Options for confidence-interval calculation
+ * @param options.bootstrapCi - If true, compute CIs by bootstrap resampling of the state's history; otherwise use analytical CIs from each record's uncertainty
+ * @param options.confidence - Desired two-sided confidence level (e.g., 0.95). Defaults to the engine's default confidence when omitted
+ * @returns An array of RatingStanding entries (each extended with `ciLow` and `ciHigh`) sorted by rating (descending), then wins (descending), then id (ascending)
+ */
 export function getRatingStandingsWithOptions(
 	state: RatingState,
 	options: { bootstrapCi?: boolean; confidence?: number },
@@ -334,6 +474,14 @@ export function getRatingStandingsWithOptions(
 		});
 }
 
+/**
+ * Compute the probability that player A will beat player B using the current ratings.
+ *
+ * @param state - The rating state to read player ratings and configuration from
+ * @param aId - Identifier of player A
+ * @param bId - Identifier of player B
+ * @returns The expected score for player A against player B: a number between 0 and 1 where `1` means a certain win for A and `0` means a certain loss
+ */
 export function estimateWinProbability(
 	state: RatingState,
 	aId: string,
@@ -344,6 +492,12 @@ export function estimateWinProbability(
 	return expectedScore(a, b);
 }
 
+/**
+ * Produces a serializable snapshot of the rating state.
+ *
+ * @param state - The in-memory RatingState to serialize
+ * @returns A StoredRatingState containing the engine config, an array of rating records, and the history of observations
+ */
 export function serializeRatingState(state: RatingState): StoredRatingState {
 	return {
 		config: state.config,
@@ -352,6 +506,12 @@ export function serializeRatingState(state: RatingState): StoredRatingState {
 	};
 }
 
+/**
+ * Reconstructs an in-memory RatingState from a persisted StoredRatingState.
+ *
+ * @param stored - The persisted rating state to restore
+ * @returns A RatingState containing the same config, a `Map` of records keyed by `id`, and the preserved history array
+ */
 export function deserializeRatingState(stored: StoredRatingState): RatingState {
 	return {
 		config: stored.config,

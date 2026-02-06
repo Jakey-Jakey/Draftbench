@@ -332,7 +332,17 @@ interface ApiCallEstimate {
 }
 
 /**
- * Deep merge two objects, with source overwriting target for matching keys.
+ * Merge a base PipelineConfig with partial overrides and return a new combined configuration.
+ *
+ * Fields present in `source` override the corresponding values from `target`. Role arrays in
+ * `source` replace the role arrays from `target`. The `tournament` sub-objects
+ * (`initialLeaderboard`, `rating`, `scheduling`, `stopRules`, `disambiguation`), `output`,
+ * `concurrency`, and `prompts` are merged by shallow property merge so provided nested fields
+ * override their counterparts while unspecified nested fields are preserved from `target`.
+ *
+ * @param target - The base pipeline configuration to merge into
+ * @param source - Partial configuration containing overrides
+ * @returns A new PipelineConfig with `source` applied over `target`
  */
 function deepMerge(
 	target: PipelineConfig,
@@ -462,6 +472,20 @@ function normalizeConfig(config: PipelineConfig): string[] {
 	return warnings;
 }
 
+/**
+ * Estimates the number of API calls required for each pipeline stage based on the provided pipeline configuration.
+ *
+ * @param config - Pipeline configuration used to compute the estimates
+ * @returns An object with estimated call counts:
+ * - `generation`: calls for initial generation of drafts
+ * - `initialLeaderboard`: calls used by the initial leaderboard phase
+ * - `review`: calls for the review step
+ * - `revise`: calls for the revise step
+ * - `swiss`: calls for Swiss-round judging
+ * - `disambiguation`: calls for disambiguation judging
+ * - `playoff`: calls for playoff judging
+ * - `total`: sum of all above estimates
+ */
 function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 	const generatorCount = config.roles.generators.length;
 	const reviewerCount = config.roles.reviewers.length;
@@ -549,7 +573,16 @@ function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 }
 
 /**
- * Parse TOML config file and convert to PipelineConfig.
+ * Parse TOML configuration text into a partially-populated PipelineConfig object.
+ *
+ * The parser recognizes top-level sections: `roles`, `tournament`, `output`, `concurrency`, and `prompts`.
+ * Unknown top-level or section keys are ignored with a console warning. If the deprecated key
+ * `roles.swissJudge` is present, an error is thrown. Nested fields under `tournament` (including
+ * `initialLeaderboard`, `rating`, `scheduling`, `stopRules`, and `disambiguation`) and role arrays
+ * are mapped into the resulting object when present.
+ *
+ * @param content - TOML file content as a string
+ * @returns A Partial<PipelineConfig> populated with any recognized sections and fields found in `content`
  */
 function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 	const raw = parseTOML(content) as Record<string, unknown>;
@@ -908,11 +941,14 @@ export function loadPrompts(promptsPath: string): Partial<PromptsConfig> {
 let loadedPaths: { configPath: string; promptsPath: string } | null = null;
 
 /**
- * Loads configuration from a TOML file, merging with defaults.
- * If no path provided, looks for config.toml in current directory.
- * If file doesn't exist, uses defaults.
- * @param configPath Path to config TOML file
- * @param promptsPath Optional path to separate prompts TOML file
+ * Load and merge pipeline configuration from TOML files with the built-in defaults.
+ *
+ * If a config or prompts file is present it overrides the corresponding defaults; otherwise the defaults are used.
+ *
+ * @param configPath - Optional path to a config TOML file; when omitted the loader looks for "config.toml" in the current directory
+ * @param promptsPath - Optional path to a separate prompts TOML file; when omitted the loader looks for "prompts.toml" in the current directory
+ * @returns The merged PipelineConfig composed from defaults and any provided user TOML
+ * @throws Error if a user-specified config or prompts file is missing, or if parsing of an explicitly provided file fails
  */
 export function loadConfig(
 	configPath?: string,
@@ -1113,7 +1149,14 @@ export function getInitialLeaderboardJudges(): RoleEntry[] {
 }
 
 /**
- * Validates the loaded configuration for consistency.
+ * Validate the pipeline configuration for internal consistency and normalize dependent fields.
+ *
+ * This performs strict checks of required fields and numeric ranges, validates model slug formats,
+ * and adjusts or clamps related settings (for example: playoffSize, stopRules, and disambiguation)
+ * when necessary; adjusted values are written back into the supplied `config`.
+ *
+ * @returns A list of warning messages produced during validation
+ * @throws Error If required configuration is missing or contains invalid values (for example: missing or empty `output.runsDirectory`, empty role arrays, invalid numeric ranges, or malformed `provider/model-name` model slugs)
  */
 function validateConfig(config: PipelineConfig): string[] {
 	const warnings: string[] = [];

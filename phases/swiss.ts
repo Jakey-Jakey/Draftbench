@@ -167,6 +167,12 @@ export function generateSwissPairs(contestants: SwissContestant[]): {
 	return { pairs, bye };
 }
 
+/**
+ * Convert an in-memory list of SwissContestant objects into a serializable array of StoredSwissContestant records.
+ *
+ * @param contestants - Contestants to serialize
+ * @returns An array of stored contestant records containing `id`, `points`, `opponents` (as an array), `placements`, `wins`, `losses`, `draws`, and rating fields (`rating`, `ratingUncertainty`, `ratingCiLow`, `ratingCiHigh`)
+ */
 function serializeContestants(
 	contestants: SwissContestant[],
 ): StoredSwissContestant[] {
@@ -202,6 +208,18 @@ function getSharedPoints(match: SwissMatch): Record<string, number> {
 	};
 }
 
+/**
+ * Apply a three-way Swiss match result to the provided contestants, mutating their state.
+ *
+ * Updates each contestant's points (using `match.sharedPoints` if present, otherwise defaults),
+ * placement counts (first/second/third or ties according to `match.tieGroup`), and opponents sets
+ * to include the other two participants. If any of the three contestant IDs cannot be found,
+ * the function performs no changes.
+ *
+ * @param contestants - Array of contestants to update; entries are mutated in-place
+ * @param match - Three-way match result containing `first`, `second`, `third`, optional `tieGroup`,
+ *   and optional `sharedPoints` mapping of contestant ID to points
+ */
 export function applyThreeWaySwissMatch(
 	contestants: SwissContestant[],
 	match: SwissMatch,
@@ -244,6 +262,17 @@ export function applyThreeWaySwissMatch(
 	third.opponents.add(second.id);
 }
 
+/**
+ * Merge rating standings into the provided contestant objects and return the standings order.
+ *
+ * Updates each contestant in-place with `rating`, `ratingUncertainty`, `ratingCiLow`, and `ratingCiHigh` when a corresponding entry exists in the rating standings.
+ *
+ * @param contestants - The contestants to update with rating data
+ * @param ratingState - The rating state to read standings from
+ * @param options - Optional flags
+ * @param options.bootstrapCi - If true, compute/bootstap confidence intervals when obtaining standings
+ * @returns An array of contestant IDs in the order of the rating standings
+ */
 function syncContestantsWithRatings(
 	contestants: SwissContestant[],
 	ratingState: RatingState,
@@ -265,6 +294,13 @@ function syncContestantsWithRatings(
 	return standings.map((entry) => entry.id);
 }
 
+/**
+ * Count the total number of judge calls required for a set of Swiss matches.
+ *
+ * @param matches - Array of Swiss matches to evaluate; matches containing the `"BYE"` id are excluded
+ * @param judgeCount - Number of judges assigned to each non-bye match
+ * @returns The total number of judge calls (non-bye matches multiplied by `judgeCount`)
+ */
 function countSwissJudgeCalls(
 	matches: SwissMatch[],
 	judgeCount: number,
@@ -278,6 +314,12 @@ function countSwissJudgeCalls(
 	return judgedMatches * judgeCount;
 }
 
+/**
+ * Compute the total number of judge calls required for a list of disambiguation matches.
+ *
+ * @param matches - The disambiguation matches whose judges will be counted
+ * @returns The sum of `judges.length` across all provided matches
+ */
 function countDisambiguationJudgeCalls(
 	matches: StoredDisambiguationMatch[],
 ): number {
@@ -293,8 +335,23 @@ function countDisambiguationJudgeCalls(
 // ============================================================================
 
 /**
- * Phase 5: Swiss Tournament.
- * Supports 1v1v1 (three-way) or 1v1 (pairwise) format.
+ * Run the Swiss tournament phase, executing configured rounds (1v1 or 1v1v1), conducting judgments,
+ * updating contestant state and optional rating state, optionally running disambiguation and stop-rule
+ * checks, and persisting progress to `state`.
+ *
+ * Performs pairing/scheduling (static or adaptive when ratings are enabled), runs judges (or simulates
+ * outcomes in dry-run mode), applies match results to contestants, updates rating standings when enabled,
+ * may run targeted disambiguation matches to resolve borderline rankings, and saves per-round artifacts
+ * and the evolving pipeline state to disk.
+ *
+ * @param runDir - Directory where pipeline state and artifacts are saved
+ * @param swissLogPath - Path to the Swiss-phase log file (appended per round)
+ * @param swissJudgmentsDir - Directory where per-match judgment artifacts are written
+ * @param state - Current pipeline state object (will be read and updated with Swiss progress)
+ * @param revisionsById - Map of revision IDs to their RevisionEntry data (used to obtain contestant texts)
+ * @param dryRun - If true, no external API calls or persistent side effects are made and judgments are mocked
+ * @param isResuming - If true, resume from any existing Swiss progress stored in `state`
+ * @returns The final list of contestants (with updated points, placements, and optional rating info) and all Swiss matches produced during the phase
  */
 export async function runSwissPhase(
 	runDir: string,

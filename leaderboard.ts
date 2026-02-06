@@ -114,7 +114,17 @@ function capitalizeFirst(str: string): string {
 // ============================================================================
 
 /**
- * Computes the sorted leaderboard data.
+ * Produce a sorted leaderboard for the given contestants, combining Swiss and optional playoff results.
+ *
+ * When tournament rating mode is enabled and every contestant has a numeric rating, ratings are used
+ * as the base scores; otherwise Swiss points are used. If playoff results are provided, they are
+ * incorporated (weighted higher) and playoff qualifiers are prioritized in ordering. Tie-breakers
+ * applied include playoff metrics (points, losses, wins, draws), total score, win count, and Swiss
+ * placements.
+ *
+ * @param playoffResults - Optional map of contestant id to playoff results to incorporate into ranking.
+ * @param revisionsById - Optional map of revision id to metadata; used to populate generator/reviewer/reviser fields when available.
+ * @returns An array of LeaderboardEntry objects ordered from rank 1 downward. Each entry includes computed `rank` and `totalScore`, and will include playoff fields (`playoffPoints`, `playoffWins`, `playoffDraws`, `playoffLosses`) when playoff results exist for that contestant.
  */
 export function getLeaderboard(
 	contestants: SwissContestant[],
@@ -231,7 +241,12 @@ export function computeLeaderboard(
 }
 
 /**
- * Formats leaderboard data into markdown with improved readability.
+ * Render the tournament leaderboard and related summaries as a Markdown string.
+ *
+ * @param sorted - Leaderboard entries ordered by rank (ascending) used to populate the document
+ * @param playoffResults - Map from contestant id to playoff result, or `null` when no playoff data exists
+ * @param initialLeaderboardResults - Optional seed-selection results used to show initial draft/seed information
+ * @returns The assembled Markdown document containing header metadata, winner card, model performance tables, final rankings, playoff details, and seed-selection information
  */
 function formatLeaderboardMarkdown(
 	sorted: LeaderboardEntry[],
@@ -487,7 +502,17 @@ function formatLeaderboardMarkdown(
 // ============================================================================
 
 /**
- * Converts stored Swiss contestants to runtime format.
+ * Convert persisted Swiss contestant records into runtime SwissContestant objects.
+ *
+ * The returned objects mirror the stored fields with these adjustments: `opponents`
+ * is converted to a Set, `wins`, `losses`, and `draws` default to 0 when missing,
+ * and rating-related fields (`rating`, `ratingUncertainty`, `ratingCiLow`, `ratingCiHigh`)
+ * are carried through as-is. The `textLookup` map is used to populate the `text` field;
+ * an empty string is used when no entry exists for a contestant id.
+ *
+ * @param stored - Array of stored contestant records to convert
+ * @param textLookup - Map from contestant id to display text used for the `text` field
+ * @returns An array of runtime `SwissContestant` objects
  */
 export function storedToRuntimeContestants(
 	stored: StoredSwissContestant[],
@@ -510,7 +535,14 @@ export function storedToRuntimeContestants(
 }
 
 /**
- * Converts runtime Swiss contestants to stored format.
+ * Convert runtime SwissContestant objects into StoredSwissContestant records.
+ *
+ * Produces stored entries with opponents converted to arrays, ensures `wins`,
+ * `losses`, and `draws` are set to zero when missing, and preserves rating
+ * fields (`rating`, `ratingUncertainty`, `ratingCiLow`, `ratingCiHigh`) if present.
+ *
+ * @param contestants - Array of runtime contestants to convert
+ * @returns Array of contestants in stored format suitable for persistence
  */
 export function runtimeToStoredContestants(
 	contestants: SwissContestant[],
