@@ -112,6 +112,18 @@ confidence = 0.9
 stabilityBatches = 2
 # budgetMaxCalls = 600
 
+[tournament.disambiguation]
+# If Swiss top-K is stable but not yet separated with confidence, run a few
+# targeted pairwise matches near the cutoff to tighten rating confidence.
+enabled = true
+judgesSource = "playoff"        # "playoff" (recommended) or "swiss"
+maxMatchesPerSwissRound = 2
+maxTotalMatches = 12
+candidatesOutsideK = 2
+includeTopKInternal = false
+targetWinProb = 0.5
+allowOverRepeatCap = false
+
 # -----------------------------------------------------------------------------
 # CONCURRENCY (Optional)
 # -----------------------------------------------------------------------------

@@ -18,6 +18,7 @@ This pipeline benchmarks AI models on creative artifact generation end-to-end:
 - **Formal Rating Backend**: Swiss can rank by `elo` or `bradley-terry` instead of raw points
 - **Adaptive Swiss Scheduling**: Prioritizes informative comparisons and avoids redundant rematches
 - **Optional Early Stop Rules**: End Swiss when top-K is stable/confident or budget/round caps are hit
+- **Disambiguation Matches (Optional)**: When top-K is stable but not separated, run targeted pairwise matches near the cutoff to tighten confidence
 - **Position Randomization**: All matches randomize presentation order to eliminate position bias
 - **Multi-Judge Swiss (Optional)**: Swiss can use one or many judges with majority/tie aggregation
 - **Multi-Judge Playoff**: Configurable judges vote on each playoff match
@@ -117,6 +118,12 @@ minBatches = 3
 maxBatches = 7
 topK = 8
 
+[tournament.disambiguation]
+enabled = true
+judgesSource = "playoff"        # "playoff" (recommended) or "swiss"
+maxMatchesPerSwissRound = 2
+maxTotalMatches = 12
+
 [concurrency]
 maxParallel = 5          # Limit parallel API calls
 ```
@@ -204,10 +211,11 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 | Review | 9 | ~$1.00 |
 | Revise | 27 | ~$2.00 |
 | Swiss (7 rounds × 9 matches × 1 judge) | 63 | ~$5.67 |
+| Disambiguation (optional) | up to `maxTotalMatches × judges` | varies |
 | Playoff (28 × 2 judges) | 56 | ~$5.80 |
-| **Total** | **158** | **~$15** |
+| **Total (excluding optional disambiguation)** | **158** | **~$15** |
 
-*Costs vary based on model selection, judge counts, and reasoning effort.*
+*Total excludes optional disambiguation; enabling it can add up to `maxTotalMatches × judges` additional calls. Costs vary based on model selection, judge counts, and reasoning effort.*
 
 ## Scoring
 

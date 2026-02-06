@@ -98,8 +98,6 @@ function applyBradleyTerryBatch(
 	state: RatingState,
 	batch: PairwiseObservation[],
 ): void {
-	state.history.push(...batch);
-
 	for (const obs of batch) {
 		const recordA = getOrCreateRecord(state, obs.aId);
 		const recordB = getOrCreateRecord(state, obs.bId);
@@ -276,6 +274,7 @@ export function createRatingState(
 		provisionalMatches: partialConfig.provisionalMatches ?? 12,
 		btIterations: partialConfig.btIterations ?? 200,
 		btTolerance: partialConfig.btTolerance ?? 1e-6,
+		// Default to 0 when omitted by callers; persisted state/config loading supplies an explicit value.
 		ciBootstrapSamples: partialConfig.ciBootstrapSamples ?? 0,
 	};
 
@@ -296,12 +295,12 @@ export function applyPairwiseBatch(
 	batch: PairwiseObservation[],
 ): void {
 	if (batch.length === 0) return;
+	state.history.push(...batch);
 
 	if (state.config.backend === "bradley-terry") {
 		applyBradleyTerryBatch(state, batch);
 	} else {
 		applyEloBatch(state, batch);
-		state.history.push(...batch);
 	}
 }
 

@@ -1,6 +1,7 @@
 import type { SwissContestant } from "../leaderboard";
 import { estimateWinProbability, STARTING_UNCERTAINTY } from "../rating/engine";
 import type { PairwiseObservation, RatingState } from "../rating/types";
+import { countRepeatPairs, pairKey } from "./pairs";
 
 export interface AdaptiveSchedulerOptions {
 	exploration: number;
@@ -44,21 +45,6 @@ function hashInt(seed: number): () => number {
 	};
 }
 
-function pairKey(aId: string, bId: string): string {
-	return aId < bId ? `${aId}::${bId}` : `${bId}::${aId}`;
-}
-
-function buildRepeatCounts(
-	history: PairwiseObservation[],
-): Map<string, number> {
-	const counts = new Map<string, number>();
-	for (const entry of history) {
-		const key = pairKey(entry.aId, entry.bId);
-		counts.set(key, (counts.get(key) ?? 0) + 1);
-	}
-	return counts;
-}
-
 function chooseByeId(
 	contestants: SwissContestant[],
 	state: RatingState,
@@ -98,13 +84,13 @@ export function scheduleAdaptivePairs(
 	}
 
 	const rng = hashInt(options.randomSeed ?? 123456789);
-	const repeatCounts = buildRepeatCounts(history);
+	const repeatCounts = countRepeatPairs(history);
 	const bye = chooseByeId(contestants, ratingState);
 	const active = contestants.filter((c) => c.id !== bye);
 
 	const candidates: CandidatePair[] = [];
 	let skippedByRepeatLimit = 0;
-	const forcedRepeatPairs = 0;
+	let forcedRepeatPairs = 0;
 	const unpairedIds: string[] = [];
 
 	for (let i = 0; i < active.length; i++) {
@@ -202,6 +188,7 @@ export function scheduleAdaptivePairs(
 				unpairedIds.push(left);
 				break;
 			}
+			forcedRepeatPairs += 1;
 			pairs.push([left, right]);
 		}
 

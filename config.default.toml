@@ -109,6 +109,18 @@ confidence = 0.9
 stabilityBatches = 2        # Require same topK for N consecutive batches
 # budgetMaxCalls = 600       # Optional hard API-call budget for Swiss phase
 
+[tournament.disambiguation]
+# When Swiss top-K is stable but not yet separated with confidence, run targeted
+# pairwise "disambiguation" matches (rating-only) near the cutoff to tighten CIs.
+enabled = true
+judgesSource = "playoff"        # "playoff" (recommended) or "swiss"
+maxMatchesPerSwissRound = 2     # cap per Swiss round
+maxTotalMatches = 12            # cap across the whole Swiss phase
+candidatesOutsideK = 2          # consider challengers K+1..K+N
+includeTopKInternal = false     # if true, allow some top-K internal matches too
+targetWinProb = 0.5             # prioritize matchups with predicted win prob near this target
+allowOverRepeatCap = false      # if false, respects tournament.scheduling.maxRepeatPairs
+
 # -----------------------------------------------------------------------------
 # CONCURRENCY
 # -----------------------------------------------------------------------------

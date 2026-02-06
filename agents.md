@@ -47,6 +47,7 @@
 | `rating/engine.ts` | Elo and Bradley-Terry rating backend used by Swiss standings. |
 | `rating/convert.ts` | Converts Swiss match outcomes into pairwise observations for rating updates. |
 | `scheduling/adaptive.ts` | Adaptive pair scheduler for Swiss `1v1`. |
+| `scheduling/disambiguation.ts` | Planner to disambiguate Swiss cutoff via targeted pairwise matches. |
 | `scheduling/stopRules.ts` | Confidence/stability stop-rule evaluator for early Swiss termination. |
 
 ### Configuration Files
@@ -156,6 +157,12 @@ minSeparation = 65 # Set to 0 to disable separation check
 confidence = 0.9
 stabilityBatches = 2
 
+[tournament.disambiguation]
+enabled = true
+judgesSource = "playoff"  # "playoff" (recommended) or "swiss"
+maxMatchesPerSwissRound = 2
+maxTotalMatches = 12
+
 [concurrency]
 maxParallel = 5  # Limit parallel API calls
 
@@ -196,7 +203,7 @@ swissFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
 # swissFormat = "1v1"  # Alternative: pairwise matches
 ```
 
-### Rating, Scheduling, and Stop Rules
+### Rating, Scheduling, Stop Rules, and Disambiguation
 
 ```toml
 [tournament.rating]
@@ -214,11 +221,18 @@ enabled = true
 minBatches = 3
 maxBatches = 7
 topK = 8
+
+[tournament.disambiguation]
+enabled = true
+judgesSource = "playoff"
+maxMatchesPerSwissRound = 2
+maxTotalMatches = 12
 ```
 
 - `rating.enabled`: when true, Swiss standings and playoff seeding use rating estimates instead of raw Swiss points.
 - `scheduling.mode = "adaptive"`: prioritizes uncertain/close matchups and penalizes repeats (for `1v1` Swiss).
 - `stopRules.enabled`: allows Swiss to stop early once top-K is stable and sufficiently separated/confident.
+- `disambiguation.enabled`: when stop rules reach "stable but not separated", runs targeted pairwise matches (rating-only) near the cutoff to tighten confidence.
 
 ---
 

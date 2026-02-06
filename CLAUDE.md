@@ -76,6 +76,20 @@ maxBatches = 7
 topK = 8
 ```
 
+Swiss can also run optional "disambiguation" matches when the top-K is stable but not yet separated with confidence. These matches are **rating-only** (they do not change Swiss points) and are designed to tighten confidence intervals near the cutoff:
+
+```toml
+[tournament.disambiguation]
+enabled = true
+judgesSource = "playoff"        # "playoff" (recommended) or "swiss"
+maxMatchesPerSwissRound = 2     # cap per Swiss round
+maxTotalMatches = 12            # cap across the whole Swiss phase
+candidatesOutsideK = 2          # consider challengers K+1..K+N
+includeTopKInternal = false     # if true, allow some top-K internal matches too
+targetWinProb = 0.5             # prioritize matchups with predicted win prob near this target
+allowOverRepeatCap = false      # if false, respects tournament.scheduling.maxRepeatPairs
+```
+
 ### Resumability
 
 The pipeline saves checkpoints throughout execution:

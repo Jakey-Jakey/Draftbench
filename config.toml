@@ -103,6 +103,16 @@ minSeparation = 65          # Set to 0 to disable separation check
 confidence = 0.9
 stabilityBatches = 2
 
+[tournament.disambiguation]
+enabled = true
+judgesSource = "playoff"
+maxMatchesPerSwissRound = 2
+maxTotalMatches = 12
+candidatesOutsideK = 2
+includeTopKInternal = false
+targetWinProb = 0.5
+allowOverRepeatCap = false
+
 # -----------------------------------------------------------------------------
 # CONCURRENCY (uncomment to limit parallel API calls)
 # -----------------------------------------------------------------------------

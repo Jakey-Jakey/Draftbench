@@ -39,6 +39,101 @@ const standings: RatingStanding[] = [
 ];
 
 describe("stop rules", () => {
+	test("disabled config returns kind=disabled and shouldStop=false", () => {
+		const result = evaluateStopRules(
+			{
+				round: 5,
+				totalCalls: 80,
+				standings,
+				topKHistory: [["A", "B"]],
+			},
+			{
+				enabled: false,
+				minBatches: 3,
+				maxBatches: 9,
+				topK: 2,
+				minSeparation: 50,
+				confidence: 0.9,
+				stabilityBatches: 2,
+			},
+		);
+		expect(result.shouldStop).toBe(false);
+		expect(result.kind).toBe("disabled");
+	});
+
+	test("budgetMaxCalls triggers budget_reached", () => {
+		const result = evaluateStopRules(
+			{
+				round: 5,
+				totalCalls: 100,
+				standings,
+				topKHistory: [
+					["A", "B"],
+					["A", "B"],
+				],
+			},
+			{
+				enabled: true,
+				minBatches: 3,
+				maxBatches: 9,
+				topK: 2,
+				minSeparation: 50,
+				confidence: 0.9,
+				stabilityBatches: 2,
+				budgetMaxCalls: 99,
+			},
+		);
+		expect(result.shouldStop).toBe(true);
+		expect(result.kind).toBe("budget_reached");
+	});
+
+	test("unstable top-k returns kind=topk_unstable", () => {
+		const result = evaluateStopRules(
+			{
+				round: 5,
+				totalCalls: 80,
+				standings,
+				topKHistory: [["A", "B"]], // fewer entries than stabilityBatches
+			},
+			{
+				enabled: true,
+				minBatches: 3,
+				maxBatches: 9,
+				topK: 2,
+				minSeparation: 50,
+				confidence: 0.9,
+				stabilityBatches: 2,
+			},
+		);
+		expect(result.shouldStop).toBe(false);
+		expect(result.kind).toBe("topk_unstable");
+	});
+
+	test("stable top-k with no outside challenger stops as stable_separated", () => {
+		const result = evaluateStopRules(
+			{
+				round: 5,
+				totalCalls: 80,
+				standings: standings.slice(0, 2), // length == topK
+				topKHistory: [
+					["A", "B"],
+					["A", "B"],
+				],
+			},
+			{
+				enabled: true,
+				minBatches: 3,
+				maxBatches: 9,
+				topK: 2,
+				minSeparation: 50,
+				confidence: 0.9,
+				stabilityBatches: 2,
+			},
+		);
+		expect(result.shouldStop).toBe(true);
+		expect(result.kind).toBe("stable_separated");
+	});
+
 	test("does not stop before min batches", () => {
 		const result = evaluateStopRules(
 			{

@@ -1,7 +1,7 @@
-import { appendFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pairwiseJudge, threeWayJudge } from "../aiClient";
-import { getConfig, getSwissJudges } from "../config";
+import { getConfig, getPlayoffJudges, getSwissJudges } from "../config";
 import type { SwissContestant, SwissMatch } from "../leaderboard";
 import { pairwiseFromSwissMatch } from "../rating/convert";
 import {
@@ -14,12 +14,17 @@ import {
 } from "../rating/engine";
 import type { PairwiseObservation, RatingState } from "../rating/types";
 import { scheduleAdaptivePairs } from "../scheduling/adaptive";
+import {
+	countRepeatPairs,
+	planDisambiguationPairs,
+} from "../scheduling/disambiguation";
 import { evaluateStopRules } from "../scheduling/stopRules";
 import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
 	type PipelineState,
+	type StoredDisambiguationMatch,
 	type StoredSwissContestant,
 	type StoredSwissMatch,
 	saveState,
@@ -30,6 +35,27 @@ import type { RevisionEntry } from "./revise";
 // ============================================================================
 // Swiss Tournament Types & Logic
 // ============================================================================
+
+function fnv1a32(input: string): number {
+	// Deterministic 32-bit hash (FNV-1a) for seeded RNG.
+	let h = 2166136261;
+	for (let i = 0; i < input.length; i++) {
+		h ^= input.charCodeAt(i);
+		h = Math.imul(h, 16777619);
+	}
+	return h >>> 0;
+}
+
+function mulberry32(seed: number): () => number {
+	let a = seed >>> 0;
+	return () => {
+		a |= 0;
+		a = (a + 0x6d2b79f5) | 0;
+		let t = Math.imul(a ^ (a >>> 15), 1 | a);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
 
 export interface SwissPhaseResult {
 	contestants: SwissContestant[];
@@ -273,6 +299,16 @@ function countSwissJudgeCalls(
 	return judgedMatches * judgeCount;
 }
 
+function countDisambiguationJudgeCalls(
+	matches: StoredDisambiguationMatch[],
+): number {
+	let calls = 0;
+	for (const match of matches) {
+		calls += match.judges.length;
+	}
+	return calls;
+}
+
 // ============================================================================
 // Swiss Phase
 // ============================================================================
@@ -297,6 +333,7 @@ export async function runSwissPhase(
 	const ratingConfig = config.tournament.rating;
 	const schedulingConfig = config.tournament.scheduling;
 	const stopRulesConfig = config.tournament.stopRules;
+	const disambiguationConfig = config.tournament.disambiguation;
 	const judgeLabel = SWISS_JUDGES.map(
 		(j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`,
 	).join(", ");
@@ -314,8 +351,20 @@ export async function runSwissPhase(
 			"  ⚠️ Stop rules enabled without rating backend; stop rules will be ignored.",
 		);
 	}
+	if (
+		disambiguationConfig.enabled &&
+		(!stopRulesConfig.enabled || !ratingConfig.enabled)
+	) {
+		console.warn(
+			"  ⚠️ Disambiguation enabled without stop rules + rating backend; disambiguation will be ignored.",
+		);
+	}
 
 	const fileLock = new Semaphore(1);
+	const disambiguationJudgmentsDir = join(swissJudgmentsDir, "disambiguation");
+	if (!dryRun) {
+		await mkdir(disambiguationJudgmentsDir, { recursive: true });
+	}
 
 	const hasSwissProgress =
 		isResuming &&
@@ -373,6 +422,10 @@ export async function runSwissPhase(
 	const topKHistory: string[][] =
 		hasSwissProgress && (state.topKHistory?.length ?? 0) > 0
 			? [...(state.topKHistory ?? [])]
+			: [];
+	const disambiguationMatches: StoredDisambiguationMatch[] =
+		hasSwissProgress && (state.disambiguationMatches?.length ?? 0) > 0
+			? [...(state.disambiguationMatches ?? [])]
 			: [];
 
 	let ratingState: RatingState | null = null;
@@ -909,26 +962,232 @@ export async function runSwissPhase(
 		if (ratingState && roundPairwise.length > 0) {
 			applyPairwiseBatch(ratingState, roundPairwise);
 			const orderedIds = syncContestantsWithRatings(contestants, ratingState);
-			const topK = Math.max(
-				1,
-				Math.min(stopRulesConfig.topK, orderedIds.length),
-			);
-			topKHistory.push(orderedIds.slice(0, topK));
+			if (stopRulesConfig.enabled) {
+				const topK = Math.max(
+					1,
+					Math.min(stopRulesConfig.topK, orderedIds.length),
+				);
+				topKHistory.push(orderedIds.slice(0, topK));
+			}
 		}
 
 		if (ratingState && stopRulesConfig.enabled) {
-			const stop = evaluateStopRules(
+			const getTotalCalls = () =>
+				countSwissJudgeCalls(allSwissMatches, SWISS_JUDGES.length) +
+				countDisambiguationJudgeCalls(disambiguationMatches);
+
+			let stop = evaluateStopRules(
 				{
 					round,
-					totalCalls: countSwissJudgeCalls(
-						allSwissMatches,
-						SWISS_JUDGES.length,
-					),
+					totalCalls: getTotalCalls(),
 					standings: getRatingStandings(ratingState),
 					topKHistory,
 				},
 				stopRulesConfig,
 			);
+
+			if (
+				!stop.shouldStop &&
+				stop.kind === "stable_not_separated" &&
+				disambiguationConfig.enabled &&
+				disambiguationConfig.maxMatchesPerSwissRound > 0 &&
+				disambiguationConfig.maxTotalMatches > 0
+			) {
+				const remaining =
+					disambiguationConfig.maxTotalMatches - disambiguationMatches.length;
+				const maxThisRound = Math.min(
+					disambiguationConfig.maxMatchesPerSwissRound,
+					remaining,
+				);
+				const disambigJudges =
+					disambiguationConfig.judgesSource === "swiss"
+						? SWISS_JUDGES
+						: getPlayoffJudges();
+
+				if (maxThisRound > 0 && disambigJudges.length > 0) {
+					const standings = getRatingStandings(ratingState);
+					const planned = planDisambiguationPairs({
+						standings,
+						ratingState,
+						topK: stopRulesConfig.topK,
+						candidatesOutsideK: disambiguationConfig.candidatesOutsideK,
+						includeTopKInternal: disambiguationConfig.includeTopKInternal,
+						repeatCounts: countRepeatPairs(pairwiseHistory),
+						maxRepeatPairs: schedulingConfig.maxRepeatPairs,
+						allowOverRepeatCap: disambiguationConfig.allowOverRepeatCap,
+						targetWinProb: disambiguationConfig.targetWinProb,
+						maxMatches: maxThisRound,
+					});
+
+					if (planned.length > 0) {
+						const judgeLabel = disambigJudges
+							.map(
+								(j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`,
+							)
+							.join(", ");
+						console.log(
+							`    ↻ Disambiguation: running ${planned.length} targeted pairwise matchup(s) (judges: ${judgeLabel})...`,
+						);
+						if (!dryRun) {
+							await appendFile(
+								swissLogPath,
+								`### Disambiguation (rating-only)\n\n> Swiss top-${stopRulesConfig.topK} is stable but not separated; running targeted pairwise matches to tighten confidence.\n\n`,
+								"utf-8",
+							);
+						}
+
+						const contestantById = new Map(
+							contestants.map((c) => [c.id, c] as const),
+						);
+
+						for (let i = 0; i < planned.length; i++) {
+							const [idA, idB] = planned[i] ?? [];
+							if (!idA || !idB) continue;
+
+							const revisionA = revisionsById.get(idA);
+							const revisionB = revisionsById.get(idB);
+							if (!revisionA || !revisionB) {
+								throw new Error(
+									`Missing revision for disambiguation match: ${!revisionA ? idA : idB}`,
+								);
+							}
+
+							const rng = mulberry32(
+								fnv1a32(
+									`disambig|r${round}|${[idA, idB].sort().join("::")}|${i}`,
+								),
+							);
+							const swapped = rng() > 0.5;
+							const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
+							const [firstText, secondText] = swapped
+								? [revisionB.result.text, revisionA.result.text]
+								: [revisionA.result.text, revisionB.result.text];
+
+							let votesA = 0;
+							let votesB = 0;
+							let isDraw = false;
+
+							if (dryRun) {
+								const outcome = rng();
+								if (outcome < 0.45) votesA = disambigJudges.length;
+								else if (outcome < 0.9) votesB = disambigJudges.length;
+								else {
+									isDraw = true;
+									votesA = Math.floor(disambigJudges.length / 2);
+									votesB = disambigJudges.length - votesA;
+								}
+							} else {
+								const judgeResults = await Promise.all(
+									disambigJudges.map((judge) =>
+										pairwiseJudge(
+											"S1",
+											firstText,
+											"S2",
+											secondText,
+											judge.model,
+											judge.effort ?? "high",
+										),
+									),
+								);
+
+								for (const result of judgeResults) {
+									const resolvedWinner =
+										result.winner === "S1" ? firstId : secondId;
+									if (resolvedWinner === idA) votesA += 1;
+									else votesB += 1;
+								}
+								isDraw = votesA === votesB;
+
+								const safeKey = `${idA}__vs__${idB}`.replaceAll("/", "_");
+								const judgmentFile = join(
+									disambiguationJudgmentsDir,
+									`round_${round}_${safeKey}.md`,
+								);
+								let md = `# Disambiguation Match (Round ${round})\n\n`;
+								md += `- A: ${idA}\n`;
+								md += `- B: ${idB}\n\n`;
+								md += `## Judges\n\n`;
+								for (const judge of disambigJudges) {
+									md += `- ${judge.model} (${judge.effort ?? "high"})\n`;
+								}
+								md += "\n## Votes\n\n";
+								md += `- ${idA}: ${votesA}\n`;
+								md += `- ${idB}: ${votesB}\n`;
+								md += `- Result: ${isDraw ? "DRAW" : votesA > votesB ? idA : idB}\n`;
+								await writeFile(judgmentFile, md, "utf-8");
+							}
+
+							const totalVotes = Math.max(1, votesA + votesB);
+							const scoreA = isDraw
+								? ratingConfig.tieValue
+								: votesA / totalVotes;
+							const scoreB = isDraw ? ratingConfig.tieValue : 1 - scoreA;
+							const sourceMatchId = `disambig:r${round}:${[idA, idB].sort().join("::")}:${disambiguationMatches.length + 1}`;
+
+							const observation: PairwiseObservation = {
+								aId: idA,
+								bId: idB,
+								scoreA,
+								scoreB,
+								round,
+								sourceMatchId,
+							};
+							pairwiseHistory.push(observation);
+							applyPairwiseBatch(ratingState, [observation]);
+
+							// Record opponent history so static Swiss pairing doesn't unknowingly repeat.
+							const ca = contestantById.get(idA);
+							const cb = contestantById.get(idB);
+							ca?.opponents.add(idB);
+							cb?.opponents.add(idA);
+
+							disambiguationMatches.push({
+								round,
+								aId: idA,
+								bId: idB,
+								scoreA,
+								scoreB,
+								votesA,
+								votesB,
+								judges: disambigJudges.map((j) => j.model),
+								sourceMatchId,
+							});
+
+							if (!dryRun) {
+								const line = isDraw
+									? `- ${idA} vs ${idB}: **DRAW** (${votesA}-${votesB})\n`
+									: `- **${votesA > votesB ? idA : idB}** beat ${votesA > votesB ? idB : idA} (${votesA}-${votesB})\n`;
+								await appendFile(swissLogPath, line, "utf-8");
+							}
+						}
+
+						const orderedIds = syncContestantsWithRatings(
+							contestants,
+							ratingState,
+						);
+						const topK = Math.max(
+							1,
+							Math.min(stopRulesConfig.topK, orderedIds.length),
+						);
+						if (topKHistory.length === 0) {
+							topKHistory.push(orderedIds.slice(0, topK));
+						} else {
+							topKHistory[topKHistory.length - 1] = orderedIds.slice(0, topK);
+						}
+
+						stop = evaluateStopRules(
+							{
+								round,
+								totalCalls: getTotalCalls(),
+								standings: getRatingStandings(ratingState),
+								topKHistory,
+							},
+							stopRulesConfig,
+						);
+					}
+				}
+			}
+
 			if (stop.shouldStop) {
 				stopReason = stop.reason;
 				console.log(`    ⏹ Swiss stop rule triggered: ${stop.reason}`);
@@ -940,12 +1199,15 @@ export async function runSwissPhase(
 					);
 				}
 				if (!dryRun) {
+					// Persist intermediate stop state; the final save (with phase-complete marker)
+					// happens after the Swiss loop.
 					state.swissRound = round;
 					state.swissMatches = allSwissMatches as StoredSwissMatch[];
 					state.contestants = serializeContestants(contestants);
 					state.ratingState = serializeRatingState(ratingState);
 					state.pairwiseHistory = pairwiseHistory;
 					state.topKHistory = topKHistory;
+					state.disambiguationMatches = disambiguationMatches;
 					state.swissStopReason = stopReason;
 					saveState(runDir, state);
 				}
@@ -962,6 +1224,7 @@ export async function runSwissPhase(
 				: null;
 			state.pairwiseHistory = pairwiseHistory;
 			state.topKHistory = topKHistory;
+			state.disambiguationMatches = disambiguationMatches;
 			state.swissStopReason = stopReason;
 			saveState(runDir, state);
 		}
@@ -976,12 +1239,14 @@ export async function runSwissPhase(
 
 	// Save state
 	if (!dryRun) {
+		// Final save ensures the swiss phase-complete marker is persisted.
 		state.swissRound = lastCompletedRound;
 		state.swissMatches = allSwissMatches as StoredSwissMatch[];
 		state.contestants = serializeContestants(contestants);
 		state.ratingState = ratingState ? serializeRatingState(ratingState) : null;
 		state.pairwiseHistory = pairwiseHistory;
 		state.topKHistory = topKHistory;
+		state.disambiguationMatches = disambiguationMatches;
 		state.swissStopReason = stopReason;
 		markPhaseCompleted(state, "swiss");
 		saveState(runDir, state);

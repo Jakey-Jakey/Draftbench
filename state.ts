@@ -1,3 +1,5 @@
+// Note: We use sync node:fs here because state load/save is used in CLI flow and tests.
+// A future cleanup could migrate to Bun.file/Bun.write for consistency with project guidelines.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
@@ -91,6 +93,21 @@ export interface StoredPlayoffResult {
 }
 
 /**
+ * Disambiguation match result stored in state (rating-only, does not affect Swiss points).
+ */
+export interface StoredDisambiguationMatch {
+	round: number;
+	aId: string;
+	bId: string;
+	scoreA: number;
+	scoreB: number;
+	votesA: number;
+	votesB: number;
+	judges: string[];
+	sourceMatchId: string;
+}
+
+/**
  * Complete pipeline state for resume functionality.
  */
 export interface PipelineState {
@@ -123,6 +140,7 @@ export interface PipelineState {
 	ratingState?: StoredRatingState | null;
 	pairwiseHistory?: PairwiseObservation[];
 	topKHistory?: string[][];
+	disambiguationMatches?: StoredDisambiguationMatch[];
 	swissStopReason?: string | null;
 
 	// Phase 6: Playoffs
@@ -184,6 +202,8 @@ function deserializeState(obj: Record<string, unknown>): PipelineState {
 		ratingState: (obj.ratingState as StoredRatingState | null) ?? null,
 		pairwiseHistory: (obj.pairwiseHistory as PairwiseObservation[]) ?? [],
 		topKHistory: (obj.topKHistory as string[][]) ?? [],
+		disambiguationMatches:
+			(obj.disambiguationMatches as StoredDisambiguationMatch[]) ?? [],
 		swissStopReason: (obj.swissStopReason as string | null) ?? null,
 		completedPlayoffPairs: (obj.completedPlayoffPairs as string[]) ?? [],
 	} as PipelineState;
@@ -253,6 +273,18 @@ const PairwiseObservationSchema = z.object({
 	sourceMatchId: z.string().optional(),
 });
 
+const StoredDisambiguationMatchSchema = z.object({
+	round: z.number(),
+	aId: z.string(),
+	bId: z.string(),
+	scoreA: z.number(),
+	scoreB: z.number(),
+	votesA: z.number(),
+	votesB: z.number(),
+	judges: z.array(z.string()),
+	sourceMatchId: z.string(),
+});
+
 const RatingConfigSchema = z.object({
 	backend: z.enum(["elo", "bradley-terry"]),
 	initialRating: z.number(),
@@ -261,7 +293,7 @@ const RatingConfigSchema = z.object({
 	provisionalMatches: z.number(),
 	btIterations: z.number(),
 	btTolerance: z.number(),
-	ciBootstrapSamples: z.number().int().min(1).default(200),
+	ciBootstrapSamples: z.number().int().min(0).default(200),
 });
 
 const RatingRecordSchema = z.object({
@@ -320,6 +352,7 @@ const PipelineStateSchema = z.object({
 	ratingState: StoredRatingStateSchema.nullable().optional(),
 	pairwiseHistory: z.array(PairwiseObservationSchema).optional(),
 	topKHistory: z.array(z.array(z.string())).optional(),
+	disambiguationMatches: z.array(StoredDisambiguationMatchSchema).optional(),
 	swissStopReason: z.string().nullable().optional(),
 	playoffResults: z.array(StoredPlayoffResultSchema).nullable(),
 	completedPlayoffPairs: z.array(z.string()).default([]),
@@ -353,6 +386,7 @@ export function createInitialState(): PipelineState {
 		ratingState: null,
 		pairwiseHistory: [],
 		topKHistory: [],
+		disambiguationMatches: [],
 		swissStopReason: null,
 		playoffResults: null,
 		completedPlayoffPairs: [],
