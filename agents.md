@@ -14,13 +14,14 @@
 | **3. Review** | Cross-review: each model reviews all selected drafts (including self). | 9 reviews (3×3) |
 | **4. Revise** | All models revise each draft based on each review. | 27 revisions (3 seeds × 3 reviewers × 3 revisers) |
 | **5. Swiss Tournament** | Configurable `1v1` or `1v1v1` Swiss system ranks revisions. | 7 rounds, configurable Swiss judges |
-| **6. Playoff** | Top-N Round Robin with multi-judge voting. | Top-8, Claude (low) + GPT (medium) |
+| **6. Finale** | Active-learning finale to confidently rank the top-K. | Variable matches (budget-capped), multi-judge voting |
 
 ---
 
 ## 📂 Key Files
 
 ### Core
+
 | File | Purpose |
 |------|---------|
 | `index.ts` | **Entry point**. Thin orchestrator that imports and runs phases. |
@@ -30,6 +31,7 @@
 | `schemas.ts` | Zod schemas for LLM response validation. |
 
 ### Phase Modules (`phases/`)
+
 | File | Purpose |
 |------|---------|
 | `phases/generate.ts` | Phase 1: Generate initial statblocks from all models. |
@@ -37,20 +39,22 @@
 | `phases/review.ts` | Phase 3: Cross-review statblocks (including self-review). |
 | `phases/revise.ts` | Phase 4: Revise statblocks based on reviews. |
 | `phases/swiss.ts` | Phase 5: Swiss tournament (`1v1` or `1v1v1`) with resume checkpoints per round. |
-| `phases/playoff.ts` | Phase 6: Top-N Round Robin playoff with resume checkpoints per matchup. |
+| `phases/finale.ts` | Phase 6: Active-learning finale with resume checkpoints per iteration. |
 
 ### Utilities
+
 | File | Purpose |
 |------|---------|
 | `utils.ts` | Shared utilities: directory creation, timestamps, shuffle, dry-run helpers. |
-| `leaderboard.ts` | Leaderboard computation and Swiss/Playoff type definitions. |
+| `leaderboard.ts` | Leaderboard computation and Swiss/Finale type definitions. |
 | `rating/engine.ts` | Elo and Bradley-Terry rating backend used by Swiss standings. |
 | `rating/convert.ts` | Converts Swiss match outcomes into pairwise observations for rating updates. |
 | `scheduling/adaptive.ts` | Adaptive pair scheduler for Swiss `1v1`. |
-| `scheduling/disambiguation.ts` | Planner to disambiguate Swiss cutoff via targeted pairwise matches. |
+| `scheduling/activeRanking.ts` | Active-learning planner for selecting informative finale matchups. |
 | `scheduling/stopRules.ts` | Confidence/stability stop-rule evaluator for early Swiss termination. |
 
 ### Configuration Files
+
 | File | Purpose |
 |------|---------|
 | `config.toml` | **Main config**. User customizations (edit this). |
@@ -61,6 +65,7 @@
 | `prompts.toml` | Customizable prompts. Load with `--prompts` flag. |
 
 ### Tests
+
 | File | Purpose |
 |------|---------|
 | `tests/config.test.ts` | Config loading, CLI parsing, prompts tests. |
@@ -122,19 +127,18 @@ effort = "high"
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-# Playoff Judges (multi-judge voting)
-[[roles.playoffJudges]]
+# Finale Judges (multi-judge voting)
+[[roles.finaleJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-[[roles.playoffJudges]]
+[[roles.finaleJudges]]
 model = "openai/gpt-5.2"
 effort = "medium"
 
 [tournament]
 initialGenerations = 1
 swissRounds = 7
-playoffSize = 8
 swissFormat = "1v1v1"  # "1v1" or "1v1v1"
 
 [tournament.initialLeaderboard]
@@ -157,11 +161,14 @@ minSeparation = 65 # Set to 0 to disable separation check
 confidence = 0.9
 stabilityBatches = 2
 
-[tournament.disambiguation]
+[tournament.finale]
 enabled = true
-judgesSource = "playoff"  # "playoff" (recommended) or "swiss"
-maxMatchesPerSwissRound = 2
-maxTotalMatches = 12
+maxMatchesPerBatch = 4
+maxTotalMatches = 30
+targetWinProb = 0.5
+confidence = 0.9
+minSeparation = 0
+allowOverRepeatCap = false
 
 [concurrency]
 maxParallel = 5  # Limit parallel API calls
@@ -203,7 +210,7 @@ swissFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
 # swissFormat = "1v1"  # Alternative: pairwise matches
 ```
 
-### Rating, Scheduling, Stop Rules, and Disambiguation
+### Rating, Scheduling, Stop Rules, and Finale
 
 ```toml
 [tournament.rating]
@@ -222,17 +229,20 @@ minBatches = 3
 maxBatches = 7
 topK = 8
 
-[tournament.disambiguation]
+[tournament.finale]
 enabled = true
-judgesSource = "playoff"
-maxMatchesPerSwissRound = 2
-maxTotalMatches = 12
+maxMatchesPerBatch = 4
+maxTotalMatches = 30
+targetWinProb = 0.5
+confidence = 0.9
+minSeparation = 0
+allowOverRepeatCap = false
 ```
 
-- `rating.enabled`: when true, Swiss standings and playoff seeding use rating estimates instead of raw Swiss points.
+- `rating.enabled`: when true, Swiss standings use rating estimates instead of raw Swiss points.
 - `scheduling.mode = "adaptive"`: prioritizes uncertain/close matchups and penalizes repeats (for `1v1` Swiss).
 - `stopRules.enabled`: allows Swiss to stop early once top-K is stable and sufficiently separated/confident.
-- `disambiguation.enabled`: when stop rules reach "stable but not separated", runs targeted pairwise matches (rating-only) near the cutoff to tighten confidence.
+- `finale.enabled`: after Swiss, runs targeted pairwise matches among the top-K to separate adjacent confidence intervals (budget-capped).
 
 ---
 
@@ -280,7 +290,7 @@ bun test
 
 ## 📂 Output Structure
 
-```
+```text
 runs/<timestamp>/
 ├── <generator-token>_original_<n>.md
 ├── reviews/
@@ -288,10 +298,10 @@ runs/<timestamp>/
 ├── revisions/
 │   └── <generator-token>_<reviewer-token>_<reviser-token>.md
 ├── swiss_judgments/              # Detailed per-match reasoning
-├── playoff_judgments/
+├── finale_judgments/
 ├── initial_leaderboard/          # (If enabled)
 ├── swiss_rounds.md               # Round-by-round log
-├── playoff_rounds.md             # Multi-judge voting log
+├── finale_rounds.md              # Active-learning finale log
 ├── leaderboard.md                # Final rankings & stats
 └── state.json                    # Resume checkpoint state
 ```
@@ -305,7 +315,7 @@ runs/<timestamp>/
 3. **Adding Models**: Use full OpenRouter slugs (e.g., `anthropic/claude-sonnet-4`).
 4. **Prompt Templates**: Use `{varname}` syntax. Available vars depend on phase (see `prompts.toml`).
 5. **Cost Control**: Use `--dry-run` liberally. Full runs cost ~$15-20 in API calls.
-6. **Resumability**: Reviews/revisions save incrementally, Swiss saves each round, and playoffs save each completed matchup.
+6. **Resumability**: Reviews/revisions save incrementally, Swiss saves each round, and the finale saves each iteration.
 7. **Linting**: Use `bun run lint` to check for code style and potential errors using Biome.
 8. **Testing**: Use `bun test` to run the full suite.
 
@@ -315,7 +325,7 @@ runs/<timestamp>/
 
 - **Anonymization**: All judging uses opaque IDs (`S1`, `S2`, `S3`) to prevent model-name bias.
 - **Randomization**: Presentation order is shuffled for every match.
-- **Multi-Judge Swiss/Playoff**: Both tournament stages support multiple judges to reduce single-model bias.
+- **Multi-Judge Swiss/Finale**: Both tournament stages support multiple judges to reduce single-model bias.
 - **Incremental I/O**: Results are persisted immediately to handle crashes gracefully.
 
 ---

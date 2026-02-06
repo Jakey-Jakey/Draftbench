@@ -50,8 +50,11 @@ export interface RevisePhaseResult {
 // ============================================================================
 
 /**
- * Phase 4: Revise statblocks based on reviews.
- * ALL reviser models revise each original based on each review.
+ * Run the revise phase where each reviser model revises every original statblock using each available review.
+ *
+ * Writes per-task Markdown files to `revisionsDir` and persists revision entries into `state` when not a dry run.
+ *
+ * @returns An object containing `revisionsById`: a map from revision id to `RevisionEntry` for all gathered revisions
  */
 export async function runRevisePhase(
 	runDir: string,
@@ -103,6 +106,16 @@ export async function runRevisePhase(
 		>) {
 			if (!revisionTaskIds.has(id)) continue;
 
+			const reviserFromConfig = revisers.find(
+				(r) => r.model === stored.reviser,
+			);
+			const reviserEffort =
+				(stored.reviserEffort as ReasoningEffort | undefined) ??
+				reviserFromConfig?.effort ??
+				"high";
+			const reviserTemperature =
+				stored.reviserTemperature ?? reviserFromConfig?.temperature;
+
 			revisionsById.set(id, {
 				result: { text: stored.text, model: stored.reviser },
 				task: {
@@ -110,7 +123,8 @@ export async function runRevisePhase(
 					generator: stored.generator as ModelSlug,
 					reviewer: stored.reviewer as ModelSlug,
 					reviser: stored.reviser as ModelSlug,
-					reviserEffort: "high",
+					reviserEffort,
+					reviserTemperature,
 				},
 			});
 			completedRevisionIds.add(id);
@@ -194,6 +208,8 @@ export async function runRevisePhase(
 						generator: task.generator,
 						reviewer: task.reviewer,
 						reviser: task.reviser,
+						reviserEffort: task.reviserEffort,
+						reviserTemperature: task.reviserTemperature,
 					});
 					saveState(runDir, state);
 				} finally {
@@ -221,6 +237,8 @@ export async function runRevisePhase(
 					generator: entry.task.generator,
 					reviewer: entry.task.reviewer,
 					reviser: entry.task.reviser,
+					reviserEffort: entry.task.reviserEffort,
+					reviserTemperature: entry.task.reviserTemperature,
 				},
 			]),
 		) as Map<string, StoredRevisionResult>;

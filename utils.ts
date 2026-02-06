@@ -77,7 +77,12 @@ export function getModelToken(modelSlug: string): string {
 }
 
 /**
- * Narrows away null/undefined with a runtime guard.
+ * Ensure the provided value is not `null` or `undefined`, returning it if defined or throwing an error otherwise.
+ *
+ * @param value - The value to validate
+ * @param message - Error message used when the value is `null` or `undefined`
+ * @returns The validated `value` as `T`
+ * @throws Error if `value` is `null` or `undefined`
  */
 export function requireDefined<T>(
 	value: T | null | undefined,
@@ -87,6 +92,20 @@ export function requireDefined<T>(
 		throw new Error(message);
 	}
 	return value;
+}
+
+/**
+ * Map a confidence level to the approximate z-score multiplier used for two-sided confidence intervals.
+ *
+ * @param confidence - Confidence level as a decimal between 0 and 1 (e.g., 0.95 for 95% confidence)
+ * @returns The z multiplier: `2.58` for ≥ 0.99, `1.96` for ≥ 0.95, `1.64` for ≥ 0.9, `1.28` for ≥ 0.8, otherwise `1.0`
+ */
+export function confidenceMultiplier(confidence: number): number {
+	if (confidence >= 0.99) return 2.58;
+	if (confidence >= 0.95) return 1.96;
+	if (confidence >= 0.9) return 1.64;
+	if (confidence >= 0.8) return 1.28;
+	return 1.0;
 }
 
 // ============================================================================
@@ -148,7 +167,6 @@ export function createMockReview(reviewer?: string, reviewed?: string): string {
 export function printDryRunConfig(): void {
 	const config = getConfig();
 	const SWISS_ROUNDS = config.tournament.swissRounds;
-	const TOP_N_PLAYOFF = config.tournament.playoffSize;
 	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
 	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
 	const RUNS_DIR = config.output.runsDirectory;
@@ -186,15 +204,14 @@ export function printDryRunConfig(): void {
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
-	console.log(`  Playoff Judges (${config.roles.playoffJudges.length}):`);
-	for (const entry of config.roles.playoffJudges) {
+	console.log(`  Finale Judges (${config.roles.finaleJudges.length}):`);
+	for (const entry of config.roles.finaleJudges) {
 		console.log(
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
 	console.log(`\nTournament:`);
 	console.log(`  Swiss Rounds: ${SWISS_ROUNDS}`);
-	console.log(`  Playoff Size: ${TOP_N_PLAYOFF}`);
 	console.log(`  Initial Generations per Model: ${INITIAL_GENERATIONS}`);
 	console.log(`  Initial Leaderboard Enabled: ${INITIAL_LEADERBOARD.enabled}`);
 	console.log(
@@ -205,7 +222,7 @@ export function printDryRunConfig(): void {
 		`  Stop Rules: ${config.tournament.stopRules.enabled ? `enabled (min ${config.tournament.stopRules.minBatches}, max ${config.tournament.stopRules.maxBatches}, topK ${config.tournament.stopRules.topK})` : "disabled"}`,
 	);
 	console.log(
-		`  Disambiguation: ${config.tournament.disambiguation.enabled ? `enabled (judges ${config.tournament.disambiguation.judgesSource}, max ${config.tournament.disambiguation.maxTotalMatches} total, max ${config.tournament.disambiguation.maxMatchesPerSwissRound}/round)` : "disabled"}`,
+		`  Finale: ${config.tournament.finale.enabled ? `enabled (max ${config.tournament.finale.maxTotalMatches} total, batch ${config.tournament.finale.maxMatchesPerBatch}, confidence ${config.tournament.finale.confidence})` : "disabled"}`,
 	);
 	console.log(`  Total Contestants: ${totalContestants}`);
 	console.log(`\nOutput:`);

@@ -38,4 +38,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # pipeline runs
 runs
 
+# misc test docs/markers (not used by runtime)
+tests/misc/
+
 

@@ -1,4 +1,4 @@
-# Showcase preset: Bradley-Terry rating + confidence tightening (disambiguation)
+# Showcase preset: Bradley-Terry rating + finale CI separation (active learning)
 #
 # Use with:
 #   bun run index.ts --config config.showcase.bt-confidence.toml
@@ -10,7 +10,6 @@
 [tournament]
 swissFormat = "1v1"
 swissRounds = 7
-playoffSize = 8
 initialGenerations = 1
 
 [tournament.rating]
@@ -39,13 +38,12 @@ minSeparation = 0
 confidence = 0.95
 stabilityBatches = 2
 
-[tournament.disambiguation]
+[tournament.finale]
 enabled = true
-judgesSource = "playoff"
-maxMatchesPerSwissRound = 2
-maxTotalMatches = 12
-candidatesOutsideK = 3
-includeTopKInternal = true
+maxMatchesPerBatch = 4
+maxTotalMatches = 30
 targetWinProb = 0.5
+confidence = 0.95
+minSeparation = 0
 allowOverRepeatCap = false
 

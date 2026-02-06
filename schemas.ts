@@ -6,7 +6,7 @@ import { z } from "zod";
 
 /**
  * Schema for pairwise judge responses.
- * Used in playoff matches and initial leaderboard comparisons.
+ * Used in finale matches and initial leaderboard comparisons.
  */
 export const PairwiseJudgeResponseSchema = z.object({
 	winner: z.string(),

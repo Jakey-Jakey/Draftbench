@@ -1,3 +1,4 @@
+import { confidenceMultiplier } from "../utils";
 import type {
 	PairwiseObservation,
 	RatingEngineConfig,
@@ -94,6 +95,16 @@ function applyEloBatch(state: RatingState, batch: PairwiseObservation[]): void {
 	}
 }
 
+/**
+ * Refits and updates player ratings using the Bradley–Terry model for a batch of pairwise observations.
+ *
+ * Applies each observation to the corresponding records (updating matches, outcomes, and uncertainty), then
+ * performs an iterative estimation of latent skill parameters from the state's history and writes the resulting
+ * ratings back into state.records. Modifies the provided state in place.
+ *
+ * @param state - The rating state to update
+ * @param batch - Array of pairwise observations to apply before refitting ratings
+ */
 function applyBradleyTerryBatch(
 	state: RatingState,
 	batch: PairwiseObservation[],
@@ -164,15 +175,12 @@ function applyBradleyTerryBatch(
 	}
 }
 
-function confidenceMultiplier(confidence: number): number {
-	// Normal approximation; used for the cheap CI display path.
-	if (confidence >= 0.99) return 2.58;
-	if (confidence >= 0.95) return 1.96;
-	if (confidence >= 0.9) return 1.64;
-	if (confidence >= 0.8) return 1.28;
-	return 1.0;
-}
-
+/**
+ * Creates a deterministic pseudorandom number generator initialized from the given seed.
+ *
+ * @param seed - The numeric seed used to initialize the generator (interpreted as an unsigned 32-bit integer)
+ * @returns A zero-argument function that returns a pseudorandom number in the range [0, 1)
+ */
 function mulberry32(seed: number): () => number {
 	let a = seed >>> 0;
 	return () => {

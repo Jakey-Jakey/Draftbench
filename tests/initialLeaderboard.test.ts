@@ -61,10 +61,10 @@ describe("config validation edge cases", () => {
 		}
 	});
 
-	test("playoffSize is reasonable", () => {
+	test("stopRules.topK is reasonable", () => {
 		const config = loadConfig("config.example.toml");
-		expect(config.tournament.playoffSize).toBeGreaterThan(0);
-		expect(config.tournament.playoffSize).toBeLessThanOrEqual(100);
+		expect(config.tournament.stopRules.topK).toBeGreaterThan(0);
+		expect(config.tournament.stopRules.topK).toBeLessThanOrEqual(100);
 	});
 
 	test("swissRounds is reasonable", () => {
@@ -91,7 +91,7 @@ describe("config validation edge cases", () => {
 		for (const judge of config.roles.swissJudges) {
 			expect(judge.model).toContain("/");
 		}
-		for (const judge of config.roles.playoffJudges) {
+		for (const judge of config.roles.finaleJudges) {
 			expect(judge.model).toContain("/");
 		}
 	});
@@ -133,7 +133,7 @@ describe("role helper edge cases", () => {
 		const { getInitialLeaderboardJudges } = require("../config");
 		const judges = getInitialLeaderboardJudges();
 		expect(Array.isArray(judges)).toBe(true);
-		// May be empty if not configured, or fall back to playoff judges
+		// May be empty if not configured, or fall back to finale judges
 	});
 
 	test("getRoleEntries returns full entries with model and effort", () => {

@@ -62,12 +62,12 @@ effort = "low"
 # model = "openai/gpt-5.2"
 # effort = "low"
 
-# Playoff Judges (multi-judge voting for fairness)
-[[roles.playoffJudges]]
+# Finale Judges (multi-judge voting for fairness)
+[[roles.finaleJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-[[roles.playoffJudges]]
+[[roles.finaleJudges]]
 model = "openai/gpt-5.2"
 effort = "medium"
 
@@ -78,7 +78,6 @@ effort = "medium"
 [tournament]
 initialGenerations = 1      # Drafts per generator model
 swissRounds = 7             # Number of Swiss rounds
-playoffSize = 8             # Top N advance to playoffs
 swissFormat = "1v1v1"       # "1v1" or "1v1v1"
 
 [tournament.initialLeaderboard]
@@ -112,16 +111,14 @@ confidence = 0.9
 stabilityBatches = 2
 # budgetMaxCalls = 600
 
-[tournament.disambiguation]
-# If Swiss top-K is stable but not yet separated with confidence, run a few
-# targeted pairwise matches near the cutoff to tighten rating confidence.
+[tournament.finale]
+# Active-learning finale to confidently rank the top-K after Swiss.
 enabled = true
-judgesSource = "playoff"        # "playoff" (recommended) or "swiss"
-maxMatchesPerSwissRound = 2
-maxTotalMatches = 12
-candidatesOutsideK = 2
-includeTopKInternal = false
+maxMatchesPerBatch = 4
+maxTotalMatches = 30
 targetWinProb = 0.5
+confidence = 0.9
+minSeparation = 0
 allowOverRepeatCap = false
 
 # -----------------------------------------------------------------------------

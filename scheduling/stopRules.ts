@@ -1,5 +1,6 @@
 import type { StopRulesConfig } from "../config";
 import type { RatingStanding } from "../rating/types";
+import { confidenceMultiplier } from "../utils";
 
 export interface StopRuleContext {
 	round: number;
@@ -29,16 +30,13 @@ export interface StopRuleResult {
 	};
 }
 
-function confidenceMultiplier(confidence: number): number {
-	// Step-function z-score approximation at common confidence thresholds.
-	// Values between thresholds fall to the next lower tier (e.g. 0.97 -> 1.96).
-	if (confidence >= 0.99) return 2.58;
-	if (confidence >= 0.95) return 1.96;
-	if (confidence >= 0.9) return 1.64;
-	if (confidence >= 0.8) return 1.28;
-	return 1.0;
-}
-
+/**
+ * Determines whether the top-K snapshots have been identical for the specified number of most recent batches.
+ *
+ * @param topKHistory - Chronological array of top-K snapshots; each snapshot is an array of item ids in rank order.
+ * @param stabilityBatches - Number of most recent snapshots that must be identical to consider the top-K stable.
+ * @returns `true` if `stabilityBatches` is less than or equal to 1, or if the last `stabilityBatches` snapshots exist and are identical; `false` otherwise.
+ */
 function isStableTopK(
 	topKHistory: string[][],
 	stabilityBatches: number,

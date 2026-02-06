@@ -36,8 +36,9 @@ describe("PipelineState", () => {
 			expect(state.reviews).toBeNull();
 			expect(state.revisions).toBeNull();
 			expect(state.contestants).toBeNull();
-			expect(state.playoffResults).toBeNull();
-			expect(state.completedPlayoffPairs).toEqual([]);
+			expect(state.finaleMatches).toBeNull();
+			expect(state.finaleIterations).toBe(0);
+			expect(state.finaleConverged).toBe(false);
 			expect(state.swissMatches).toEqual([]);
 		});
 
@@ -150,8 +151,9 @@ describe("PipelineState", () => {
 				pairwiseHistory: [],
 				topKHistory: [],
 				swissStopReason: null,
-				playoffResults: null,
-				completedPlayoffPairs: [],
+				finaleMatches: null,
+				finaleIterations: 0,
+				finaleConverged: false,
 			};
 
 			const statePath = join(TEST_RUN_DIR, "state.json");
@@ -209,7 +211,9 @@ describe("PipelineState", () => {
 				swissRound: 0,
 				swissMatches: [],
 				contestants: null,
-				playoffResults: null,
+				finaleMatches: null,
+				finaleIterations: 0,
+				finaleConverged: false,
 			};
 
 			const statePath = join(TEST_RUN_DIR, "state.json");
@@ -278,30 +282,33 @@ describe("PipelineState", () => {
 			}
 		});
 
-		test("handles playoff results state", async () => {
+		test("handles finale matches state", async () => {
 			const state = createInitialState();
-			state.playoffResults = [
+			state.finaleMatches = [
 				{
-					id: "contestant1",
-					points: 3.5,
-					wins: 3,
-					draws: 1,
-					losses: 1,
+					iteration: 1,
+					aId: "contestant1",
+					bId: "contestant2",
+					scoreA: 1,
+					scoreB: 0,
+					votesA: 2,
+					votesB: 0,
+					judges: ["judge/a", "judge/b"],
 				},
 			];
-			state.completedPlayoffPairs = ["contestant1::contestant2"];
+			state.finaleIterations = 1;
+			state.finaleConverged = false;
 
 			await saveState(TEST_RUN_DIR, state);
 			const loaded = await loadState(TEST_RUN_DIR);
 
 			expect(loaded).not.toBeNull();
 			if (loaded) {
-				expect(loaded.playoffResults).toBeDefined();
-				expect(loaded.playoffResults?.[0]?.id).toBe("contestant1");
-				expect(loaded.playoffResults?.[0]?.points).toBe(3.5);
-				expect(loaded.completedPlayoffPairs).toEqual([
-					"contestant1::contestant2",
-				]);
+				expect(loaded.finaleMatches).toBeDefined();
+				expect(loaded.finaleMatches?.[0]?.aId).toBe("contestant1");
+				expect(loaded.finaleMatches?.[0]?.bId).toBe("contestant2");
+				expect(loaded.finaleIterations).toBe(1);
+				expect(loaded.finaleConverged).toBe(false);
 			}
 		});
 	});
@@ -328,7 +335,7 @@ describe("PipelineState", () => {
 				"review",
 				"revise",
 				"swiss",
-				"playoff",
+				"finale",
 			];
 
 			expect(isPhaseCompleted(state, "generate")).toBe(true);
@@ -336,7 +343,7 @@ describe("PipelineState", () => {
 			expect(isPhaseCompleted(state, "review")).toBe(true);
 			expect(isPhaseCompleted(state, "revise")).toBe(true);
 			expect(isPhaseCompleted(state, "swiss")).toBe(true);
-			expect(isPhaseCompleted(state, "playoff")).toBe(true);
+			expect(isPhaseCompleted(state, "finale")).toBe(true);
 		});
 
 		test("returns false for typo in phase name", () => {
@@ -412,8 +419,9 @@ describe("PipelineState", () => {
 			if (loaded) {
 				expect(loaded.contestants).toBeNull();
 				expect(loaded.swissMatches).toEqual([]);
-				expect(loaded.playoffResults).toBeNull();
-				expect(loaded.completedPlayoffPairs).toEqual([]);
+				expect(loaded.finaleMatches).toBeNull();
+				expect(loaded.finaleIterations).toBe(0);
+				expect(loaded.finaleConverged).toBe(false);
 			}
 		});
 	});
