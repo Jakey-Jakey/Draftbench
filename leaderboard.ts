@@ -62,13 +62,26 @@ interface RevisionMetadata {
 
 // ============================================================================
 // Nickname Helper
-// ============================================================================
+/**
+ * Capitalizes the first character of a string.
+ *
+ * @param str - The input string to transform
+ * @returns The input with its first character converted to upper case; returns the original string if it is empty
+ */
 
 function capitalizeFirst(str: string): string {
 	if (!str) return str;
 	return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+/**
+ * Produce a short, capitalized nickname for a model identifier.
+ *
+ * If `modelPart` looks like a slug (contains `/` or `-`), a shortened form is derived before capitalizing; otherwise the input is capitalized as-is.
+ *
+ * @param modelPart - A model identifier or fragment (may be a slug or a simple name)
+ * @returns The short nickname with the first letter capitalized
+ */
 function getShortNickname(modelPart: string): string {
 	// If it looks like a full slug, use getShortModelName.
 	if (modelPart.includes("/") || modelPart.includes("-")) {
@@ -86,6 +99,11 @@ function formatRevisionNickname(id: string): string {
 	return parts.map((p) => getShortNickname(p)).join(" → ");
 }
 
+/**
+ * Formats a win/draw/loss record as "W/D/L" or "-" when no results exist.
+ *
+ * @returns The string "<wins>W/<draws>D/<losses>L" if at least one count is greater than zero, otherwise "-".
+ */
 function formatRecord(wins: number, draws: number, losses: number): string {
 	const any = wins > 0 || draws > 0 || losses > 0;
 	return any ? `${wins}W/${draws}D/${losses}L` : "-";
@@ -93,7 +111,14 @@ function formatRecord(wins: number, draws: number, losses: number): string {
 
 // ============================================================================
 // Leaderboard Computation
-// ============================================================================
+/**
+ * Produce a ranked leaderboard from Swiss-format contestants, populating per-revision role metadata.
+ *
+ * The ranking prefers configured ratings when enabled and available for all contestants; otherwise it orders by Swiss points and applies deterministic tiebreakers. Role fields (generator, reviewer, reviser) are taken from `revisionsById` when present and fall back to parts parsed from the contestant `id`.
+ *
+ * @param contestants - The contestants to rank.
+ * @param revisionsById - Optional map from revision id to metadata used to populate `generator`, `reviewer`, and `reviser` on each entry.
+ * @returns An array of `LeaderboardEntry` objects ordered by rank (1 = top); each entry includes a `rank` and populated role metadata.
 
 export function getLeaderboard(
 	contestants: SwissContestant[],
@@ -147,6 +172,20 @@ export function getLeaderboard(
 	});
 }
 
+/**
+ * Builds a complete tournament leaderboard and performance report as a Markdown string.
+ *
+ * Generates a Markdown document that includes: tournament header, winner showcase, finale summary,
+ * per-role model performance tables (generator/reviewer/reviser), final rankings with optional
+ * ratings and confidence intervals, and a seed selection table when initial leaderboard results are provided.
+ *
+ * @param contestants - Array of Swiss-format contestants to rank and summarize.
+ * @param swissMatches - Swiss-format match records (used for context; ordering is computed from contestants).
+ * @param revisionsById - Optional map of revision metadata (generator/reviewer/reviser) keyed by revision id.
+ * @param initialLeaderboardResults - Optional initial leaderboard results used to populate the Seed Selection and generator seed columns.
+ * @param finaleSummary - Optional finale summary used to populate the Finale Summary section (matches, judgments, iterations, converged).
+ * @returns The assembled leaderboard and report as a Markdown-formatted string.
+ */
 export function computeLeaderboard(
 	contestants: SwissContestant[],
 	swissMatches: SwissMatch[],

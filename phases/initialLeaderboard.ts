@@ -277,9 +277,18 @@ async function runPerModelRank(
 }
 
 /**
- * Phase 2: Optional initial leaderboard to pick the best draft per model.
- * Supports multiple styles: per-model-pairwise, global-pairwise, per-model-rank, global-rank.
- * State is saved after each model completes for granular resumability.
+ * Run the optional initial leaderboard to select the best draft for each generator model.
+ *
+ * Supports selection styles: "per-model-pairwise", "global-pairwise", "per-model-rank", and "global-rank".
+ * Results are persisted to `state` as models complete so the phase can be resumed incrementally.
+ *
+ * @param runDir - Directory where pipeline state is saved
+ * @param state - PipelineState to read/update progress and results
+ * @param draftsByModel - Map of model slug to its generated drafts to be ranked
+ * @param initialLeaderboardLogPath - Optional path to append detailed pairwise logs
+ * @param dryRun - If true, use mocked/random outcomes instead of calling judges
+ * @param isResuming - If true, attempt to restore partial results from `state` and skip already completed models
+ * @returns An InitialLeaderboardResult containing `selectedByModel`, a map from each ModelSlug to the chosen GenerateResult
  */
 export async function runInitialLeaderboardPhase(
 	runDir: string,

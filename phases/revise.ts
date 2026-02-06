@@ -50,8 +50,11 @@ export interface RevisePhaseResult {
 // ============================================================================
 
 /**
- * Phase 4: Revise statblocks based on reviews.
- * ALL reviser models revise each original based on each review.
+ * Run the revise phase where each reviser model revises every original statblock using each available review.
+ *
+ * Writes per-task Markdown files to `revisionsDir` and persists revision entries into `state` when not a dry run.
+ *
+ * @returns An object containing `revisionsById`: a map from revision id to `RevisionEntry` for all gathered revisions
  */
 export async function runRevisePhase(
 	runDir: string,

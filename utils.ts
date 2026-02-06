@@ -77,7 +77,12 @@ export function getModelToken(modelSlug: string): string {
 }
 
 /**
- * Narrows away null/undefined with a runtime guard.
+ * Ensure the provided value is not `null` or `undefined`, returning it if defined or throwing an error otherwise.
+ *
+ * @param value - The value to validate
+ * @param message - Error message used when the value is `null` or `undefined`
+ * @returns The validated `value` as `T`
+ * @throws Error if `value` is `null` or `undefined`
  */
 export function requireDefined<T>(
 	value: T | null | undefined,
@@ -90,8 +95,10 @@ export function requireDefined<T>(
 }
 
 /**
- * Converts a confidence level to an approximate z multiplier for two-sided CIs.
- * Used across stop rules and finale separation checks.
+ * Map a confidence level to the approximate z-score multiplier used for two-sided confidence intervals.
+ *
+ * @param confidence - Confidence level as a decimal between 0 and 1 (e.g., 0.95 for 95% confidence)
+ * @returns The z multiplier: `2.58` for ≥ 0.99, `1.96` for ≥ 0.95, `1.64` for ≥ 0.9, `1.28` for ≥ 0.8, otherwise `1.0`
  */
 export function confidenceMultiplier(confidence: number): number {
 	if (confidence >= 0.99) return 2.58;

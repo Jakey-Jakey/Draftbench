@@ -30,6 +30,13 @@ export interface StopRuleResult {
 	};
 }
 
+/**
+ * Determines whether the top-K snapshots have been identical for the specified number of most recent batches.
+ *
+ * @param topKHistory - Chronological array of top-K snapshots; each snapshot is an array of item ids in rank order.
+ * @param stabilityBatches - Number of most recent snapshots that must be identical to consider the top-K stable.
+ * @returns `true` if `stabilityBatches` is less than or equal to 1, or if the last `stabilityBatches` snapshots exist and are identical; `false` otherwise.
+ */
 function isStableTopK(
 	topKHistory: string[][],
 	stabilityBatches: number,

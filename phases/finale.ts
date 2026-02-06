@@ -37,6 +37,12 @@ export interface FinalePhaseResult {
 	converged: boolean;
 }
 
+/**
+ * Compute the 32-bit FNV-1a hash of a string.
+ *
+ * @param input - The string to hash
+ * @returns The 32-bit unsigned FNV-1a hash (0 through 2^32−1)
+ */
 function fnv1a32(input: string): number {
 	let hash = 2166136261;
 	for (let i = 0; i < input.length; i++) {
@@ -46,6 +52,12 @@ function fnv1a32(input: string): number {
 	return hash >>> 0;
 }
 
+/**
+ * Creates a deterministic pseudo-random number generator seeded by `seed`.
+ *
+ * @param seed - Initial numeric seed used to initialize the generator
+ * @returns A function that, when called, returns a pseudo-random number in the range [0, 1)
+ */
 function mulberry32(seed: number): () => number {
 	let a = seed >>> 0;
 	return () => {
@@ -57,6 +69,20 @@ function mulberry32(seed: number): () => number {
 	};
 }
 
+/**
+ * Determines whether every adjacent pair of contestants in `scope` is separated by at least `minSeparation`
+ * when accounting for confidence-adjusted rating intervals.
+ *
+ * Checks adjacent IDs in `scope` (in order) against `standings` and identifies pairs whose confidence-adjusted
+ * rating intervals overlap or fail to meet the minimum gap.
+ *
+ * @param standings - Array of contestant standings with `id`, `rating`, and `uncertainty`
+ * @param scope - Ordered list of contestant IDs to examine (adjacency is determined by list order)
+ * @param confidence - Confidence level (0-1) used to inflate uncertainty when computing intervals
+ * @param minSeparation - Absolute rating gap required between adjacent contestants to be considered separated;
+ *                        if greater than zero, a raw rating gap meeting or exceeding this value is treated as separated
+ * @returns `true` if all adjacent pairs in `scope` are separated according to the confidence-adjusted intervals and `minSeparation`, `false` otherwise; also returns an array of adjacent ID pairs that are not separated
+ */
 function allAdjacentSeparatedWithMinGap(args: {
 	standings: { id: string; rating: number; uncertainty: number }[];
 	scope: string[];
@@ -91,6 +117,14 @@ function allAdjacentSeparatedWithMinGap(args: {
 	return { separated: unseparated.length === 0, unseparated };
 }
 
+/**
+ * Update each SwissContestant in-place with rating, uncertainty, and CI bounds taken from the provided standings.
+ *
+ * Matches contestants to standings by `id`; contestants without a matching standing are left unchanged.
+ *
+ * @param contestants - Array of contestants to update
+ * @param standings - Array of standing records containing `id`, `rating`, `uncertainty`, `ciLow`, and `ciHigh`
+ */
 function syncContestantsWithRatings(
 	contestants: SwissContestant[],
 	standings: {
@@ -113,8 +147,17 @@ function syncContestantsWithRatings(
 }
 
 /**
- * Phase 6: Active-learning finale.
- * Runs targeted pairwise matches among top-K until adjacent CIs separate.
+ * Orchestrates the active-learning finale by running targeted pairwise matches among the top-K contestants until adjacent confidence intervals separate or the match budget is exhausted.
+ *
+ * @param runDir - Path to the current run directory where pipeline state is stored
+ * @param finaleLogPath - File path for the finale iteration and result log
+ * @param finaleJudgmentsDir - Directory where per-match judgment markdown files are written
+ * @param state - PipelineState object to read and persist finale progress and rating state
+ * @param contestants - Mutable list of SwissContestant entries to synchronize final ratings into for leaderboard display
+ * @param revisionsById - Map from contestant/revision ID to RevisionEntry used to obtain texts for pairwise judging
+ * @param dryRun - If true, run deterministic simulated judging without calling external judges or persisting state
+ * @param _isResuming - Internal flag indicating resume mode (unused directly by external callers)
+ * @returns FinalePhaseResult containing the stored finale matches, the number of iterations performed, and whether the finale converged
  */
 export async function runFinalePhase(
 	runDir: string,

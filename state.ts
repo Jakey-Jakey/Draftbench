@@ -159,7 +159,10 @@ function serializeState(state: PipelineState): object {
 }
 
 /**
- * Converts plain objects back to Maps after JSON deserialization.
+ * Reconstructs a PipelineState from a plain object produced by JSON.parse.
+ *
+ * @param obj - The parsed state object to deserialize.
+ * @returns The PipelineState with Map fields restored (e.g., `generatedDrafts`, `selectedDrafts`, `revisions`), finale fields normalized, and sensible defaults for any missing optional properties.
  */
 function deserializeState(obj: Record<string, unknown>): PipelineState {
 	return {
@@ -348,7 +351,9 @@ const PipelineStateSchema = z.object({
 const STATE_FILENAME = "state.json";
 
 /**
- * Creates a fresh initial pipeline state.
+ * Create a new PipelineState populated with default empty values for all phases.
+ *
+ * @returns A PipelineState initialized to version 1 with the current timestamp, phase 0, empty arrays or `null` for phase-specific containers (e.g., `generatedDrafts`, `selectedDrafts`, `reviews`, `revisions`, `contestants`), empty tracking arrays (e.g., `phasesCompleted`, `pairwiseHistory`, `topKHistory`), and finale defaults (`finaleMatches` set to `null`, `finaleIterations` set to `0`, `finaleConverged` set to `false`).
  */
 export function createInitialState(): PipelineState {
 	return {

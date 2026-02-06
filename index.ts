@@ -60,14 +60,9 @@ const STOP_RULES = config.tournament.stopRules;
 // ============================================================================
 
 /**
- * Runs the cross-review pipeline with optimized Swiss System:
- * 1. Each model generates N drafts (parallel per model, configurable count)
- * 2. Optional initial round robin to pick the best draft per model
- * 3. Each model reviews ALL models' selected drafts (cross-review)
- * 4. ALL models revise each original based on each review (27 revisions for 3 models)
- * 5. Swiss tournament: 7 rounds of 1v1v1 judging (9 matches/round = 63 total)
- * 6. Active learning finale to confidently rank the top-K
- * 7. Compute final leaderboard
+ * Orchestrates a full Cross-Review pipeline that runs generation, selection, review, revision, an optimized Swiss tournament, an optional active-learning finale, and produces a final leaderboard.
+ *
+ * This function initializes or resumes a run directory (with optional dry-run mode), creates required subdirectories and logs, executes the pipeline phases in order (generate → initial leaderboard → review → revise → Swiss → finale), computes the final leaderboard from tournament results, and writes the leaderboard file when not in dry-run mode.
  */
 async function runCrossReviewPipeline(): Promise<void> {
 	console.log(

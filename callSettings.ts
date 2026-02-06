@@ -26,8 +26,11 @@ export function getCallSettings(
 }
 
 /**
- * Gets the reasoning effort for a model in a specific role.
- * Convenience wrapper around getCallSettings.
+ * Return the reasoning effort configured for a model in the given role.
+ *
+ * @param modelSlug - Model identifier to look up
+ * @param role - Role to use when looking up settings (`"generators" | "reviewers" | "revisers"`)
+ * @returns The `ReasoningEffort` for the specified model and role; defaults to `"high"` if not configured
  */
 export function getEffort(
 	modelSlug: string,
@@ -37,7 +40,10 @@ export function getEffort(
 }
 
 /**
- * Gets call settings for a judge (Swiss or finale).
+ * Produce call settings for a judge role from a role entry.
+ *
+ * @param judgeEntry - A role entry for a judge, optionally containing `effort` and `temperature`
+ * @returns The call settings where `effort` is `judgeEntry.effort` if present, otherwise `"high"`, and `temperature` is copied from `judgeEntry` (may be undefined)
  */
 export function getJudgeSettings(judgeEntry: RoleEntry): CallSettings {
 	return {

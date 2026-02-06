@@ -240,6 +240,19 @@ export function applyThreeWaySwissMatch(
 	third.opponents.add(second.id);
 }
 
+/**
+ * Update each contestant's rating and related fields from the provided rating state standings.
+ *
+ * When `options.bootstrapCi` is true, standings are computed with bootstrap confidence intervals; when
+ * `options.confidence` is provided it overrides the default confidence level used to compute standings.
+ *
+ * @param contestants - Contestants whose `rating`, `ratingUncertainty`, `ratingCiLow`, and `ratingCiHigh` fields will be updated when present in the standings
+ * @param ratingState - Rating state used to derive current standings and rating values
+ * @param options - Optional behavior flags:
+ *   - `bootstrapCi`: compute bootstrap confidence intervals for standings
+ *   - `confidence`: numeric confidence level to use when computing intervals (overrides default)
+ * @returns The list of contestant IDs ordered by the computed standings
+ */
 function syncContestantsWithRatings(
 	contestants: SwissContestant[],
 	ratingState: RatingState,
@@ -268,6 +281,13 @@ function syncContestantsWithRatings(
 	return standings.map((entry) => entry.id);
 }
 
+/**
+ * Count how many judge calls will be made for a set of Swiss matches.
+ *
+ * @param matches - The Swiss matches to count; matches containing the ID `"BYE"` are ignored
+ * @param judgeCount - Number of judges assigned per judged match
+ * @returns The total number of judge calls (judged matches multiplied by `judgeCount`)
+ */
 function countSwissJudgeCalls(
 	matches: SwissMatch[],
 	judgeCount: number,
@@ -286,8 +306,19 @@ function countSwissJudgeCalls(
 // ============================================================================
 
 /**
- * Phase 5: Swiss Tournament.
- * Supports 1v1v1 (three-way) or 1v1 (pairwise) format.
+ * Execute the Swiss tournament phase (supports 1v1 or 1v1v1 formats), run judges, update contestants and ratings, and persist interim/final state.
+ *
+ * Runs up to the configured number of Swiss rounds (or until stop rules trigger), schedules matches (static or adaptive), invokes judges (or simulates outcomes in dry-run), applies match results to contestant standings and rating state, writes judgment artifacts and logs, and saves pipeline state after each round and at completion.
+ *
+ * @param runDir - Filesystem directory used for saving pipeline state and artifacts
+ * @param swissLogPath - Path to the Swiss log file that receives per-round entries
+ * @param swissJudgmentsDir - Directory where per-match judgment Markdown files are written
+ * @param state - Current pipeline state that will be read and updated (persisted between rounds)
+ * @param revisionsById - Map of contestant revision data; revision text for each scheduled contestant must be present
+ * @param dryRun - If true, simulate judgments and avoid external API side effects or final persistence
+ * @param isResuming - If true, attempt to resume from existing state.swissRound / state.swissMatches when present
+ * @returns The final in-memory Swiss phase result containing updated contestants, all recorded matches, and the current rating state (or null if ratings are disabled)
+ * @throws Error if a scheduled match references a contestant whose revision text is missing
  */
 export async function runSwissPhase(
 	runDir: string,
