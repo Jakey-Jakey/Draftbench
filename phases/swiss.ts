@@ -819,6 +819,7 @@ export async function runSwissPhase(
 						let logEntry = "";
 						for (let i = 0; i < judgeResults.length; i++) {
 							const result = judgeResults[i];
+							if (!result) continue;
 							const judge = SWISS_JUDGES[i];
 							const first = idMap.get(result.first) ?? idA;
 							const second = idMap.get(result.second) ?? idB;
