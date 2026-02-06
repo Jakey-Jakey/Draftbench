@@ -12,3 +12,9 @@ enabled = true
 
 [tournament.stopRules]
 topK = 8
+
+[tournament.disambiguation]
+enabled = true
+judgesSource = "playoff"
+maxMatchesPerSwissRound = 2
+maxTotalMatches = 12

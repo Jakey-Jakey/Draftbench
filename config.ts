@@ -58,6 +58,7 @@ export interface InitialLeaderboardConfig {
 
 export type RatingBackend = "elo" | "bradley-terry";
 export type SchedulingMode = "adaptive" | "static";
+export type DisambiguationJudgesSource = "playoff" | "swiss";
 
 export interface RatingConfig {
 	enabled: boolean;
@@ -89,6 +90,24 @@ export interface StopRulesConfig {
 	budgetMaxCalls?: number;
 }
 
+export interface DisambiguationConfig {
+	enabled: boolean;
+	/** Which judge pool to use for disambiguation matches. Default: playoff */
+	judgesSource: DisambiguationJudgesSource;
+	/** Max number of disambiguation matches to run after a single Swiss round. */
+	maxMatchesPerSwissRound: number;
+	/** Max number of disambiguation matches across the entire Swiss phase. */
+	maxTotalMatches: number;
+	/** How many challengers outside the top-K to consider (K+1..K+N). */
+	candidatesOutsideK: number;
+	/** If true, allow some matches within the top-K as well (near the cutoff). */
+	includeTopKInternal: boolean;
+	/** Target win probability for "most informative" matchups. Usually 0.5. */
+	targetWinProb: number;
+	/** If false, respects scheduling.maxRepeatPairs as a hard cap. */
+	allowOverRepeatCap: boolean;
+}
+
 export interface TournamentConfig {
 	swissRounds: number;
 	playoffSize: number;
@@ -99,6 +118,7 @@ export interface TournamentConfig {
 	rating: RatingConfig;
 	scheduling: SchedulingConfig;
 	stopRules: StopRulesConfig;
+	disambiguation: DisambiguationConfig;
 }
 
 export interface OutputConfig {
@@ -181,7 +201,7 @@ const DEFAULT_CONFIG: PipelineConfig = {
 			backend: "elo",
 			kFactor: 24,
 			initialRating: 1500,
-			provisionalMatches: 12,
+			provisionalMatches: 5,
 			tieValue: 0.5,
 			btIterations: 200,
 			btTolerance: 1e-6,
@@ -201,6 +221,16 @@ const DEFAULT_CONFIG: PipelineConfig = {
 			minSeparation: 65,
 			confidence: 0.9,
 			stabilityBatches: 2,
+		},
+		disambiguation: {
+			enabled: true,
+			judgesSource: "playoff",
+			maxMatchesPerSwissRound: 2,
+			maxTotalMatches: 12,
+			candidatesOutsideK: 2,
+			includeTopKInternal: false,
+			targetWinProb: 0.5,
+			allowOverRepeatCap: false,
 		},
 	},
 	output: {
@@ -296,6 +326,7 @@ interface ApiCallEstimate {
 	review: number;
 	revise: number;
 	swiss: number;
+	disambiguation: number;
 	playoff: number;
 	total: number;
 }
@@ -337,6 +368,10 @@ function deepMerge(
 			stopRules: {
 				...target.tournament.stopRules,
 				...source.tournament.stopRules,
+			},
+			disambiguation: {
+				...target.tournament.disambiguation,
+				...source.tournament.disambiguation,
 			},
 		};
 	}
@@ -476,6 +511,16 @@ function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 			)
 		: config.tournament.swissRounds;
 	const swiss = swissMatchesPerRound * effectiveSwissBatches * swissJudgeCount;
+
+	const disambiguationJudgeCount =
+		(config.tournament.disambiguation.judgesSource ?? "playoff") === "swiss"
+			? swissJudgeCount
+			: playoffJudgeCount;
+	const disambiguation =
+		config.tournament.disambiguation.enabled === true
+			? config.tournament.disambiguation.maxTotalMatches *
+				disambiguationJudgeCount
+			: 0;
 	const playoffContestants = Math.max(
 		1,
 		Math.min(config.tournament.playoffSize, contestants),
@@ -483,7 +528,13 @@ function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 	const playoffPairs = (playoffContestants * (playoffContestants - 1)) / 2;
 	const playoff = playoffPairs * playoffJudgeCount;
 	const total =
-		generation + initialLeaderboard + review + revise + swiss + playoff;
+		generation +
+		initialLeaderboard +
+		review +
+		revise +
+		swiss +
+		disambiguation +
+		playoff;
 
 	return {
 		generation,
@@ -491,6 +542,7 @@ function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 		review,
 		revise,
 		swiss,
+		disambiguation,
 		playoff,
 		total,
 	};
@@ -572,6 +624,7 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			"rating",
 			"scheduling",
 			"stopRules",
+			"disambiguation",
 		]);
 		for (const key of Object.keys(tournamentRaw)) {
 			if (!knownTournamentKeys.has(key)) {
@@ -688,6 +741,42 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			if (stopRulesRaw.budgetMaxCalls !== undefined) {
 				result.tournament.stopRules.budgetMaxCalls =
 					stopRulesRaw.budgetMaxCalls as number;
+			}
+		}
+		if (tournamentRaw.disambiguation) {
+			const disRaw = tournamentRaw.disambiguation as Record<string, unknown>;
+			result.tournament.disambiguation =
+				{} as TournamentConfig["disambiguation"];
+			if (disRaw.enabled !== undefined) {
+				result.tournament.disambiguation.enabled = disRaw.enabled as boolean;
+			}
+			if (disRaw.judgesSource !== undefined) {
+				result.tournament.disambiguation.judgesSource =
+					disRaw.judgesSource as DisambiguationJudgesSource;
+			}
+			if (disRaw.maxMatchesPerSwissRound !== undefined) {
+				result.tournament.disambiguation.maxMatchesPerSwissRound =
+					disRaw.maxMatchesPerSwissRound as number;
+			}
+			if (disRaw.maxTotalMatches !== undefined) {
+				result.tournament.disambiguation.maxTotalMatches =
+					disRaw.maxTotalMatches as number;
+			}
+			if (disRaw.candidatesOutsideK !== undefined) {
+				result.tournament.disambiguation.candidatesOutsideK =
+					disRaw.candidatesOutsideK as number;
+			}
+			if (disRaw.includeTopKInternal !== undefined) {
+				result.tournament.disambiguation.includeTopKInternal =
+					disRaw.includeTopKInternal as boolean;
+			}
+			if (disRaw.targetWinProb !== undefined) {
+				result.tournament.disambiguation.targetWinProb =
+					disRaw.targetWinProb as number;
+			}
+			if (disRaw.allowOverRepeatCap !== undefined) {
+				result.tournament.disambiguation.allowOverRepeatCap =
+					disRaw.allowOverRepeatCap as boolean;
 			}
 		}
 	}
@@ -911,7 +1000,7 @@ export function loadConfig(
 	}
 	const estimate = estimateApiCalls(mergedConfig);
 	console.log(
-		`📊 Estimated API calls: total ${estimate.total} (gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, playoff ${estimate.playoff})`,
+		`📊 Estimated API calls: total ${estimate.total} (gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, disambig ${estimate.disambiguation}, playoff ${estimate.playoff})`,
 	);
 	loadedConfig = mergedConfig;
 	loadedPaths = {
@@ -1218,6 +1307,66 @@ function validateConfig(config: PipelineConfig): string[] {
 		);
 	}
 
+	if (
+		config.tournament.disambiguation.judgesSource !== "playoff" &&
+		config.tournament.disambiguation.judgesSource !== "swiss"
+	) {
+		throw new Error(
+			'tournament.disambiguation.judgesSource must be either "playoff" or "swiss"',
+		);
+	}
+	if (
+		!Number.isInteger(
+			config.tournament.disambiguation.maxMatchesPerSwissRound,
+		) ||
+		config.tournament.disambiguation.maxMatchesPerSwissRound < 0
+	) {
+		throw new Error(
+			"tournament.disambiguation.maxMatchesPerSwissRound must be an integer >= 0",
+		);
+	}
+	if (
+		!Number.isInteger(config.tournament.disambiguation.maxTotalMatches) ||
+		config.tournament.disambiguation.maxTotalMatches < 0
+	) {
+		throw new Error(
+			"tournament.disambiguation.maxTotalMatches must be an integer >= 0",
+		);
+	}
+	if (
+		!Number.isInteger(config.tournament.disambiguation.candidatesOutsideK) ||
+		config.tournament.disambiguation.candidatesOutsideK < 0
+	) {
+		throw new Error(
+			"tournament.disambiguation.candidatesOutsideK must be an integer >= 0",
+		);
+	}
+	if (
+		typeof config.tournament.disambiguation.includeTopKInternal !== "boolean"
+	) {
+		throw new Error(
+			"tournament.disambiguation.includeTopKInternal must be a boolean",
+		);
+	}
+	if (!Number.isFinite(config.tournament.disambiguation.targetWinProb)) {
+		throw new Error("tournament.disambiguation.targetWinProb must be a number");
+	}
+	if (
+		config.tournament.disambiguation.targetWinProb < 0 ||
+		config.tournament.disambiguation.targetWinProb > 1
+	) {
+		throw new Error(
+			"tournament.disambiguation.targetWinProb must be between 0 and 1",
+		);
+	}
+	if (
+		typeof config.tournament.disambiguation.allowOverRepeatCap !== "boolean"
+	) {
+		throw new Error(
+			"tournament.disambiguation.allowOverRepeatCap must be a boolean",
+		);
+	}
+
 	// Validate that all role entries have valid model slugs
 	const allEntries = [
 		...config.roles.generators,
@@ -1291,10 +1440,30 @@ function validateConfig(config: PipelineConfig): string[] {
 		config.tournament.stopRules.enabled = false;
 	}
 
+	if (
+		config.tournament.disambiguation.enabled &&
+		(!config.tournament.stopRules.enabled || !config.tournament.rating.enabled)
+	) {
+		warnings.push(
+			"tournament.disambiguation.enabled requires tournament.stopRules.enabled and tournament.rating.enabled; disabling disambiguation.",
+		);
+		config.tournament.disambiguation.enabled = false;
+	}
+	if (
+		config.tournament.disambiguation.maxTotalMatches <
+		config.tournament.disambiguation.maxMatchesPerSwissRound
+	) {
+		warnings.push(
+			`tournament.disambiguation.maxTotalMatches (${config.tournament.disambiguation.maxTotalMatches}) is less than maxMatchesPerSwissRound (${config.tournament.disambiguation.maxMatchesPerSwissRound}); clamping maxMatchesPerSwissRound to ${config.tournament.disambiguation.maxTotalMatches}.`,
+		);
+		config.tournament.disambiguation.maxMatchesPerSwissRound =
+			config.tournament.disambiguation.maxTotalMatches;
+	}
+
 	const estimate = estimateApiCalls(config);
 	if (estimate.total >= HIGH_CALL_VOLUME_THRESHOLD) {
 		warnings.push(
-			`High estimated API volume (${estimate.total} calls: gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, playoff ${estimate.playoff}). Consider reducing rounds/models for faster runs.`,
+			`High estimated API volume (${estimate.total} calls: gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, disambig ${estimate.disambiguation}, playoff ${estimate.playoff}). Consider reducing rounds/models for faster runs.`,
 		);
 	}
 

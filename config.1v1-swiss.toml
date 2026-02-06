@@ -11,3 +11,9 @@ mode = "adaptive"
 
 [tournament.stopRules]
 maxBatches = 5
+
+[tournament.disambiguation]
+enabled = true
+judgesSource = "playoff"
+maxMatchesPerSwissRound = 2
+maxTotalMatches = 10

@@ -156,6 +156,12 @@ minSeparation = 65 # Set to 0 to disable separation check
 confidence = 0.9
 stabilityBatches = 2
 
+[tournament.disambiguation]
+enabled = true
+judgesSource = "playoff"  # "playoff" (recommended) or "swiss"
+maxMatchesPerSwissRound = 2
+maxTotalMatches = 12
+
 [concurrency]
 maxParallel = 5  # Limit parallel API calls
 
@@ -214,11 +220,18 @@ enabled = true
 minBatches = 3
 maxBatches = 7
 topK = 8
+
+[tournament.disambiguation]
+enabled = true
+judgesSource = "playoff"
+maxMatchesPerSwissRound = 2
+maxTotalMatches = 12
 ```
 
 - `rating.enabled`: when true, Swiss standings and playoff seeding use rating estimates instead of raw Swiss points.
 - `scheduling.mode = "adaptive"`: prioritizes uncertain/close matchups and penalizes repeats (for `1v1` Swiss).
 - `stopRules.enabled`: allows Swiss to stop early once top-K is stable and sufficiently separated/confident.
+- `disambiguation.enabled`: when stop rules reach "stable but not separated", runs targeted pairwise matches (rating-only) near the cutoff to tighten confidence.
 
 ---
 
