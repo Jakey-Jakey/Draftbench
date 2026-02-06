@@ -30,7 +30,17 @@ function getPairKey(idA: string, idB: string): string {
 }
 
 /**
- * Phase 6: Top-N Round Robin Playoff with multi-judge voting.
+ * Conducts the Top-N round-robin playoff among qualifiers and records multi-judge outcomes.
+ *
+ * @param runDir - Directory where pipeline state is saved
+ * @param playoffLogPath - Path to append high-level playoff logs
+ * @param playoffJudgmentsDir - Directory to write detailed per-match judgment markdown files
+ * @param state - PipelineState object that will be read and updated with playoff progress
+ * @param contestants - SwissContestant list used to select top-N qualifiers
+ * @param revisionsById - Map of contestant ID to their submission revision used for judging
+ * @param dryRun - If true, simulate match outcomes without calling external judges
+ * @param isResuming - If true, resume from existing playoff progress in `state`
+ * @returns The playoff standings mapping contestant IDs to their PlayoffResult and the set of qualifier IDs
  */
 export async function runPlayoffPhase(
 	runDir: string,

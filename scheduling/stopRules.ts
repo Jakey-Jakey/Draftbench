@@ -39,6 +39,12 @@ export interface StopRuleResult {
 	};
 }
 
+/**
+ * Map a confidence level to a z-score multiplier for scaling uncertainties.
+ *
+ * @param confidence - Confidence value (typically between 0 and 1) used to select the multiplier
+ * @returns The multiplier corresponding to the provided confidence (0.99 → 2.58, 0.95 → 1.96, 0.90 → 1.64, 0.80 → 1.28, otherwise 1.0)
+ */
 function confidenceMultiplier(confidence: number): number {
 	if (confidence >= 0.99) return 2.58;
 	if (confidence >= 0.95) return 1.96;
@@ -47,6 +53,13 @@ function confidenceMultiplier(confidence: number): number {
 	return 1.0;
 }
 
+/**
+ * Determine whether the top-K selection has been identical across the most recent stability batches.
+ *
+ * @param topKHistory - Ordered history of top-K snapshots; each entry is an array of item identifiers in ranking order
+ * @param stabilityBatches - Number of most recent snapshots to require identical; values <= 1 are treated as stable
+ * @returns `true` if the last `stabilityBatches` snapshots are identical, `false` otherwise
+ */
 function isStableTopK(
 	topKHistory: string[][],
 	stabilityBatches: number,
@@ -60,6 +73,13 @@ function isStableTopK(
 	return recent.every((entry) => entry.join("|") === first);
 }
 
+/**
+ * Evaluate configured stop rules against the provided runtime context and produce a decision on whether processing should stop.
+ *
+ * @param context - Runtime state used for evaluation (current round, total calls, standings, and top-K history).
+ * @param config - Stop rules configuration (enable flag, batch limits, top-K and separation thresholds, confidence, stability window, optional budget cap).
+ * @returns A StopRuleResult describing whether to stop (`shouldStop`), a human-readable `reason`, the `kind` of rule triggered, and optional `details` such as `topK`, boundary IDs, `separation`, `leftLow`, and `rightHigh`.
+ */
 export function evaluateStopRules(
 	context: StopRuleContext,
 	config: StopRulesConfig,

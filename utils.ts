@@ -143,7 +143,11 @@ export function createMockReview(reviewer?: string, reviewed?: string): string {
 }
 
 /**
- * Logs configuration details for dry run.
+ * Prints a human-readable summary of the current configuration for dry-run purposes.
+ *
+ * Logs configured roles (generators, reviewers, revisers, swiss/playoff judges), tournament settings
+ * (Swiss rounds, playoff size, initial generations, initial leaderboard status, rating backend, scheduling mode, stop rules),
+ * computed total contestant count, output runs directory, and a 100-character preview of the generate prompt.
  */
 export function printDryRunConfig(): void {
 	const config = getConfig();

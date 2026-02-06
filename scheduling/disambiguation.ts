@@ -5,10 +5,23 @@ import type {
 	RatingState,
 } from "../rating/types";
 
+/**
+ * Produces a stable unordered key for a pair of identifiers suitable for use in maps or sets.
+ *
+ * @param aId - First identifier of the pair
+ * @param bId - Second identifier of the pair
+ * @returns A deterministic string key representing the unordered pair (identical for `aId,bId` and `bId,aId`)
+ */
 function pairKey(aId: string, bId: string): string {
 	return [aId, bId].sort().join("::");
 }
 
+/**
+ * Count how many times each unordered pair appears in the observation history.
+ *
+ * @param history - Observations to tally
+ * @returns A map from unordered pair key (sorted IDs joined with `"::"`) to the number of occurrences
+ */
 export function countRepeatPairs(
 	history: PairwiseObservation[],
 ): Map<string, number> {
@@ -20,6 +33,24 @@ export function countRepeatPairs(
 	return counts;
 }
 
+/**
+ * Selects and prioritized candidate match pairs for disambiguating contender order around a top-K boundary.
+ *
+ * Builds candidate pairs that compare the boundary contender (the k-th ranked entry) against nearby outside challengers,
+ * optionally includes a near-boundary internal match, filters pairs by repeat limits, scores them by closeness of
+ * estimated win probability to `targetWinProb`, and returns up to `maxMatches` unique pairs ordered by priority.
+ *
+ * @param args.standings - Array of ranked contenders (highest first).
+ * @param args.ratingState - Current rating state used to estimate win probabilities.
+ * @param args.topK - Number of top standings considered "inside" the boundary (clamped to [1, standings.length]).
+ * @param args.candidatesOutsideK - Number of contenders taken immediately after the top-K to consider as challengers.
+ * @param args.includeTopKInternal - If true, also consider a near-boundary internal match between the last two inside contenders.
+ * @param args.repeatCounts - Map from unordered pair key to how many times that pair has been observed.
+ * @param args.maxRepeatPairs - Maximum allowed repeats for a pair; pairs with repeats >= this are excluded unless `allowOverRepeatCap` is true.
+ * @param args.allowOverRepeatCap - If true, ignore repeat count limits and allow pairs regardless of `repeatCounts`/`maxRepeatPairs`.
+ * @param args.targetWinProb - Target win probability used to score informativeness; pairs with estimated probability closest to this are preferred.
+ * @param args.maxMatches - Maximum number of pairs to return.
+ * @returns An array of `[aId, bId]` pairs chosen for disambiguation, ordered by priority (most informative first).
 export function planDisambiguationPairs(args: {
 	standings: RatingStanding[];
 	ratingState: RatingState;

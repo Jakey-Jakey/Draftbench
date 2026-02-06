@@ -33,6 +33,12 @@ interface CandidatePair {
 	repeats: number;
 }
 
+/**
+ * Creates a deterministic pseudo-random number generator function seeded from an integer.
+ *
+ * @param seed - The initial seed; treated as an unsigned 32-bit integer to initialize the sequence.
+ * @returns A function with no arguments that returns a pseudo-random number in [0, 1) on each call, producing a deterministic sequence derived from `seed`.
+ */
 function hashInt(seed: number): () => number {
 	let value = seed >>> 0;
 	return () => {
@@ -44,10 +50,23 @@ function hashInt(seed: number): () => number {
 	};
 }
 
+/**
+ * Creates a canonical key for an unordered pair of IDs.
+ *
+ * @param aId - First identifier of the pair
+ * @param bId - Second identifier of the pair
+ * @returns A string in the form `smallerId::largerId` that is identical regardless of input order
+ */
 function pairKey(aId: string, bId: string): string {
 	return aId < bId ? `${aId}::${bId}` : `${bId}::${aId}`;
 }
 
+/**
+ * Counts how many times each unordered pair appears in the given history.
+ *
+ * @param history - List of pairwise observations to aggregate
+ * @returns A map from canonical pair key (`minId::maxId`) to the number of occurrences
+ */
 function buildRepeatCounts(
 	history: PairwiseObservation[],
 ): Map<string, number> {
@@ -59,6 +78,17 @@ function buildRepeatCounts(
 	return counts;
 }
 
+/**
+ * Selects which contestant should receive a bye when there is an odd number of contestants.
+ *
+ * The selected contestant is the one with the fewest matches played, breaking ties by lower rating
+ * (falling back to the state's initial rating if a contestant has no recorded rating), and finally by
+ * lexicographic order of contestant ID.
+ *
+ * @param contestants - List of contestants to consider
+ * @param state - Rating state containing match records and configuration (used for match counts and initial rating fallback)
+ * @returns The ID of the contestant chosen to receive a bye, or `null` if no bye is required
+ */
 function chooseByeId(
 	contestants: SwissContestant[],
 	state: RatingState,
@@ -78,6 +108,21 @@ function chooseByeId(
 	return sorted[0]?.id ?? null;
 }
 
+/**
+ * Compute pairings for a round using an adaptive heuristic that balances uncertainty, rating closeness, match coverage, exploration, and repeat avoidance.
+ *
+ * Uses the provided rating state and match history to score candidate pairs, respects `options.maxRepeatPairs` (skipping pairs that exceed the limit), applies an exploration boost per `options.exploration`, and selects a greedy set of non-overlapping pairs. If the contestant count is odd, selects a bye candidate. Any contestants that cannot be paired without exceeding the repeat limit are returned in `unpairedIds`.
+ *
+ * @param contestants - All contestants to consider for pairing
+ * @param ratingState - Current rating state used to compute uncertainty, matches, and win probabilities
+ * @param history - Past pairwise observations used to compute repeat counts for pair-avoidance
+ * @param options - Scheduler configuration (exploration probability, avoidRepeatPenalty, maxRepeatPairs, optional randomSeed)
+ * @returns The scheduling result containing:
+ *   - `pairs`: an array of paired contestant id tuples
+ *   - `bye`: the id chosen to receive a bye, or `null` if none
+ *   - `unpairedIds`: ids that could not be paired without exceeding `maxRepeatPairs`
+ *   - `diagnostics`: counters `{ skippedByRepeatLimit, candidateCount, forcedRepeatPairs }` describing scheduling decisions
+ */
 export function scheduleAdaptivePairs(
 	contestants: SwissContestant[],
 	ratingState: RatingState,

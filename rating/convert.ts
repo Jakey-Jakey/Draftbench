@@ -1,6 +1,18 @@
 import type { SwissMatch } from "../leaderboard";
 import type { PairwiseObservation } from "./types";
 
+/**
+ * Produce a PairwiseObservation for two players by comparing their numeric scores.
+ *
+ * @param aId - Identifier of player A
+ * @param bId - Identifier of player B
+ * @param aScore - Numeric score for player A used to determine the outcome
+ * @param bScore - Numeric score for player B used to determine the outcome
+ * @param round - Tournament round number to include in the observation
+ * @param sourceMatchId - Source match identifier to include in the observation
+ * @param tieValue - Value to assign to each player's score when `aScore` equals `bScore`
+ * @returns A PairwiseObservation with `scoreA` and `scoreB` set to `tieValue` when scores are equal, otherwise the winner receives `1` and the loser `0`; includes `round` and `sourceMatchId`
+ */
 function toPairwiseFromScores(
 	aId: string,
 	bId: string,
@@ -26,10 +38,30 @@ function toPairwiseFromScores(
 	return { aId, bId, scoreA: 0, scoreB: 1, round, sourceMatchId };
 }
 
+/**
+ * Build a compact source identifier for a Swiss match.
+ *
+ * The identifier is formatted as `round{round}:{id1|id2|...}` using the match's
+ * round and ordered ids.
+ *
+ * @param match - The Swiss match whose round and ids will be used
+ * @returns The source match identifier string in the form `round{round}:{id1|id2|...}`
+ */
 function getSourceMatchId(match: SwissMatch): string {
 	return `round${match.round}:${match.ids.join("|")}`;
 }
 
+/**
+ * Convert a Swiss-style match record into one or more pairwise observations.
+ *
+ * Filters out non-playable IDs ("N/A", "BYE") and produces pairwise comparisons for the remaining players:
+ * - For two players: uses sharedPoints when available, treats `tieGroup === "head_to_head"` as a draw using `tieValue`, otherwise assigns a win to the player listed in `match.first`.
+ * - For three players: uses sharedPoints for all three pairwise comparisons when available; otherwise falls back to ordinal scoring based on `match.first`, `match.second`, and `match.third`.
+ *
+ * @param match - The SwissMatch to convert.
+ * @param tieValue - Score to assign to each player in a tied comparison (default: 0.5).
+ * @returns An array of PairwiseObservation objects representing pairwise comparisons derived from the match.
+ */
 export function pairwiseFromSwissMatch(
 	match: SwissMatch,
 	tieValue = 0.5,

@@ -167,7 +167,12 @@ function serializeState(state: PipelineState): object {
 }
 
 /**
- * Converts plain objects back to Maps after JSON deserialization.
+ * Rehydrates a PipelineState from a plain JSON object, restoring Map fields and applying sensible defaults for missing fields.
+ *
+ * @param obj - Plain object (typically parsed from state.json) representing a serialized PipelineState
+ * @returns A PipelineState with:
+ *  - `generatedDrafts`, `selectedDrafts`, and `revisions` restored as Maps (or `null` if absent)
+ *  - arrays and optional fields populated with defaults (`completedGenerators`, `completedLeaderboardModels`, `pairwiseHistory`, `topKHistory`, `disambiguationMatches`, `completedPlayoffPairs` as empty arrays; `ratingState`, `initialLeaderboardResults`, `swissStopReason` as `null` when not provided)
  */
 function deserializeState(obj: Record<string, unknown>): PipelineState {
 	return {

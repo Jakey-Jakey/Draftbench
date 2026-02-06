@@ -167,6 +167,11 @@ export function generateSwissPairs(contestants: SwissContestant[]): {
 	return { pairs, bye };
 }
 
+/**
+ * Convert SwissContestant objects into a persistable StoredSwissContestant array.
+ *
+ * @returns An array of StoredSwissContestant objects containing `id`, `points`, `opponents` (as an array), `placements` (`first`, `second`, `third`, `ties`), `wins`, `losses`, `draws`, and rating fields `rating`, `ratingUncertainty`, `ratingCiLow`, and `ratingCiHigh`.
+ */
 function serializeContestants(
 	contestants: SwissContestant[],
 ): StoredSwissContestant[] {
@@ -202,6 +207,16 @@ function getSharedPoints(match: SwissMatch): Record<string, number> {
 	};
 }
 
+/**
+ * Apply a three-player Swiss match result to the in-memory contestants, updating points, placement counts, and opponent records.
+ *
+ * The function mutates the provided `contestants` array in-place: each of the three participants identified by `match.first`, `match.second`, and `match.third`
+ * will have their `points` incremented using `match.sharedPoints` (or defaults), their placement counters updated according to `match.tieGroup` (`"none"`, `"top2"`, `"bottom2"`, or `"all3"`),
+ * and each will record the other two as opponents.
+ *
+ * @param contestants - The mutable list of SwissContestant objects among which the match participants are looked up and updated.
+ * @param match - A SwissMatch describing the three participants (`first`, `second`, `third`), optional `tieGroup`, and optional `sharedPoints` mapping of contestant id to points.
+ */
 export function applyThreeWaySwissMatch(
 	contestants: SwissContestant[],
 	match: SwissMatch,
@@ -244,6 +259,16 @@ export function applyThreeWaySwissMatch(
 	third.opponents.add(second.id);
 }
 
+/**
+ * Update each contestant's rating fields from the provided rating state and return the standings order.
+ *
+ * Updates `rating`, `ratingUncertainty`, `ratingCiLow`, and `ratingCiHigh` on any contestant that appears in the rating standings.
+ *
+ * @param contestants - Array of Swiss contestants to synchronize ratings into
+ * @param ratingState - Rating system state used to derive current standings and rating values
+ * @param options.bootstrapCi - If true, use bootstrap confidence-interval computation when obtaining standings
+ * @returns An array of contestant IDs ordered by their ranking in the rating standings
+ */
 function syncContestantsWithRatings(
 	contestants: SwissContestant[],
 	ratingState: RatingState,
@@ -265,6 +290,13 @@ function syncContestantsWithRatings(
 	return standings.map((entry) => entry.id);
 }
 
+/**
+ * Compute the total number of judge calls required for a set of Swiss matches.
+ *
+ * @param matches - Array of Swiss matches; entries containing the id "BYE" are excluded from counting
+ * @param judgeCount - Number of judges assigned to each non-bye match
+ * @returns The total number of judge calls (number of non-bye matches multiplied by `judgeCount`)
+ */
 function countSwissJudgeCalls(
 	matches: SwissMatch[],
 	judgeCount: number,
@@ -278,6 +310,12 @@ function countSwissJudgeCalls(
 	return judgedMatches * judgeCount;
 }
 
+/**
+ * Counts the total number of judge assignments across a list of disambiguation matches.
+ *
+ * @param matches - Array of stored disambiguation matches whose `judges` arrays will be counted
+ * @returns The total number of judges referenced across all provided matches
+ */
 function countDisambiguationJudgeCalls(
 	matches: StoredDisambiguationMatch[],
 ): number {
