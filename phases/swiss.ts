@@ -12,7 +12,7 @@ import {
 	type StoredSwissMatch,
 	saveState,
 } from "../state";
-import { getShortModelName, shuffleArray } from "../utils";
+import { getShortModelName, requireDefined, shuffleArray } from "../utils";
 import type { RevisionEntry } from "./revise";
 
 // ============================================================================
@@ -44,28 +44,37 @@ export function generateSwissTriples(
 		if (available.length < 3) break;
 
 		// Take the top available contestant
-		const first = available[0]!;
+		const first = requireDefined(
+			available[0],
+			"Missing first contestant for Swiss triple",
+		);
 		used.add(first.id);
 
 		// Find best 2nd: closest in points, hasn't faced first
 		let secondIdx = -1;
 		for (let i = 1; i < available.length; i++) {
-			if (!first.opponents.has(available[i]!.id)) {
+			const candidate = available[i];
+			if (!candidate) continue;
+			if (!first.opponents.has(candidate.id)) {
 				secondIdx = i;
 				break;
 			}
 		}
 		if (secondIdx === -1) secondIdx = 1;
-		const second = available[secondIdx]!;
+		const second = requireDefined(
+			available[secondIdx],
+			"Missing second contestant for Swiss triple",
+		);
 		used.add(second.id);
 
 		// Find best 3rd: closest in points, hasn't faced first or second
 		let thirdIdx = -1;
 		for (let i = 1; i < available.length; i++) {
-			if (available[i]!.id === second.id) continue;
+			const candidate = available[i];
+			if (!candidate || candidate.id === second.id) continue;
 			if (
-				!first.opponents.has(available[i]!.id) &&
-				!second.opponents.has(available[i]!.id)
+				!first.opponents.has(candidate.id) &&
+				!second.opponents.has(candidate.id)
 			) {
 				thirdIdx = i;
 				break;
@@ -73,13 +82,17 @@ export function generateSwissTriples(
 		}
 		if (thirdIdx === -1) {
 			for (let i = 1; i < available.length; i++) {
-				if (available[i]!.id !== second.id) {
+				const candidate = available[i];
+				if (candidate && candidate.id !== second.id) {
 					thirdIdx = i;
 					break;
 				}
 			}
 		}
-		const third = available[thirdIdx]!;
+		const third = requireDefined(
+			available[thirdIdx],
+			"Missing third contestant for Swiss triple",
+		);
 		used.add(third.id);
 
 		triples.push([first.id, second.id, third.id]);
@@ -105,26 +118,34 @@ export function generateSwissPairs(contestants: SwissContestant[]): {
 		const available = sorted.filter((c) => !used.has(c.id));
 		if (available.length < 2) break;
 
-		const first = available[0]!;
+		const first = requireDefined(
+			available[0],
+			"Missing first contestant for Swiss pair",
+		);
 		used.add(first.id);
 
 		// Find opponent who hasn't faced first
 		let secondIdx = -1;
 		for (let i = 1; i < available.length; i++) {
-			if (!first.opponents.has(available[i]!.id)) {
+			const candidate = available[i];
+			if (!candidate) continue;
+			if (!first.opponents.has(candidate.id)) {
 				secondIdx = i;
 				break;
 			}
 		}
 		if (secondIdx === -1) secondIdx = 1;
-		const second = available[secondIdx]!;
+		const second = requireDefined(
+			available[secondIdx],
+			"Missing second contestant for Swiss pair",
+		);
 		used.add(second.id);
 
 		pairs.push([first.id, second.id]);
 	}
 
 	const remaining = sorted.filter((c) => !used.has(c.id));
-	const bye = remaining.length === 1 ? remaining[0]!.id : null;
+	const bye = remaining.length === 1 && remaining[0] ? remaining[0].id : null;
 
 	return { pairs, bye };
 }
@@ -158,49 +179,58 @@ export async function runSwissPhase(
 
 	const fileLock = new Semaphore(1);
 
-	// Check for resume
-	const resumeSwiss =
+	const hasSwissProgress =
 		isResuming &&
-		isPhaseCompleted(state, "swiss") &&
+		(state.swissRound ?? 0) > 0 &&
 		state.contestants &&
 		state.swissMatches.length > 0;
+	const swissAlreadyCompleted =
+		hasSwissProgress &&
+		isPhaseCompleted(state, "swiss") &&
+		state.swissRound >= SWISS_ROUNDS;
 
 	// Initialize contestants
-	const contestants: SwissContestant[] = resumeSwiss
+	const contestants: SwissContestant[] = hasSwissProgress
 		? (state.contestants as StoredSwissContestant[]).map((c) => ({
-			id: c.id,
-			text: revisionsById.get(c.id)?.result.text ?? "",
-			points: c.points,
-			opponents: new Set(c.opponents),
-			placements: c.placements,
-			wins: c.wins ?? 0,
-			losses: c.losses ?? 0,
-			draws: c.draws ?? 0,
-		}))
+				id: c.id,
+				text: revisionsById.get(c.id)?.result.text ?? "",
+				points: c.points,
+				opponents: new Set(c.opponents),
+				placements: c.placements,
+				wins: c.wins ?? 0,
+				losses: c.losses ?? 0,
+				draws: c.draws ?? 0,
+			}))
 		: Array.from(revisionsById.entries()).map(([id, data]) => ({
-			id,
-			text: data.result.text,
-			points: 0,
-			opponents: new Set<string>(),
-			placements: { first: 0, second: 0, third: 0 },
-			wins: 0,
-			losses: 0,
-			draws: 0,
-		}));
+				id,
+				text: data.result.text,
+				points: 0,
+				opponents: new Set<string>(),
+				placements: { first: 0, second: 0, third: 0 },
+				wins: 0,
+				losses: 0,
+				draws: 0,
+			}));
 
-	const allSwissMatches: SwissMatch[] = resumeSwiss
+	const allSwissMatches: SwissMatch[] = hasSwissProgress
 		? [...(state.swissMatches as StoredSwissMatch[])]
 		: [];
 
-	if (resumeSwiss) {
+	if (swissAlreadyCompleted) {
 		console.log(
 			`  ↩︎ Loaded Swiss tournament state with ${contestants.length} contestants; skipping rounds\n`,
 		);
 		return { contestants, matches: allSwissMatches };
 	}
+	const startRound = hasSwissProgress ? state.swissRound + 1 : 1;
+	if (hasSwissProgress) {
+		console.log(
+			`  ↩︎ Loaded Swiss progress through round ${state.swissRound}; resuming at round ${startRound}`,
+		);
+	}
 
 	// Run Swiss rounds
-	for (let round = 1; round <= SWISS_ROUNDS; round++) {
+	for (let round = startRound; round <= SWISS_ROUNDS; round++) {
 		console.log(`  Round ${round}/${SWISS_ROUNDS}...`);
 		if (!dryRun) {
 			await appendFile(swissLogPath, `## Round ${round}\n\n`, "utf-8");
@@ -224,7 +254,14 @@ export async function runSwissPhase(
 					];
 					// Shuffle presentation order
 					const shuffled = shuffleArray(entries);
-					const [e1, e2] = [shuffled[0]!, shuffled[1]!];
+					const e1 = requireDefined(
+						shuffled[0],
+						"Missing shuffled entry 1 for Swiss pair",
+					);
+					const e2 = requireDefined(
+						shuffled[1],
+						"Missing shuffled entry 2 for Swiss pair",
+					);
 
 					let winnerId: string;
 					let _loserId: string;
@@ -349,12 +386,24 @@ export async function runSwissPhase(
 				// Mock judging
 				for (const [idA, idB, idC] of triples) {
 					const ids = shuffleArray([idA, idB, idC]);
+					const firstId = requireDefined(
+						ids[0],
+						"Missing first shuffled ID in Swiss dry-run triple",
+					);
+					const secondId = requireDefined(
+						ids[1],
+						"Missing second shuffled ID in Swiss dry-run triple",
+					);
+					const thirdId = requireDefined(
+						ids[2],
+						"Missing third shuffled ID in Swiss dry-run triple",
+					);
 					const match: SwissMatch = {
 						round,
 						ids: [idA, idB, idC],
-						first: ids[0]!,
-						second: ids[1]!,
-						third: ids[2]!,
+						first: firstId,
+						second: secondId,
+						third: thirdId,
 						reasoning: "Mock judgment for dry run.",
 					};
 
@@ -401,7 +450,18 @@ export async function runSwissPhase(
 							[idC, textC],
 						];
 						const shuffled = shuffleArray(entries);
-						const [e1, e2, e3] = [shuffled[0]!, shuffled[1]!, shuffled[2]!];
+						const e1 = requireDefined(
+							shuffled[0],
+							"Missing shuffled entry 1 for Swiss triple",
+						);
+						const e2 = requireDefined(
+							shuffled[1],
+							"Missing shuffled entry 2 for Swiss triple",
+						);
+						const e3 = requireDefined(
+							shuffled[2],
+							"Missing shuffled entry 3 for Swiss triple",
+						);
 
 						const result = await threeWayJudge(
 							"S1",
@@ -493,12 +553,27 @@ export async function runSwissPhase(
 			}
 			console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
 		}
+
+		if (!dryRun) {
+			state.swissRound = round;
+			state.swissMatches = allSwissMatches as StoredSwissMatch[];
+			state.contestants = contestants.map((c) => ({
+				id: c.id,
+				points: c.points,
+				opponents: Array.from(c.opponents),
+				placements: c.placements,
+				wins: c.wins ?? 0,
+				losses: c.losses ?? 0,
+				draws: c.draws ?? 0,
+			})) as StoredSwissContestant[];
+			saveState(runDir, state);
+		}
 	}
 
 	console.log("");
 
 	// Save state
-	if (!dryRun && !resumeSwiss) {
+	if (!dryRun) {
 		state.swissRound = SWISS_ROUNDS;
 		state.swissMatches = allSwissMatches as StoredSwissMatch[];
 		state.contestants = contestants.map((c) => ({
@@ -510,7 +585,9 @@ export async function runSwissPhase(
 			losses: c.losses ?? 0,
 			draws: c.draws ?? 0,
 		})) as StoredSwissContestant[];
-		markPhaseCompleted(state, "swiss");
+		if (state.swissRound >= SWISS_ROUNDS) {
+			markPhaseCompleted(state, "swiss");
+		}
 		saveState(runDir, state);
 	}
 

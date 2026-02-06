@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { interpolate } from "../config";
-import { getShortModelName, shuffleArray } from "../utils";
+import { getModelToken, getShortModelName, shuffleArray } from "../utils";
 
 describe("getShortModelName", () => {
 	test("extracts model name from slug", () => {
@@ -19,6 +19,24 @@ describe("getShortModelName", () => {
 
 	test("handles multiple slashes", () => {
 		expect(getShortModelName("provider/sub/model-name")).toBe("model-name");
+	});
+});
+
+describe("getModelToken", () => {
+	test("is deterministic for same slug", () => {
+		const slug = "openai/gpt-4.1";
+		expect(getModelToken(slug)).toBe(getModelToken(slug));
+	});
+
+	test("avoids collisions for same short name across providers", () => {
+		const a = getModelToken("provider-a/model-x");
+		const b = getModelToken("provider-b/model-x");
+		expect(a).not.toBe(b);
+	});
+
+	test("produces file-safe tokens", () => {
+		const token = getModelToken("weird/provider::Model Name@v2");
+		expect(token).toMatch(/^[a-z0-9-]+$/);
 	});
 });
 
@@ -103,7 +121,7 @@ describe("getTimestamp", () => {
 
 describe("ensureRunsDirectory", () => {
 	test("returns directory path", async () => {
-		const { ensureRunsDirectory, getConfig } = require("../utils");
+		const { ensureRunsDirectory } = require("../utils");
 		// Don't actually create in dry-run mode
 		const dir = await ensureRunsDirectory(undefined, true);
 		expect(typeof dir).toBe("string");
@@ -178,7 +196,7 @@ describe("createMockReview", () => {
 
 describe("printDryRunConfig", () => {
 	test("prints without throwing", () => {
-		const { printDryRunConfig, getConfig } = require("../utils");
+		const { printDryRunConfig } = require("../utils");
 		const { loadConfig, resetConfig } = require("../config");
 
 		resetConfig();

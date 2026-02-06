@@ -8,6 +8,7 @@ import {
 	reviseStatblock,
 } from "../aiClient";
 import { getRoleEntries, type ReasoningEffort } from "../config";
+import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -15,7 +16,11 @@ import {
 	type StoredRevisionResult,
 	saveState,
 } from "../state";
-import { createMockStatblock, getShortModelName } from "../utils";
+import {
+	createMockStatblock,
+	getModelToken,
+	getShortModelName,
+} from "../utils";
 
 // ============================================================================
 // Revise Phase Types
@@ -65,33 +70,39 @@ export async function runRevisePhase(
 	const revisionTasks: RevisionTask[] = [];
 	for (const review of reviews) {
 		for (const reviser of revisers) {
-			const genShort = getShortModelName(review.reviewed);
-			const revShort = getShortModelName(review.reviewer);
-			const reviserShort = getShortModelName(reviser.model);
+			const genToken = getModelToken(review.reviewed);
+			const revToken = getModelToken(review.reviewer);
+			const reviserToken = getModelToken(reviser.model);
 			revisionTasks.push({
 				generator: review.reviewed,
 				reviewer: review.reviewer,
 				reviser: reviser.model,
 				reviserEffort: reviser.effort ?? "high",
 				reviserTemperature: reviser.temperature,
-				id: `${genShort}_${revShort}_${reviserShort}`,
+				id: `${genToken}_${revToken}_${reviserToken}`,
 			});
 		}
 	}
 
 	const revisionsById = new Map<string, RevisionEntry>();
+	const completedRevisionIds = new Set<string>();
 	let reviseCount = 0;
 	const totalRevisions = revisionTasks.length;
+	const revisionTaskIds = new Set(revisionTasks.map((task) => task.id));
+	const reviewMap = new Map(
+		reviews.map(
+			(review) => [`${review.reviewed}::${review.reviewer}`, review] as const,
+		),
+	);
 
-	// Resume from state if available
-	const resumeRevisions =
-		isResuming && isPhaseCompleted(state, "revise") && state.revisions;
-
-	if (resumeRevisions) {
+	// Load already completed revisions from state for partial resume.
+	if (isResuming && state.revisions) {
 		for (const [id, stored] of state.revisions as Map<
 			string,
 			StoredRevisionResult
 		>) {
+			if (!revisionTaskIds.has(id)) continue;
+
 			revisionsById.set(id, {
 				result: { text: stored.text, model: stored.reviser },
 				task: {
@@ -102,17 +113,28 @@ export async function runRevisePhase(
 					reviserEffort: "high",
 				},
 			});
+			completedRevisionIds.add(id);
 		}
 		reviseCount = revisionsById.size;
 		console.log(
-			`  ↩︎ Loaded ${reviseCount} revisions from state (skipping revision calls)\n`,
+			`  ↩︎ Loaded ${reviseCount} revisions from state (${totalRevisions - reviseCount} pending)`,
 		);
+	}
+
+	if (isPhaseCompleted(state, "revise") && reviseCount === totalRevisions) {
+		console.log("  ↩︎ Revise phase already complete, skipping calls\n");
 		return { revisionsById };
+	}
+
+	if (!state.revisions) {
+		state.revisions = new Map<string, StoredRevisionResult>();
 	}
 
 	if (dryRun) {
 		// Mock revisions
 		for (const task of revisionTasks) {
+			if (completedRevisionIds.has(task.id)) continue;
+
 			const result: ReviseResult = {
 				text: createMockStatblock(task.id),
 				model: task.reviser,
@@ -123,45 +145,64 @@ export async function runRevisePhase(
 		}
 	} else {
 		// Real API calls
-		const revisePromises = revisionTasks.map(async (task) => {
-			const selected = selectedByModel.get(task.generator);
-			if (!selected) {
-				throw new Error(
-					`Missing original statblock for generator ${task.generator} during revise phase`,
+		const stateLock = new Semaphore(1);
+		const revisePromises = revisionTasks
+			.filter((task) => !completedRevisionIds.has(task.id))
+			.map(async (task) => {
+				const selected = selectedByModel.get(task.generator);
+				if (!selected) {
+					throw new Error(
+						`Missing original statblock for generator ${task.generator} during revise phase`,
+					);
+				}
+				const originalStatblock = selected.text;
+				const review = reviewMap.get(`${task.generator}::${task.reviewer}`);
+				if (!review) {
+					throw new Error(
+						`Missing review for revision task: generator=${task.generator}, reviewer=${task.reviewer}`,
+					);
+				}
+				const feedback = `## Feedback:\n${review.text}`;
+				const result = await reviseStatblock(
+					task.reviser,
+					originalStatblock,
+					feedback,
+					task.reviserEffort as ReasoningEffort,
+					task.reviserTemperature,
 				);
-			}
-			const originalStatblock = selected.text;
-			const review = reviews.find(
-				(r) => r.reviewed === task.generator && r.reviewer === task.reviewer,
-			);
-			if (!review) {
-				throw new Error(
-					`Missing review for revision task: generator=${task.generator}, reviewer=${task.reviewer}`,
+
+				// Write immediately
+				const path = join(revisionsDir, `${task.id}.md`);
+				const genShort = getShortModelName(task.generator);
+				const revShort = getShortModelName(task.reviewer);
+				const reviserShort = getShortModelName(task.reviser);
+				await writeFile(
+					path,
+					`# ${genShort}'s Statblock\n\n**Reviewed by:** ${revShort}\n**Revised by:** ${reviserShort}\n\n${result.text}`,
+					"utf-8",
 				);
-			}
-			const feedback = `## Feedback:\n${review.text}`;
-			const result = await reviseStatblock(
-				task.reviser,
-				originalStatblock,
-				feedback,
-				task.reviserEffort as ReasoningEffort,
-				task.reviserTemperature,
-			);
-			revisionsById.set(task.id, { result, task });
-			reviseCount++;
-			console.log(`  ✓ ${task.id} (${reviseCount}/${totalRevisions})`);
-			// Write immediately
-			const path = join(revisionsDir, `${task.id}.md`);
-			const genShort = getShortModelName(task.generator);
-			const revShort = getShortModelName(task.reviewer);
-			const reviserShort = getShortModelName(task.reviser);
-			await writeFile(
-				path,
-				`# ${genShort}'s Statblock\n\n**Reviewed by:** ${revShort}\n**Revised by:** ${reviserShort}\n\n${result.text}`,
-				"utf-8",
-			);
-			return { task, result };
-		});
+
+				await stateLock.acquire();
+				try {
+					if (completedRevisionIds.has(task.id)) return;
+					revisionsById.set(task.id, { result, task });
+					completedRevisionIds.add(task.id);
+					reviseCount++;
+					state.revisions?.set(task.id, {
+						id: task.id,
+						text: result.text,
+						generator: task.generator,
+						reviewer: task.reviewer,
+						reviser: task.reviser,
+					});
+					saveState(runDir, state);
+				} finally {
+					stateLock.release();
+				}
+
+				console.log(`  ✓ ${task.id} (${reviseCount}/${totalRevisions})`);
+				return { task, result };
+			});
 		await Promise.all(revisePromises);
 	}
 
@@ -170,7 +211,7 @@ export async function runRevisePhase(
 	);
 
 	// Save state
-	if (!dryRun && !resumeRevisions) {
+	if (!dryRun) {
 		state.revisions = new Map(
 			Array.from(revisionsById.entries()).map(([id, entry]) => [
 				id,

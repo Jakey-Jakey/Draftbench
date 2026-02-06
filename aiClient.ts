@@ -175,6 +175,84 @@ export interface JudgeResult {
 	raw: string;
 }
 
+function buildDeterministicRankings(ids: string[]): StatblockRanking[] {
+	return ids.map((id, index) => ({
+		id,
+		rank: index + 1,
+		score: Math.max(0, 100 - index),
+	}));
+}
+
+function validateRankings(
+	rankings: StatblockRanking[],
+	expectedIds: string[],
+): { valid: true } | { valid: false; error: string } {
+	const expected = new Set(expectedIds);
+	const seenIds = new Set<string>();
+	const seenRanks = new Set<number>();
+	const size = expectedIds.length;
+
+	if (rankings.length !== size) {
+		return {
+			valid: false,
+			error: `expected ${size} rankings, got ${rankings.length}`,
+		};
+	}
+
+	for (const ranking of rankings) {
+		if (!expected.has(ranking.id)) {
+			return { valid: false, error: `unexpected id "${ranking.id}"` };
+		}
+		if (seenIds.has(ranking.id)) {
+			return { valid: false, error: `duplicate id "${ranking.id}"` };
+		}
+		if (!Number.isInteger(ranking.rank)) {
+			return {
+				valid: false,
+				error: `rank for "${ranking.id}" is not an integer`,
+			};
+		}
+		if (ranking.rank < 1 || ranking.rank > size) {
+			return {
+				valid: false,
+				error: `rank for "${ranking.id}" out of range: ${ranking.rank}`,
+			};
+		}
+		if (seenRanks.has(ranking.rank)) {
+			return { valid: false, error: `duplicate rank "${ranking.rank}"` };
+		}
+
+		seenIds.add(ranking.id);
+		seenRanks.add(ranking.rank);
+	}
+
+	return { valid: true };
+}
+
+function isValidPairwiseWinner(
+	winner: string,
+	idA: string,
+	idB: string,
+): boolean {
+	return winner === idA || winner === idB;
+}
+
+function isValidThreeWayRanking(
+	first: string,
+	second: string,
+	third: string,
+	idA: string,
+	idB: string,
+	idC: string,
+): boolean {
+	const expected = new Set([idA, idB, idC]);
+	const received = [first, second, third];
+	if (new Set(received).size !== 3) {
+		return false;
+	}
+	return received.every((id) => expected.has(id));
+}
+
 /**
  * Judges all statblocks comparatively and returns rankings.
  * Statblocks are passed with anonymous IDs to prevent bias.
@@ -190,8 +268,6 @@ export async function judgeStatblocks(
 	temperature?: number,
 ): Promise<JudgeResult> {
 	return withConcurrencyLimit(async () => {
-		const _config = getConfig();
-
 		const statblockEntries = Array.from(statblocks.entries())
 			.map(([id, text]) => `## Statblock ID: ${id}\n\n${text}`)
 			.join("\n\n---\n\n");
@@ -224,7 +300,7 @@ Use scores from 0-100. IDs must exactly match the provided Statblock IDs: ${allI
 
 		// Parse and validate the JSON response
 		const fallback = {
-			rankings: allIds.map((id, i) => ({ id, rank: i + 1, score: 50 })),
+			rankings: buildDeterministicRankings(allIds),
 			reasoning: "Failed to parse response",
 		};
 		const parseResult = parseJsonResponse(
@@ -238,10 +314,16 @@ Use scores from 0-100. IDs must exactly match the provided Statblock IDs: ${allI
 			);
 		}
 		const parsed = parseResult.data;
+		const rankingCheck = validateRankings(parsed.rankings, allIds);
+		if (!rankingCheck.valid) {
+			console.error(
+				`Invalid ranking payload from ${judgeSlug}: ${rankingCheck.error}. Using deterministic fallback.`,
+			);
+		}
 
 		return {
 			judge: judgeSlug,
-			rankings: parsed.rankings,
+			rankings: rankingCheck.valid ? parsed.rankings : fallback.rankings,
 			reasoning: parsed.reasoning,
 			raw: result.text,
 		};
@@ -303,8 +385,8 @@ export async function pairwiseJudge(
 
 		// Parse and validate the JSON response
 		const fallback = {
-			winner: Math.random() > 0.5 ? idA : idB,
-			reasoning: "Failed to parse response, random selection.",
+			winner: idA,
+			reasoning: "Failed to parse response, defaulted to first statblock.",
 		};
 		const parseResult = parseJsonResponse(
 			result.text,
@@ -317,10 +399,18 @@ export async function pairwiseJudge(
 			);
 		}
 		const parsed = parseResult.data;
+		if (!isValidPairwiseWinner(parsed.winner, idA, idB)) {
+			console.error(
+				`Invalid pairwise winner from ${judgeSlug}: "${parsed.winner}". Expected ${idA} or ${idB}. Using fallback.`,
+			);
+		}
+		const winner = isValidPairwiseWinner(parsed.winner, idA, idB)
+			? parsed.winner
+			: idA;
 
 		return {
-			winner: parsed.winner,
-			loser: parsed.winner === idA ? idB : idA,
+			winner,
+			loser: winner === idA ? idB : idA,
 			reasoning: parsed.reasoning,
 			judge: judgeSlug,
 		};
@@ -388,12 +478,11 @@ export async function threeWayJudge(
 		});
 
 		// Parse and validate the JSON response
-		const ids = [idA, idB, idC].sort(() => Math.random() - 0.5);
 		const fallback = {
-			first: ids[0]!,
-			second: ids[1]!,
-			third: ids[2]!,
-			reasoning: "Failed to parse response, random selection.",
+			first: idA,
+			second: idB,
+			third: idC,
+			reasoning: "Failed to parse response, defaulted to original order.",
 		};
 		const parseResult = parseJsonResponse(
 			result.text,
@@ -406,6 +495,21 @@ export async function threeWayJudge(
 			);
 		}
 		const parsed = parseResult.data;
+		if (
+			!isValidThreeWayRanking(
+				parsed.first,
+				parsed.second,
+				parsed.third,
+				idA,
+				idB,
+				idC,
+			)
+		) {
+			console.error(
+				`Invalid three-way ranking from ${judgeSlug}: [${parsed.first}, ${parsed.second}, ${parsed.third}]. Using fallback.`,
+			);
+			return fallback;
+		}
 
 		return parsed;
 	});

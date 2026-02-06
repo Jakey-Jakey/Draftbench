@@ -13,7 +13,12 @@ import {
 	type StoredGenerateResult,
 	saveState,
 } from "../state";
-import { createMockStatblock, getShortModelName } from "../utils";
+import {
+	createMockStatblock,
+	getModelToken,
+	getShortModelName,
+	requireDefined,
+} from "../utils";
 
 // ============================================================================
 // Generate Phase
@@ -145,7 +150,10 @@ export async function runGeneratePhase(
 			);
 
 			// Store result
-			const modelResults = resultsByModel.get(generator.model)!;
+			const modelResults = requireDefined(
+				resultsByModel.get(generator.model),
+				`Missing result bucket for generator ${generator.model}`,
+			);
 			modelResults[draftIndex] = result;
 
 			generateCount++;
@@ -154,7 +162,7 @@ export async function runGeneratePhase(
 			);
 
 			// Write immediately
-			const safeFileName = shortName.replace(/[^a-zA-Z0-9-_]/g, "_");
+			const safeFileName = getModelToken(generator.model);
 			const path = join(
 				runDir,
 				`${safeFileName}_original_${draftIndex + 1}.md`,
@@ -172,7 +180,10 @@ export async function runGeneratePhase(
 
 		// Populate draftsByModel and save state
 		for (const generator of pendingGenerators) {
-			const drafts = resultsByModel.get(generator.model)!;
+			const drafts = requireDefined(
+				resultsByModel.get(generator.model),
+				`Missing generated drafts for ${generator.model}`,
+			);
 			draftsByModel.set(generator.model, drafts);
 
 			// Save state for this model

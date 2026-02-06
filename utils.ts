@@ -46,6 +46,49 @@ export function getShortModelName(slug: string): string {
 	return parts[parts.length - 1] ?? slug;
 }
 
+/**
+ * Converts a string into a lowercase, file-safe token.
+ */
+export function toSafeToken(value: string): string {
+	const normalized = value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+	return normalized || "id";
+}
+
+/**
+ * Fast deterministic hash for stable IDs.
+ */
+function hashString(value: string): string {
+	let hash = 5381;
+	for (let i = 0; i < value.length; i++) {
+		hash = (hash * 33) ^ value.charCodeAt(i);
+	}
+	return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * Stable model token based on full slug, safe for filenames/IDs.
+ */
+export function getModelToken(modelSlug: string): string {
+	const base = toSafeToken(getShortModelName(modelSlug));
+	return `${base}-${hashString(modelSlug)}`;
+}
+
+/**
+ * Narrows away null/undefined with a runtime guard.
+ */
+export function requireDefined<T>(
+	value: T | null | undefined,
+	message: string,
+): T {
+	if (value === undefined || value === null) {
+		throw new Error(message);
+	}
+	return value;
+}
+
 // ============================================================================
 // Array Utilities
 // ============================================================================
@@ -58,11 +101,11 @@ export function shuffleArray<T>(array: T[]): T[] {
 	const shuffled = [...array];
 	for (let i = shuffled.length - 1; i > 0; i--) {
 		const j = Math.floor(Math.random() * (i + 1));
-		if (shuffled[i] !== undefined && shuffled[j] !== undefined) {
-			const temp = shuffled[i]!;
-			shuffled[i] = shuffled[j]!;
-			shuffled[j] = temp;
-		}
+		const left = shuffled[i];
+		const right = shuffled[j];
+		if (left === undefined || right === undefined) continue;
+		shuffled[i] = right;
+		shuffled[j] = left;
 	}
 	return shuffled;
 }

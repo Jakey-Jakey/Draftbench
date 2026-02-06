@@ -11,7 +11,7 @@ import {
 	type StoredPlayoffResult,
 	saveState,
 } from "../state";
-import { getShortModelName } from "../utils";
+import { getShortModelName, requireDefined } from "../utils";
 import type { RevisionEntry } from "./revise";
 
 // ============================================================================
@@ -23,6 +23,10 @@ export interface PlayoffPhaseResult {
 	results: Map<string, PlayoffResult>;
 	/** IDs of top-N qualifiers */
 	qualifierIds: Set<string>;
+}
+
+function getPairKey(idA: string, idB: string): string {
+	return [idA, idB].sort().join("::");
 }
 
 /**
@@ -61,11 +65,15 @@ export async function runPlayoffPhase(
 	});
 	const topN = sortedBySwiss.slice(0, TOP_N_PLAYOFF);
 	const topNIds = new Set(topN.map((c) => c.id));
+	const topNIdSet = new Set(topN.map((c) => c.id));
 
 	console.log(
 		`  Top ${TOP_N_PLAYOFF} qualifiers: ${topN.map((c) => c.id).join(", ")}`,
 	);
-	if (!dryRun) {
+	const hasSavedPlayoffProgress =
+		(state.playoffResults?.length ?? 0) > 0 ||
+		(state.completedPlayoffPairs?.length ?? 0) > 0;
+	if (!dryRun && !hasSavedPlayoffProgress) {
 		await appendFile(
 			playoffLogPath,
 			`## Qualifiers\n\n${topN.map((c, i) => `${i + 1}. ${c.id} (${c.points} pts)`).join("\n")}\n\n`,
@@ -80,28 +88,33 @@ export async function runPlayoffPhase(
 	}
 
 	const fileLock = new Semaphore(1);
-
-	// Check for resume
-	const resumePlayoff =
-		isResuming && isPhaseCompleted(state, "playoff") && state.playoffResults;
+	const stateLock = new Semaphore(1);
 
 	// Generate all pairings
 	const playoffPairs: [string, string][] = [];
 	for (let i = 0; i < topN.length; i++) {
 		for (let j = i + 1; j < topN.length; j++) {
-			playoffPairs.push([topN[i]!.id, topN[j]!.id]);
+			const left = topN[i];
+			const right = topN[j];
+			if (!left || !right) continue;
+			playoffPairs.push([left.id, right.id]);
 		}
 	}
+	const validPairKeys = new Set(playoffPairs.map(([a, b]) => getPairKey(a, b)));
+	const completedPairKeys = new Set(
+		(state.completedPlayoffPairs ?? []).filter((key) => validPairKeys.has(key)),
+	);
 
 	console.log(
 		`  Running ${playoffPairs.length} matchups (×${PLAYOFF_JUDGES.length} judges = ${playoffPairs.length * PLAYOFF_JUDGES.length} total)...`,
 	);
-	if (!dryRun) {
+	if (!dryRun && !hasSavedPlayoffProgress) {
 		await appendFile(playoffLogPath, `## Matches\n\n`, "utf-8");
 	}
 
-	if (resumePlayoff) {
+	if (isResuming && state.playoffResults) {
 		for (const result of state.playoffResults as StoredPlayoffResult[]) {
+			if (!topNIdSet.has(result.id)) continue;
 			playoffResults.set(result.id, {
 				points: result.points,
 				wins: result.wins,
@@ -110,16 +123,32 @@ export async function runPlayoffPhase(
 			});
 		}
 		console.log(
-			`  ↩︎ Loaded playoff standings from state (skipping playoff matches)\n`,
+			`  ↩︎ Loaded playoff standings from state (${playoffPairs.length - completedPairKeys.size} matchups pending)`,
 		);
+	}
+
+	if (
+		isPhaseCompleted(state, "playoff") &&
+		completedPairKeys.size === playoffPairs.length
+	) {
+		console.log("  ↩︎ Playoff phase already complete, skipping matches\n");
 		return { results: playoffResults, qualifierIds: topNIds };
 	}
 
 	if (dryRun) {
 		// Mock playoff results
 		for (const [idA, idB] of playoffPairs) {
-			const resultA = playoffResults.get(idA)!;
-			const resultB = playoffResults.get(idB)!;
+			const pairKey = getPairKey(idA, idB);
+			if (completedPairKeys.has(pairKey)) continue;
+
+			const resultA = requireDefined(
+				playoffResults.get(idA),
+				`Missing playoff result for ${idA}`,
+			);
+			const resultB = requireDefined(
+				playoffResults.get(idB),
+				`Missing playoff result for ${idB}`,
+			);
 
 			const outcome = Math.random();
 			if (outcome < 0.4) {
@@ -139,122 +168,159 @@ export async function runPlayoffPhase(
 				resultB.draws++;
 				console.log(`    = ${idA} drew ${idB} (mock)`);
 			}
+			completedPairKeys.add(pairKey);
 		}
 	} else {
 		// Real API calls
-		const playoffPromises = playoffPairs.map(async ([idA, idB]) => {
-			const revisionA = revisionsById.get(idA);
-			const revisionB = revisionsById.get(idB);
-			if (!revisionA || !revisionB) {
-				throw new Error(
-					`Missing revision for playoff match: ${!revisionA ? idA : idB}`,
-				);
-			}
-			const textA = revisionA.result.text;
-			const textB = revisionB.result.text;
+		const playoffPromises = playoffPairs
+			.filter(([idA, idB]) => !completedPairKeys.has(getPairKey(idA, idB)))
+			.map(async ([idA, idB]) => {
+				const revisionA = revisionsById.get(idA);
+				const revisionB = revisionsById.get(idB);
+				if (!revisionA || !revisionB) {
+					throw new Error(
+						`Missing revision for playoff match: ${!revisionA ? idA : idB}`,
+					);
+				}
+				const textA = revisionA.result.text;
+				const textB = revisionB.result.text;
+				const pairKey = getPairKey(idA, idB);
 
-			const swapped = Math.random() > 0.5;
-			const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
-			const [firstText, secondText] = swapped ? [textB, textA] : [textA, textB];
+				const swapped = Math.random() > 0.5;
+				const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
+				const [firstText, secondText] = swapped
+					? [textB, textA]
+					: [textA, textB];
 
-			const judgeResults = await Promise.all(
-				PLAYOFF_JUDGES.map((judge) =>
-					pairwiseJudge(
-						"S1",
-						firstText,
-						"S2",
-						secondText,
-						judge.model,
-						judge.effort ?? "high",
+				const judgeResults = await Promise.all(
+					PLAYOFF_JUDGES.map((judge) =>
+						pairwiseJudge(
+							"S1",
+							firstText,
+							"S2",
+							secondText,
+							judge.model,
+							judge.effort ?? "high",
+						),
 					),
-				),
-			);
-
-			const voteCounts = new Map<string, number>([
-				[firstId, 0],
-				[secondId, 0],
-			]);
-
-			for (const result of judgeResults) {
-				const resolvedWinner = result.winner === "S1" ? firstId : secondId;
-				voteCounts.set(
-					resolvedWinner,
-					(voteCounts.get(resolvedWinner) ?? 0) + 1,
 				);
-			}
 
-			const votes = Array.from(voteCounts.entries());
-			votes.sort((a, b) => b[1]! - a[1]!);
-			const topCount = votes[0]?.[1];
-			const topWinners = votes
-				.filter(([, count]) => count === topCount)
-				.map(([id]) => id);
+				const voteCounts = new Map<string, number>([
+					[firstId, 0],
+					[secondId, 0],
+				]);
 
-			let matchResult: {
-				winner: string | null;
-				loser: string | null;
-				isDraw: boolean;
-			};
-			let logEntry: string;
+				for (const result of judgeResults) {
+					const resolvedWinner = result.winner === "S1" ? firstId : secondId;
+					voteCounts.set(
+						resolvedWinner,
+						(voteCounts.get(resolvedWinner) ?? 0) + 1,
+					);
+				}
 
-			if (topWinners.length === 1) {
-				const winner = topWinners[0]!;
-				const loser = winner === idA ? idB : idA;
-				const winnerVotes = voteCounts.get(winner) ?? 0;
-				const loserVotes = voteCounts.get(loser) ?? 0;
-				matchResult = { winner, loser, isDraw: false };
-				logEntry = `- **${winner}** beat ${loser} (${winnerVotes}-${loserVotes})\n`;
-			} else {
-				const votesA = voteCounts.get(idA) ?? 0;
-				const votesB = voteCounts.get(idB) ?? 0;
-				matchResult = { winner: null, loser: null, isDraw: true };
-				logEntry = `- ${idA} vs ${idB}: **DRAW** (${votesA}-${votesB})\n`;
-			}
+				const votes = Array.from(voteCounts.entries());
+				votes.sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
+				const topCount = votes[0]?.[1];
+				const topWinners = votes
+					.filter(([, count]) => count === topCount)
+					.map(([id]) => id);
 
-			for (const result of judgeResults) {
-				const resolvedWinner = result.winner === "S1" ? firstId : secondId;
-				logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
-			}
+				let matchResult: {
+					winner: string | null;
+					loser: string | null;
+					isDraw: boolean;
+				};
+				let logEntry: string;
 
-			// Write detailed judgment file
-			const judgmentFile = join(playoffJudgmentsDir, `${idA}_vs_${idB}.md`);
-			let judgmentMd = `# Playoff Judgment: ${idA} vs ${idB}\n\n`;
-			judgmentMd += `**Position Order**: S1=${firstId}, S2=${secondId}\n\n`;
-			judgmentMd += `## Judge Decisions\n\n`;
-			judgmentMd += logEntry.replace(/^- /, "");
-			await writeFile(judgmentFile, judgmentMd, "utf-8");
+				if (topWinners.length === 1) {
+					const winner = topWinners[0];
+					if (!winner) {
+						throw new Error(
+							`Unable to resolve winner for playoff match ${idA} vs ${idB}`,
+						);
+					}
+					const loser = winner === idA ? idB : idA;
+					const winnerVotes = voteCounts.get(winner) ?? 0;
+					const loserVotes = voteCounts.get(loser) ?? 0;
+					matchResult = { winner, loser, isDraw: false };
+					logEntry = `- **${winner}** beat ${loser} (${winnerVotes}-${loserVotes})\n`;
+				} else {
+					const votesA = voteCounts.get(idA) ?? 0;
+					const votesB = voteCounts.get(idB) ?? 0;
+					matchResult = { winner: null, loser: null, isDraw: true };
+					logEntry = `- ${idA} vs ${idB}: **DRAW** (${votesA}-${votesB})\n`;
+				}
 
-			// Update standings
-			const resultA = playoffResults.get(idA)!;
-			const resultB = playoffResults.get(idB)!;
-			if (matchResult.isDraw) {
-				resultA.points += 0.5;
-				resultA.draws++;
-				resultB.points += 0.5;
-				resultB.draws++;
-			} else if (matchResult.winner === idA) {
-				resultA.points += 1;
-				resultA.wins++;
-				resultB.losses++;
-			} else {
-				resultB.points += 1;
-				resultB.wins++;
-				resultA.losses++;
-			}
+				for (const result of judgeResults) {
+					const resolvedWinner = result.winner === "S1" ? firstId : secondId;
+					logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
+				}
 
-			await fileLock.acquire();
-			try {
-				await appendFile(playoffLogPath, logEntry, "utf-8");
-			} finally {
-				fileLock.release();
-			}
-		});
+				// Write detailed judgment file
+				const judgmentFile = join(playoffJudgmentsDir, `${idA}_vs_${idB}.md`);
+				let judgmentMd = `# Playoff Judgment: ${idA} vs ${idB}\n\n`;
+				judgmentMd += `**Position Order**: S1=${firstId}, S2=${secondId}\n\n`;
+				judgmentMd += `## Judge Decisions\n\n`;
+				judgmentMd += logEntry.replace(/^- /, "");
+				await writeFile(judgmentFile, judgmentMd, "utf-8");
+
+				await stateLock.acquire();
+				try {
+					if (completedPairKeys.has(pairKey)) return;
+
+					// Update standings
+					const resultA = requireDefined(
+						playoffResults.get(idA),
+						`Missing playoff result for ${idA}`,
+					);
+					const resultB = requireDefined(
+						playoffResults.get(idB),
+						`Missing playoff result for ${idB}`,
+					);
+					if (matchResult.isDraw) {
+						resultA.points += 0.5;
+						resultA.draws++;
+						resultB.points += 0.5;
+						resultB.draws++;
+					} else if (matchResult.winner === idA) {
+						resultA.points += 1;
+						resultA.wins++;
+						resultB.losses++;
+					} else {
+						resultB.points += 1;
+						resultB.wins++;
+						resultA.losses++;
+					}
+
+					completedPairKeys.add(pairKey);
+					state.playoffResults = Array.from(playoffResults.entries()).map(
+						([id, result]) => ({
+							id,
+							points: result.points,
+							wins: result.wins,
+							losses: result.losses,
+							draws: result.draws,
+						}),
+					) as StoredPlayoffResult[];
+					state.completedPlayoffPairs = Array.from(completedPairKeys);
+					saveState(runDir, state);
+				} finally {
+					stateLock.release();
+				}
+
+				await fileLock.acquire();
+				try {
+					await appendFile(playoffLogPath, logEntry, "utf-8");
+				} finally {
+					fileLock.release();
+				}
+			});
 
 		await Promise.all(playoffPromises);
 	}
 
 	// Save state
-	if (!dryRun && !resumePlayoff) {
+	if (!dryRun) {
 		state.playoffResults = Array.from(playoffResults.entries()).map(
 			([id, result]) => ({
 				id,
@@ -264,7 +330,10 @@ export async function runPlayoffPhase(
 				draws: result.draws,
 			}),
 		) as StoredPlayoffResult[];
-		markPhaseCompleted(state, "playoff");
+		state.completedPlayoffPairs = Array.from(completedPairKeys);
+		if (completedPairKeys.size === playoffPairs.length) {
+			markPhaseCompleted(state, "playoff");
+		}
 		saveState(runDir, state);
 	}
 

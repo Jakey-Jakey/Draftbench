@@ -285,7 +285,8 @@ async function runCrossReviewPipeline(): Promise<void> {
 	});
 
 	for (let i = 0; i < 3; i++) {
-		const c = finalSorted[i]!;
+		const c = finalSorted[i];
+		if (!c) break;
 		const playoff = playoffResults.get(c.id);
 		const playoffStr = playoff ? ` + ${playoff.points} playoff` : "";
 		console.log(

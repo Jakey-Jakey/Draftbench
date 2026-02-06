@@ -7,6 +7,7 @@ import {
 	reviewStatblock,
 } from "../aiClient";
 import { getRoleEntries } from "../config";
+import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -14,7 +15,7 @@ import {
 	type StoredReviewResult,
 	saveState,
 } from "../state";
-import { createMockReview, getShortModelName } from "../utils";
+import { createMockReview, getModelToken, getShortModelName } from "../utils";
 
 // ============================================================================
 // Review Phase
@@ -22,6 +23,10 @@ import { createMockReview, getShortModelName } from "../utils";
 
 export interface ReviewPhaseResult {
 	reviews: ReviewResult[];
+}
+
+function getReviewKey(reviewer: ModelSlug, reviewed: ModelSlug): string {
+	return `${reviewer}::${reviewed}`;
 }
 
 /**
@@ -46,17 +51,27 @@ export async function runReviewPhase(
 	const reviews: ReviewResult[] = [];
 	let reviewCount = 0;
 	const totalReviews = reviewers.length * draftModels.length;
+	const completedReviewKeys = new Set<string>();
 
-	// Resume from state if available
-	const resumeReviews =
-		isResuming && isPhaseCompleted(state, "review") && state.reviews;
-
-	if (resumeReviews) {
-		reviews.push(...(state.reviews as StoredReviewResult[]));
+	// Load previously completed review tasks from state for partial resume.
+	if (isResuming && state.reviews) {
+		for (const stored of state.reviews as StoredReviewResult[]) {
+			reviews.push(stored);
+			completedReviewKeys.add(getReviewKey(stored.reviewer, stored.reviewed));
+		}
+		reviewCount = reviews.length;
 		console.log(
-			`  ↩︎ Loaded ${reviews.length} cached reviews from state (skipping review calls)\n`,
+			`  ↩︎ Loaded ${reviewCount} cached reviews from state (${totalReviews - reviewCount} pending)`,
 		);
+	}
+
+	if (isPhaseCompleted(state, "review") && reviewCount === totalReviews) {
+		console.log("  ↩︎ Review phase already complete, skipping calls\n");
 		return { reviews };
+	}
+
+	if (!state.reviews) {
+		state.reviews = [];
 	}
 
 	if (dryRun) {
@@ -64,6 +79,9 @@ export async function runReviewPhase(
 		for (const reviewer of reviewers) {
 			const reviewerShort = getShortModelName(reviewer.model);
 			for (const reviewedSlug of draftModels) {
+				const taskKey = getReviewKey(reviewer.model, reviewedSlug);
+				if (completedReviewKeys.has(taskKey)) continue;
+
 				const reviewedShort = getShortModelName(reviewedSlug);
 				const review: ReviewResult = {
 					text: createMockReview(),
@@ -80,10 +98,14 @@ export async function runReviewPhase(
 		}
 	} else {
 		// Real API calls
+		const stateLock = new Semaphore(1);
 		const reviewPromises: Promise<void>[] = [];
 		for (const reviewer of reviewers) {
 			const reviewerShort = getShortModelName(reviewer.model);
 			for (const reviewedSlug of draftModels) {
+				const taskKey = getReviewKey(reviewer.model, reviewedSlug);
+				if (completedReviewKeys.has(taskKey)) continue;
+
 				const reviewedShort = getShortModelName(reviewedSlug);
 				const selected = selectedByModel.get(reviewedSlug);
 				if (!selected) {
@@ -101,16 +123,10 @@ export async function runReviewPhase(
 							reviewer.effort ?? "medium",
 							reviewer.temperature,
 						);
-						reviews.push(review);
-						reviewCount++;
-						const selfTag =
-							review.reviewer === review.reviewed ? " (self)" : "";
-						console.log(
-							`  ✓ ${reviewerShort} reviewed ${reviewedShort}'s statblock${selfTag} (${reviewCount}/${totalReviews})`,
-						);
+
 						// Write immediately
-						const safeReviewer = reviewerShort.replace(/[^a-zA-Z0-9-_]/g, "_");
-						const safeReviewed = reviewedShort.replace(/[^a-zA-Z0-9-_]/g, "_");
+						const safeReviewer = getModelToken(reviewer.model);
+						const safeReviewed = getModelToken(reviewedSlug);
 						const path = join(
 							reviewsDir,
 							`${safeReviewer}_reviews_${safeReviewed}.md`,
@@ -119,6 +135,26 @@ export async function runReviewPhase(
 							path,
 							`# ${reviewerShort} reviews ${reviewedShort}\n\n${review.text}`,
 							"utf-8",
+						);
+
+						await stateLock.acquire();
+						try {
+							if (completedReviewKeys.has(taskKey)) {
+								return;
+							}
+							reviews.push(review);
+							completedReviewKeys.add(taskKey);
+							reviewCount++;
+							state.reviews?.push(review as StoredReviewResult);
+							saveState(runDir, state);
+						} finally {
+							stateLock.release();
+						}
+
+						const selfTag =
+							review.reviewer === review.reviewed ? " (self)" : "";
+						console.log(
+							`  ✓ ${reviewerShort} reviewed ${reviewedShort}'s statblock${selfTag} (${reviewCount}/${totalReviews})`,
 						);
 					})(),
 				);
@@ -132,7 +168,7 @@ export async function runReviewPhase(
 	);
 
 	// Save state
-	if (!dryRun && !resumeReviews) {
+	if (!dryRun) {
 		state.reviews = reviews as StoredReviewResult[];
 		markPhaseCompleted(state, "review");
 		saveState(runDir, state);

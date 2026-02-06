@@ -341,17 +341,24 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 	// Parse output
 	if (raw.output) {
 		const outputRaw = raw.output as Record<string, unknown>;
-		result.output = {
-			runsDirectory: outputRaw.runsDirectory as string,
-		};
+		if (typeof outputRaw.runsDirectory === "string") {
+			result.output = {
+				runsDirectory: outputRaw.runsDirectory,
+			};
+		}
 	}
 
 	// Parse concurrency
 	if (raw.concurrency) {
 		const concurrencyRaw = raw.concurrency as Record<string, unknown>;
-		result.concurrency = {
-			maxParallel: concurrencyRaw.maxParallel as number | null,
-		};
+		if (
+			typeof concurrencyRaw.maxParallel === "number" ||
+			concurrencyRaw.maxParallel === null
+		) {
+			result.concurrency = {
+				maxParallel: concurrencyRaw.maxParallel,
+			};
+		}
 	}
 
 	// Parse prompts (nested structure)
@@ -653,6 +660,15 @@ export function getInitialLeaderboardJudges(): RoleEntry[] {
  * Validates the loaded configuration for consistency.
  */
 function validateConfig(config: PipelineConfig): void {
+	// Validate output config
+	if (
+		!config.output ||
+		typeof config.output.runsDirectory !== "string" ||
+		config.output.runsDirectory.trim().length === 0
+	) {
+		throw new Error("output.runsDirectory must be a non-empty string");
+	}
+
 	// Validate that role arrays are non-empty
 	if (!config.roles.generators || config.roles.generators.length === 0) {
 		throw new Error("roles.generators must have at least one entry");

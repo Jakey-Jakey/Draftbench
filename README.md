@@ -9,7 +9,7 @@ This pipeline benchmarks AI models on creative artifact generation end-to-end:
 1. **Generate**: Multiple models each create an artifact from the same brief
 2. **Review**: Each model reviews all generated artifacts
 3. **Revise**: All models revise each artifact based on each review
-4. **Swiss Tournament**: 7 rounds of 1v1v1 judging to rank all revisions
+4. **Swiss Tournament**: 7 rounds of configurable `1v1` or `1v1v1` judging to rank all revisions
 5. **Playoff**: Top-8 Round Robin with multi-judge voting for final rankings
 
 ## Features
@@ -18,8 +18,10 @@ This pipeline benchmarks AI models on creative artifact generation end-to-end:
 - **Position Randomization**: All matches randomize presentation order to eliminate position bias
 - **Multi-Judge Playoff**: Configurable judges vote on each playoff match
 - **Anonymized Judging**: All artifacts are presented with anonymous IDs (S1, S2, S3)
-- **Resumable Runs**: Interrupted pipelines can be resumed with `--resume`—state saved per model
-- **Incremental Writes**: Results are written immediately as they complete
+- **Resumable Runs**: Interrupted pipelines can be resumed with `--resume` with phase checkpoints (reviews/revisions saved incrementally, Swiss saved per round, playoff saved per matchup)
+- **Incremental Writes**: Files are written as each result completes
+- **Stable IDs**: Filenames and revision IDs use deterministic model tokens (`<model>-<hash>`) to avoid collisions
+- **Judge Fallback Safety**: Judge payloads are schema-validated and semantically checked before scoring
 - **Cost-Efficient Initial Leaderboard**: Multiple tournament styles from 30 matches (per-model) to 1 call (global-rank)
 
 ## Prerequisites
@@ -160,16 +162,22 @@ Each run creates a timestamped directory in `runs/`:
 
 ```
 runs/YYYY-MM-DDTHH-MM-SS/
-├── *_original.md            # Original artifacts from each generator
+├── <generator-token>_original_<n>.md  # Initial generations
 ├── reviews/                 # Cross-review files
-│   └── <reviewer>_reviews_<generator>.md
+│   └── <reviewer-token>_reviews_<generator-token>.md
 ├── revisions/               # Revised artifacts
-│   └── <generator>_<reviewer>_<reviser>.md
+│   └── <generator-token>_<reviewer-token>_<reviser-token>.md
+├── initial_leaderboard/     # Optional initial draft selection output
+│   └── leaderboard.md
+├── swiss_judgments/         # Detailed Swiss judge outputs
+├── playoff_judgments/       # Detailed playoff judge outputs
 ├── swiss_rounds.md          # Swiss tournament log
 ├── playoff_rounds.md        # Playoff round robin log
 ├── leaderboard.md           # Final rankings
 └── state.json               # Pipeline state (for resume)
 ```
+
+Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 
 ## Cost Estimate
 
