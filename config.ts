@@ -200,7 +200,7 @@ const DEFAULT_CONFIG: PipelineConfig = {
 			enabled: true,
 			backend: "elo",
 			kFactor: 24,
-			initialRating: 1500,
+			initialRating: 1000,
 			provisionalMatches: 5,
 			tieValue: 0.5,
 			btIterations: 200,

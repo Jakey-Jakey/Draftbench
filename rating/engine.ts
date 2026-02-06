@@ -268,7 +268,7 @@ export function createRatingState(
 ): RatingState {
 	const config: RatingEngineConfig = {
 		backend: partialConfig.backend ?? "elo",
-		initialRating: partialConfig.initialRating ?? 1500,
+		initialRating: partialConfig.initialRating ?? 1000,
 		kFactor: partialConfig.kFactor ?? 24,
 		tieValue: partialConfig.tieValue ?? 0.5,
 		provisionalMatches: partialConfig.provisionalMatches ?? 12,
