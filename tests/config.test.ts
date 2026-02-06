@@ -18,7 +18,8 @@ describe("config loading", () => {
 		// When no path specified (undefined), should use defaults without throwing
 		// Note: This test may log "No config.toml found" which is expected
 		const config = loadConfig(undefined);
-		expect(config.roles.swissJudge.model).toContain("/");
+		expect(config.roles.swissJudges[0]?.model).toContain("/");
+		expect(config.roles.swissJudges.length).toBeGreaterThan(0);
 		expect(config.roles.generators.length).toBeGreaterThan(0);
 	});
 
@@ -67,6 +68,43 @@ describe("config loading", () => {
 		const config = loadConfig("config.example.toml");
 		for (const gen of config.roles.generators) {
 			expect(gen.model).toContain("/");
+		}
+	});
+
+	test("auto-clamps playoffSize when contestants are fewer than requested", () => {
+		const tempPath = `tmp-playoff-clamp-${Date.now()}.toml`;
+		writeFileSync(
+			tempPath,
+			`[roles]
+[[roles.generators]]
+model = "openai/gpt-5.2"
+effort = "high"
+
+[[roles.reviewers]]
+model = "openai/gpt-5.2"
+effort = "high"
+
+[[roles.revisers]]
+model = "openai/gpt-5.2"
+effort = "high"
+
+[[roles.swissJudges]]
+model = "openai/gpt-5.2"
+effort = "low"
+
+[[roles.playoffJudges]]
+model = "openai/gpt-5.2"
+effort = "low"
+
+[tournament]
+playoffSize = 8
+`,
+		);
+		try {
+			const config = loadConfig(tempPath);
+			expect(config.tournament.playoffSize).toBe(1);
+		} finally {
+			rmSync(tempPath, { force: true });
 		}
 	});
 });
@@ -184,10 +222,50 @@ describe("TOML configuration", () => {
 		}
 	});
 
-	test("swissJudge is configured", () => {
+	test("swissJudges is configured", () => {
 		const config = loadConfig("config.example.toml");
-		expect(config.roles.swissJudge).toBeDefined();
-		expect(config.roles.swissJudge.model).toContain("/");
+		expect(config.roles.swissJudges.length).toBeGreaterThan(0);
+		expect(config.roles.swissJudges[0]?.model).toContain("/");
+	});
+
+	test("supports roles.swissJudges array", () => {
+		const tempPath = `tmp-swiss-judges-${Date.now()}.toml`;
+		writeFileSync(
+			tempPath,
+			`[roles]
+[[roles.swissJudges]]
+model = "openai/gpt-5.2"
+effort = "low"
+[[roles.swissJudges]]
+model = "anthropic/claude-opus-4.5"
+effort = "low"
+`,
+		);
+		try {
+			const config = loadConfig(tempPath);
+			expect(config.roles.swissJudges.length).toBe(2);
+			expect(config.roles.swissJudges[0]?.model).toBe("openai/gpt-5.2");
+		} finally {
+			rmSync(tempPath, { force: true });
+		}
+	});
+
+	test("legacy roles.swissJudge is rejected", () => {
+		const tempPath = `tmp-legacy-swiss-judge-${Date.now()}.toml`;
+		writeFileSync(
+			tempPath,
+			`[roles.swissJudge]
+model = "google/gemini-3-pro-preview"
+effort = "low"
+`,
+		);
+		try {
+			expect(() => loadConfig(tempPath)).toThrow(
+				"roles.swissJudge is no longer supported",
+			);
+		} finally {
+			rmSync(tempPath, { force: true });
+		}
 	});
 
 	test("playoffJudges is an array", () => {
@@ -319,11 +397,11 @@ describe("config helpers", () => {
 		}
 	});
 
-	test("getSwissJudge returns judge entry", () => {
-		const { getSwissJudge } = require("../config");
-		const judge = getSwissJudge();
-		expect(judge).toHaveProperty("model");
-		expect(judge.model).toContain("/");
+	test("getSwissJudges returns judge entries", () => {
+		const { getSwissJudges } = require("../config");
+		const judges = getSwissJudges();
+		expect(Array.isArray(judges)).toBe(true);
+		expect(judges.length).toBeGreaterThan(0);
 	});
 
 	test("getPlayoffJudges returns judge array", () => {

@@ -1,4 +1,6 @@
 # Swiss 1v1 format (pairwise matches instead of default 3-way)
+# This preset overrides tournament settings only.
+# Model roles (including [[roles.swissJudges]]) come from your base config.
 
 [tournament]
 swissFormat = "1v1"

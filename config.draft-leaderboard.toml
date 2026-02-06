@@ -1,5 +1,7 @@
 # Enable initial draft leaderboard to pick best seed per model
 # Generates multiple drafts per model, then runs round-robin to select the best
+# This preset overrides tournament settings only.
+# Model roles (including [[roles.swissJudges]]) come from your base config.
 
 [tournament]
 initialGenerations = 3  # Generate 3 drafts per model

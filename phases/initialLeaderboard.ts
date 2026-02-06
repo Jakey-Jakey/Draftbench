@@ -9,7 +9,7 @@ import {
 	getConfig,
 	getInitialLeaderboardJudges,
 	getModelsForRole,
-	getSwissJudge,
+	getSwissJudges,
 	type InitialLeaderboardStyle,
 	type RoleEntry,
 } from "../config";
@@ -294,7 +294,10 @@ export async function runInitialLeaderboardPhase(
 	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
 	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
 	const leaderboardJudges = getInitialLeaderboardJudges();
-	const swissJudge = getSwissJudge();
+	const swissJudge = requireDefined(
+		getSwissJudges()[0],
+		"No Swiss judge configured for initial leaderboard ranking styles",
+	);
 
 	const style = getEffectiveStyle(
 		INITIAL_LEADERBOARD.style,

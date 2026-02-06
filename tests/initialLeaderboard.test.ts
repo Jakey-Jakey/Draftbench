@@ -87,7 +87,10 @@ describe("config validation edge cases", () => {
 		for (const revi of config.roles.revisers) {
 			expect(revi.model).toContain("/");
 		}
-		expect(config.roles.swissJudge.model).toContain("/");
+		expect(config.roles.swissJudges.length).toBeGreaterThan(0);
+		for (const judge of config.roles.swissJudges) {
+			expect(judge.model).toContain("/");
+		}
 		for (const judge of config.roles.playoffJudges) {
 			expect(judge.model).toContain("/");
 		}

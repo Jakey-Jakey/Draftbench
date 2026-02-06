@@ -1,7 +1,7 @@
 import { appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pairwiseJudge, threeWayJudge } from "../aiClient";
-import { getConfig, getSwissJudge } from "../config";
+import { getConfig, getSwissJudges } from "../config";
 import type { SwissContestant, SwissMatch } from "../leaderboard";
 import { Semaphore } from "../semaphore";
 import {
@@ -157,11 +157,70 @@ function serializeContestants(
 		id: c.id,
 		points: c.points,
 		opponents: Array.from(c.opponents),
-		placements: c.placements,
+		placements: {
+			first: c.placements.first,
+			second: c.placements.second,
+			third: c.placements.third,
+			ties: c.placements.ties ?? 0,
+		},
 		wins: c.wins ?? 0,
 		losses: c.losses ?? 0,
 		draws: c.draws ?? 0,
 	}));
+}
+
+function getSharedPoints(match: SwissMatch): Record<string, number> {
+	if (match.sharedPoints) {
+		return match.sharedPoints;
+	}
+
+	return {
+		[match.first]: 2,
+		[match.second]: 1,
+		[match.third]: 0,
+	};
+}
+
+export function applyThreeWaySwissMatch(
+	contestants: SwissContestant[],
+	match: SwissMatch,
+): void {
+	const first = contestants.find((c) => c.id === match.first);
+	const second = contestants.find((c) => c.id === match.second);
+	const third = contestants.find((c) => c.id === match.third);
+
+	if (!first || !second || !third) return;
+
+	const sharedPoints = getSharedPoints(match);
+	first.points += sharedPoints[first.id] ?? 0;
+	second.points += sharedPoints[second.id] ?? 0;
+	third.points += sharedPoints[third.id] ?? 0;
+
+	const tieGroup = match.tieGroup ?? "none";
+	if (tieGroup === "none") {
+		first.placements.first++;
+		second.placements.second++;
+		third.placements.third++;
+	} else if (tieGroup === "top2") {
+		first.placements.ties = (first.placements.ties ?? 0) + 1;
+		second.placements.ties = (second.placements.ties ?? 0) + 1;
+		third.placements.third++;
+	} else if (tieGroup === "bottom2") {
+		first.placements.first++;
+		second.placements.ties = (second.placements.ties ?? 0) + 1;
+		third.placements.ties = (third.placements.ties ?? 0) + 1;
+	} else {
+		first.placements.ties = (first.placements.ties ?? 0) + 1;
+		second.placements.ties = (second.placements.ties ?? 0) + 1;
+		third.placements.ties = (third.placements.ties ?? 0) + 1;
+	}
+
+	first.opponents.add(second.id);
+	first.opponents.add(third.id);
+	second.opponents.add(first.id);
+	second.opponents.add(third.id);
+	third.opponents.add(first.id);
+	third.opponents.add(second.id);
 }
 
 // ============================================================================
@@ -183,12 +242,14 @@ export async function runSwissPhase(
 ): Promise<SwissPhaseResult> {
 	const config = getConfig();
 	const SWISS_ROUNDS = config.tournament.swissRounds;
-	const SWISS_JUDGE = getSwissJudge();
+	const SWISS_JUDGES = getSwissJudges();
 	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
-	const judgeShortName = getShortModelName(SWISS_JUDGE.model);
+	const judgeLabel = SWISS_JUDGES.map(
+		(j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`,
+	).join(", ");
 
 	console.log(
-		`Phase 5/6: Swiss Tournament (${SWISS_ROUNDS} rounds, ${SWISS_FORMAT} format)...`,
+		`Phase 5/6: Swiss Tournament (${SWISS_ROUNDS} rounds, ${SWISS_FORMAT} format, judges: ${judgeLabel})...`,
 	);
 
 	const fileLock = new Semaphore(1);
@@ -210,7 +271,12 @@ export async function runSwissPhase(
 				text: revisionsById.get(c.id)?.result.text ?? "",
 				points: c.points,
 				opponents: new Set(c.opponents),
-				placements: c.placements,
+				placements: {
+					first: c.placements.first,
+					second: c.placements.second,
+					third: c.placements.third,
+					ties: c.placements.ties ?? 0,
+				},
 				wins: c.wins ?? 0,
 				losses: c.losses ?? 0,
 				draws: c.draws ?? 0,
@@ -220,7 +286,7 @@ export async function runSwissPhase(
 				text: data.result.text,
 				points: 0,
 				opponents: new Set<string>(),
-				placements: { first: 0, second: 0, third: 0 },
+				placements: { first: 0, second: 0, third: 0, ties: 0 },
 				wins: 0,
 				losses: 0,
 				draws: 0,
@@ -277,44 +343,102 @@ export async function runSwissPhase(
 						"Missing shuffled entry 2 for Swiss pair",
 					);
 
-					let winnerId: string;
-					let _loserId: string;
-					let reasoning: string;
+					let match: SwissMatch;
+					let logEntry = "";
 
 					if (dryRun) {
 						// Mock
-						winnerId = idA; // Arbitrary winner for dry run
-						_loserId = idB;
-						reasoning = "Mock judgment for dry run (1v1).";
-						console.log(
-							`    ✓ Winner: ${winnerId} | Loser: ${_loserId} (mock)`,
-						);
+						const winnerId = idA;
+						const loserId = idB;
+						match = {
+							round,
+							ids: [idA, idB, "N/A"],
+							first: winnerId,
+							second: loserId,
+							third: "N/A",
+							reasoning: "Mock judgment for dry run (1v1).",
+							tieGroup: "none",
+							sharedPoints: {
+								[winnerId]: 1,
+								[loserId]: 0,
+							},
+						};
+						console.log(`    ✓ Winner: ${winnerId} | Loser: ${loserId} (mock)`);
 					} else {
-						// Real
-						const result = await pairwiseJudge(
-							"S1",
-							e1[1],
-							"S2",
-							e2[1],
-							SWISS_JUDGE.model,
-							SWISS_JUDGE.effort ?? "low",
+						const judgeResults = await Promise.all(
+							SWISS_JUDGES.map((judge) =>
+								pairwiseJudge(
+									"S1",
+									e1[1],
+									"S2",
+									e2[1],
+									judge.model,
+									judge.effort ?? "low",
+								),
+							),
 						);
-						const anonToReal = new Map<string, string>([
-							["S1", e1[0]],
-							["S2", e2[0]],
+
+						const voteCounts = new Map<string, number>([
+							[idA, 0],
+							[idB, 0],
 						]);
-						winnerId = anonToReal.get(result.winner) ?? idA;
-						_loserId = anonToReal.get(result.loser) ?? idB;
-						reasoning = result.reasoning;
+						for (const result of judgeResults) {
+							const resolvedWinner = result.winner === "S1" ? e1[0] : e2[0];
+							voteCounts.set(
+								resolvedWinner,
+								(voteCounts.get(resolvedWinner) ?? 0) + 1,
+							);
+						}
+
+						const votesA = voteCounts.get(idA) ?? 0;
+						const votesB = voteCounts.get(idB) ?? 0;
+						const isDraw = votesA === votesB;
+
+						if (isDraw) {
+							match = {
+								round,
+								ids: [idA, idB, "N/A"],
+								first: idA,
+								second: idB,
+								third: "N/A",
+								reasoning: "Swiss judges tied, resulting in a draw.",
+								tieGroup: "head_to_head",
+								sharedPoints: {
+									[idA]: 0.5,
+									[idB]: 0.5,
+								},
+							};
+							logEntry = `- ${idA} vs ${idB}: **DRAW** (${votesA}-${votesB})\n`;
+						} else {
+							const winnerId = votesA > votesB ? idA : idB;
+							const loserId = winnerId === idA ? idB : idA;
+							const winnerVotes = voteCounts.get(winnerId) ?? 0;
+							const loserVotes = voteCounts.get(loserId) ?? 0;
+							match = {
+								round,
+								ids: [idA, idB, "N/A"],
+								first: winnerId,
+								second: loserId,
+								third: "N/A",
+								reasoning: "Swiss judges reached a majority decision.",
+								tieGroup: "none",
+								sharedPoints: {
+									[winnerId]: 1,
+									[loserId]: 0,
+								},
+							};
+							logEntry = `- **${winnerId}** beat ${loserId} (${winnerVotes}-${loserVotes})\n`;
+						}
+
+						for (const result of judgeResults) {
+							const resolvedWinner = result.winner === "S1" ? e1[0] : e2[0];
+							logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
+						}
 
 						// Log to file
 						await fileLock.acquire();
 						try {
-							await appendFile(
-								swissLogPath,
-								`- **Winner: ${winnerId}** | Loser: ${_loserId}\n  - *${reasoning}*\n`,
-								"utf-8",
-							);
+							await appendFile(swissLogPath, logEntry, "utf-8");
 						} finally {
 							fileLock.release();
 						}
@@ -324,40 +448,65 @@ export async function runSwissPhase(
 							swissJudgmentsDir,
 							`round${round}_${idA}_vs_${idB}.md`,
 						);
-						const judgmentMd = `# Swiss Round ${round} Judgment (1v1)\n\n**Judge**: ${judgeShortName}\n\n## Contestants\n- S1: ${e1[0]}\n- S2: ${e2[0]}\n\n## Result\n**Winner**: ${winnerId}\n\n## Reasoning\n${reasoning}\n`;
+						let judgmentMd = `# Swiss Round ${round} Judgment (1v1)\n\n`;
+						judgmentMd += `## Judges\n`;
+						for (const judge of SWISS_JUDGES) {
+							judgmentMd += `- ${getShortModelName(judge.model)} (${judge.effort ?? "low"})\n`;
+						}
+						judgmentMd += `\n## Contestants\n- S1: ${e1[0]}\n- S2: ${e2[0]}\n\n`;
+						judgmentMd += "## Result\n";
+						if (match.tieGroup === "head_to_head") {
+							judgmentMd += `Draw (${(match.sharedPoints?.[idA] ?? 0).toFixed(1)} - ${(match.sharedPoints?.[idB] ?? 0).toFixed(1)})\n\n`;
+						} else {
+							judgmentMd += `Winner: ${match.first}\n\n`;
+						}
+						judgmentMd += "## Votes\n";
+						judgmentMd += logEntry.replace(/^- /, "");
 						await writeFile(judgmentFile, judgmentMd, "utf-8");
 					}
 
-					return {
-						round,
-						// Use "N/A" as a placeholder for the third slot in 1v1 matches to satisfy the tuple schema.
-						ids: [idA, idB, "N/A"],
-						first: winnerId,
-						second: _loserId,
-						third: "N/A",
-						reasoning,
-					};
+					return match;
 				},
 			);
 
 			const roundMatches = await Promise.all(pairPromises);
 
 			for (const match of roundMatches) {
-				const winner = contestants.find((c) => c.id === match.first);
-				const loser = contestants.find((c) => c.id === match.second);
+				const idA = match.ids[0];
+				const idB = match.ids[1];
+				if (!idA || !idB || idB === "BYE") {
+					allSwissMatches.push(match);
+					continue;
+				}
 
-				if (winner && loser) {
-					winner.points += 1;
-					// Update wins/losses for 1v1 instead of placements
-					winner.wins = (winner.wins ?? 0) + 1;
-					loser.points += 0;
-					loser.losses = (loser.losses ?? 0) + 1;
+				const contenderA = contestants.find((c) => c.id === idA);
+				const contenderB = contestants.find((c) => c.id === idB);
+				if (contenderA && contenderB) {
+					const sharedPoints = getSharedPoints(match);
+					contenderA.points += sharedPoints[idA] ?? 0;
+					contenderB.points += sharedPoints[idB] ?? 0;
 
-					winner.opponents.add(loser.id);
-					loser.opponents.add(winner.id);
+					if (match.tieGroup === "head_to_head") {
+						contenderA.draws = (contenderA.draws ?? 0) + 1;
+						contenderB.draws = (contenderB.draws ?? 0) + 1;
+					} else {
+						const winner = match.first === idA ? contenderA : contenderB;
+						const loser = winner === contenderA ? contenderB : contenderA;
+						winner.wins = (winner.wins ?? 0) + 1;
+						loser.losses = (loser.losses ?? 0) + 1;
+					}
+
+					contenderA.opponents.add(contenderB.id);
+					contenderB.opponents.add(contenderA.id);
 				}
 				if (!dryRun) {
-					console.log(`    ✓ Winner: ${match.first} | Loser: ${match.second}`);
+					if (match.tieGroup === "head_to_head") {
+						console.log(`    = ${idA} drew ${idB}`);
+					} else {
+						console.log(
+							`    ✓ Winner: ${match.first} | Loser: ${match.second}`,
+						);
+					}
 				}
 				allSwissMatches.push(match);
 			}
@@ -419,26 +568,15 @@ export async function runSwissPhase(
 						second: secondId,
 						third: thirdId,
 						reasoning: "Mock judgment for dry run.",
+						tieGroup: "none",
+						sharedPoints: {
+							[firstId]: 2,
+							[secondId]: 1,
+							[thirdId]: 0,
+						},
 					};
 
-					const first = contestants.find((c) => c.id === match.first);
-					const second = contestants.find((c) => c.id === match.second);
-					const third = contestants.find((c) => c.id === match.third);
-
-					if (first && second && third) {
-						first.points += 2;
-						first.placements.first++;
-						second.points += 1;
-						second.placements.second++;
-						third.placements.third++;
-
-						first.opponents.add(second.id);
-						first.opponents.add(third.id);
-						second.opponents.add(first.id);
-						second.opponents.add(third.id);
-						third.opponents.add(first.id);
-						third.opponents.add(second.id);
-					}
+					applyThreeWaySwissMatch(contestants, match);
 
 					allSwissMatches.push(match);
 					console.log(
@@ -477,58 +615,138 @@ export async function runSwissPhase(
 							"Missing shuffled entry 3 for Swiss triple",
 						);
 
-						const result = await threeWayJudge(
-							"S1",
-							e1[1],
-							"S2",
-							e2[1],
-							"S3",
-							e3[1],
-							SWISS_JUDGE.model,
-							SWISS_JUDGE.effort ?? "low",
+						const judgeResults = await Promise.all(
+							SWISS_JUDGES.map((judge) =>
+								threeWayJudge(
+									"S1",
+									e1[1],
+									"S2",
+									e2[1],
+									"S3",
+									e3[1],
+									judge.model,
+									judge.effort ?? "low",
+								),
+							),
 						);
 
-						const anonToReal = new Map<string, string>([
+						const idMap = new Map<string, string>([
 							["S1", e1[0]],
 							["S2", e2[0]],
 							["S3", e3[0]],
 						]);
+						const scoreMap = new Map<string, number>([
+							[idA, 0],
+							[idB, 0],
+							[idC, 0],
+						]);
+						let logEntry = "";
+						for (let i = 0; i < judgeResults.length; i++) {
+							const result = judgeResults[i];
+							const judge = SWISS_JUDGES[i];
+							const first = idMap.get(result.first) ?? idA;
+							const second = idMap.get(result.second) ?? idB;
+							const third = idMap.get(result.third) ?? idC;
+							scoreMap.set(first, (scoreMap.get(first) ?? 0) + 2);
+							scoreMap.set(second, (scoreMap.get(second) ?? 0) + 1);
+							scoreMap.set(third, (scoreMap.get(third) ?? 0) + 0);
+							logEntry += `  - ${judge?.model ?? "unknown"} ranked ${first} > ${second} > ${third}: *${result.reasoning}*\n`;
+						}
+
+						const sortedByScore = Array.from(scoreMap.entries()).sort(
+							(a, b) => (b[1] ?? 0) - (a[1] ?? 0) || a[0].localeCompare(b[0]),
+						);
+						const first = requireDefined(
+							sortedByScore[0],
+							"Missing first score entry in Swiss triple",
+						);
+						const second = requireDefined(
+							sortedByScore[1],
+							"Missing second score entry in Swiss triple",
+						);
+						const third = requireDefined(
+							sortedByScore[2],
+							"Missing third score entry in Swiss triple",
+						);
+
+						const topScore = first[1];
+						const secondScore = second[1];
+						const thirdScore = third[1];
+
+						let tieGroup: SwissMatch["tieGroup"] = "none";
+						const sharedPoints: Record<string, number> = {};
+						if (topScore === secondScore && secondScore === thirdScore) {
+							tieGroup = "all3";
+							sharedPoints[first[0]] = 1;
+							sharedPoints[second[0]] = 1;
+							sharedPoints[third[0]] = 1;
+							logEntry =
+								`- ${first[0]} / ${second[0]} / ${third[0]}: **3-way tie** (${topScore}-${secondScore}-${thirdScore})\n` +
+								logEntry;
+						} else if (topScore === secondScore) {
+							tieGroup = "top2";
+							sharedPoints[first[0]] = 1.5;
+							sharedPoints[second[0]] = 1.5;
+							sharedPoints[third[0]] = 0;
+							logEntry =
+								`- ${first[0]} and ${second[0]}: **tie for 1st** (${topScore}-${secondScore}-${thirdScore})\n` +
+								logEntry;
+						} else if (secondScore === thirdScore) {
+							tieGroup = "bottom2";
+							sharedPoints[first[0]] = 2;
+							sharedPoints[second[0]] = 0.5;
+							sharedPoints[third[0]] = 0.5;
+							logEntry =
+								`- **1st: ${first[0]}** | ${second[0]} and ${third[0]} tie for 2nd (${topScore}-${secondScore}-${thirdScore})\n` +
+								logEntry;
+						} else {
+							sharedPoints[first[0]] = 2;
+							sharedPoints[second[0]] = 1;
+							sharedPoints[third[0]] = 0;
+							logEntry =
+								`- **1st: ${first[0]}** | 2nd: ${second[0]} | 3rd: ${third[0]} (${topScore}-${secondScore}-${thirdScore})\n` +
+								logEntry;
+						}
 
 						const match: SwissMatch = {
 							round,
 							ids: [idA, idB, idC],
-							first: anonToReal.get(result.first) ?? idA,
-							second: anonToReal.get(result.second) ?? idB,
-							third: anonToReal.get(result.third) ?? idC,
-							reasoning: result.reasoning,
+							first: first[0],
+							second: second[0],
+							third: third[0],
+							reasoning: "Aggregated multi-judge Swiss vote.",
+							tieGroup,
+							sharedPoints,
 						};
 
 						await fileLock.acquire();
 						try {
-							await appendFile(
-								swissLogPath,
-								`- **1st: ${match.first}** | 2nd: ${match.second} | 3rd: ${match.third}\n  - *${match.reasoning}*\n`,
-								"utf-8",
-							);
+							await appendFile(swissLogPath, logEntry, "utf-8");
 						} finally {
 							fileLock.release();
 						}
 
 						const judgmentFile = join(
 							swissJudgmentsDir,
-							`round${round}_${match.first}_vs_${match.second}_vs_${match.third}.md`,
+							`round${round}_${idA}_vs_${idB}_vs_${idC}.md`,
 						);
 						let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
-						judgmentMd += `**Judge**: ${judgeShortName} (${SWISS_JUDGE.effort ?? "low"} thinking)\n\n`;
+						judgmentMd += "## Judges\n";
+						for (const judge of SWISS_JUDGES) {
+							judgmentMd += `- ${getShortModelName(judge.model)} (${judge.effort ?? "low"})\n`;
+						}
+						judgmentMd += "\n";
 						judgmentMd += `## Contestants\n\n`;
 						judgmentMd += `- S1 (${e1[0]}): ${e1[0]}\n`;
 						judgmentMd += `- S2 (${e2[0]}): ${e2[0]}\n`;
 						judgmentMd += `- S3 (${e3[0]}): ${e3[0]}\n\n`;
 						judgmentMd += `## Result\n\n`;
-						judgmentMd += `1. **${match.first}** (2 pts)\n`;
-						judgmentMd += `2. ${match.second} (1 pt)\n`;
-						judgmentMd += `3. ${match.third} (0 pts)\n\n`;
-						judgmentMd += `## Reasoning\n\n${result.reasoning}\n`;
+						judgmentMd += `- ${match.first}: ${match.sharedPoints?.[match.first] ?? 0} pts\n`;
+						judgmentMd += `- ${match.second}: ${match.sharedPoints?.[match.second] ?? 0} pts\n`;
+						judgmentMd += `- ${match.third}: ${match.sharedPoints?.[match.third] ?? 0} pts\n`;
+						judgmentMd += `- Tie Group: ${match.tieGroup ?? "none"}\n\n`;
+						judgmentMd += "## Votes\n";
+						judgmentMd += logEntry.replace(/^- /, "");
 						await writeFile(judgmentFile, judgmentMd, "utf-8");
 
 						return match;
@@ -538,29 +756,18 @@ export async function runSwissPhase(
 				const roundResults = await Promise.all(triplePromises);
 
 				for (const match of roundResults) {
-					const first = contestants.find((c) => c.id === match.first);
-					const second = contestants.find((c) => c.id === match.second);
-					const third = contestants.find((c) => c.id === match.third);
-
-					if (first && second && third) {
-						first.points += 2;
-						first.placements.first++;
-						second.points += 1;
-						second.placements.second++;
-						third.placements.third++;
-
-						first.opponents.add(second.id);
-						first.opponents.add(third.id);
-						second.opponents.add(first.id);
-						second.opponents.add(third.id);
-						third.opponents.add(first.id);
-						third.opponents.add(second.id);
-					}
+					applyThreeWaySwissMatch(contestants, match);
 
 					allSwissMatches.push(match);
-					console.log(
-						`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`,
-					);
+					if ((match.tieGroup ?? "none") === "none") {
+						console.log(
+							`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`,
+						);
+					} else {
+						console.log(
+							`    = Tie result: ${match.first} | ${match.second} | ${match.third} (${match.tieGroup})`,
+						);
+					}
 				}
 
 				await appendFile(swissLogPath, "\n", "utf-8");

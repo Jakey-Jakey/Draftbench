@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { SwissContestant } from "../leaderboard";
-import { generateSwissPairs, generateSwissTriples } from "../phases/swiss";
+import {
+	applyThreeWaySwissMatch,
+	generateSwissPairs,
+	generateSwissTriples,
+} from "../phases/swiss";
 
 function createContestant(id: string, points = 0): SwissContestant {
 	return {
@@ -12,6 +16,35 @@ function createContestant(id: string, points = 0): SwissContestant {
 		wins: 0,
 		losses: 0,
 		draws: 0,
+	};
+}
+
+function createThreeWayMatch(tieGroup: "none" | "top2" | "bottom2" | "all3"): {
+	round: number;
+	ids: [string, string, string];
+	first: string;
+	second: string;
+	third: string;
+	reasoning: string;
+	tieGroup: "none" | "top2" | "bottom2" | "all3";
+	sharedPoints: Record<string, number>;
+} {
+	return {
+		round: 1,
+		ids: ["A", "B", "C"],
+		first: "A",
+		second: "B",
+		third: "C",
+		reasoning: "test",
+		tieGroup,
+		sharedPoints:
+			tieGroup === "top2"
+				? { A: 1.5, B: 1.5, C: 0 }
+				: tieGroup === "bottom2"
+					? { A: 2, B: 0.5, C: 0.5 }
+					: tieGroup === "all3"
+						? { A: 1, B: 1, C: 1 }
+						: { A: 2, B: 1, C: 0 },
 	};
 }
 
@@ -359,5 +392,46 @@ describe("Swiss contestant tracking", () => {
 
 		expect(c.wins).toBe(1);
 		expect(c.losses).toBe(2);
+	});
+});
+
+describe("applyThreeWaySwissMatch", () => {
+	test("records unique loser for top2 tie", () => {
+		const contestants = [
+			createContestant("A"),
+			createContestant("B"),
+			createContestant("C"),
+		];
+
+		applyThreeWaySwissMatch(contestants, createThreeWayMatch("top2"));
+
+		const a = contestants.find((c) => c.id === "A");
+		const b = contestants.find((c) => c.id === "B");
+		const c = contestants.find((cst) => cst.id === "C");
+
+		expect(a?.placements.ties).toBe(1);
+		expect(b?.placements.ties).toBe(1);
+		expect(c?.placements.third).toBe(1);
+		expect(a?.placements.first).toBe(0);
+		expect(b?.placements.second).toBe(0);
+	});
+
+	test("records unique winner for bottom2 tie", () => {
+		const contestants = [
+			createContestant("A"),
+			createContestant("B"),
+			createContestant("C"),
+		];
+
+		applyThreeWaySwissMatch(contestants, createThreeWayMatch("bottom2"));
+
+		const a = contestants.find((c) => c.id === "A");
+		const b = contestants.find((c) => c.id === "B");
+		const c = contestants.find((cst) => cst.id === "C");
+
+		expect(a?.placements.first).toBe(1);
+		expect(b?.placements.ties).toBe(1);
+		expect(c?.placements.ties).toBe(1);
+		expect(c?.placements.third).toBe(0);
 	});
 });

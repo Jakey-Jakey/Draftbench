@@ -16,6 +16,7 @@ This pipeline benchmarks AI models on creative artifact generation end-to-end:
 
 - **1v1v1 Format**: Each Swiss match compares 3 artifacts simultaneously for 3× data efficiency
 - **Position Randomization**: All matches randomize presentation order to eliminate position bias
+- **Multi-Judge Swiss (Optional)**: Swiss can use one or many judges with majority/tie aggregation
 - **Multi-Judge Playoff**: Configurable judges vote on each playoff match
 - **Anonymized Judging**: All artifacts are presented with anonymous IDs (S1, S2, S3)
 - **Resumable Runs**: Interrupted pipelines can be resumed with `--resume` with phase checkpoints (reviews/revisions saved incrementally, Swiss saved per round, playoff saved per matchup)
@@ -82,7 +83,7 @@ model = "moonshot/kimi-k2-preview"
 effort = "high"
 # ... add more revisers ...
 
-[roles.swissJudge]
+[[roles.swissJudges]]
 model = "openai/gpt-5.2"
 effort = "low"
 # ... add more judges ...
@@ -186,11 +187,11 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 | Generate | 3 | ~$0.50 |
 | Review | 9 | ~$1.00 |
 | Revise | 27 | ~$2.00 |
-| Swiss (7 rounds × 9) | 63 | ~$5.67 |
+| Swiss (7 rounds × 9 matches × 1 judge) | 63 | ~$5.67 |
 | Playoff (28 × 2 judges) | 56 | ~$5.80 |
 | **Total** | **158** | **~$15** |
 
-*Costs vary based on model selection and reasoning effort.*
+*Costs vary based on model selection, judge counts, and reasoning effort.*
 
 ## Scoring
 
@@ -198,6 +199,7 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 - 1st place: 2 points
 - 2nd place: 1 point
 - 3rd place: 0 points
+- With multiple Swiss judges, points are aggregated per match and ties split points (for example, 1.5/1.5/0)
 - Positions are randomized each match
 
 ### Playoff (Multi-Judge Round Robin)

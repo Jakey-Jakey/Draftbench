@@ -35,9 +35,9 @@ export interface RolesConfig {
 	reviewers: RoleEntry[];
 	/** Models that revise drafts */
 	revisers: RoleEntry[];
-	/** Swiss tournament judge */
-	swissJudge: RoleEntry;
-	/** Playoff judges (dual-judge voting) */
+	/** Swiss tournament judges */
+	swissJudges: RoleEntry[];
+	/** Playoff judges (multi-judge voting) */
 	playoffJudges: RoleEntry[];
 	/** Initial leaderboard judges (optional, defaults to playoffJudges) */
 	initialLeaderboardJudges?: RoleEntry[];
@@ -126,7 +126,7 @@ const DEFAULT_CONFIG: PipelineConfig = {
 			{ model: "openai/gpt-4.1", effort: "high" },
 			{ model: "google/gemini-2.5-pro-preview", effort: "high" },
 		],
-		swissJudge: { model: "anthropic/claude-sonnet-4", effort: "low" },
+		swissJudges: [{ model: "anthropic/claude-sonnet-4", effort: "low" }],
 		playoffJudges: [
 			{ model: "anthropic/claude-sonnet-4", effort: "low" },
 			{ model: "openai/gpt-4.1", effort: "high" },
@@ -217,6 +217,26 @@ The IDs are: "{idA}", "{idB}", "{idC}". Rank all three.`,
 
 let loadedConfig: PipelineConfig | null = null;
 
+const VALID_REASONING_EFFORTS: ReasoningEffort[] = [
+	"xhigh",
+	"high",
+	"medium",
+	"low",
+	"minimal",
+	"none",
+];
+const HIGH_CALL_VOLUME_THRESHOLD = 500;
+
+interface ApiCallEstimate {
+	generation: number;
+	initialLeaderboard: number;
+	review: number;
+	revise: number;
+	swiss: number;
+	playoff: number;
+	total: number;
+}
+
 /**
  * Deep merge two objects, with source overwriting target for matching keys.
  */
@@ -276,17 +296,167 @@ function deepMerge(
 	return result;
 }
 
+function normalizeRoleEntry(
+	entry: RoleEntry,
+	label: string,
+	warnings: string[],
+): void {
+	if (
+		entry.effort !== undefined &&
+		!VALID_REASONING_EFFORTS.includes(entry.effort)
+	) {
+		warnings.push(
+			`Invalid effort "${entry.effort}" for ${label}; using role default effort instead.`,
+		);
+		delete entry.effort;
+	}
+
+	if (
+		entry.temperature !== undefined &&
+		(typeof entry.temperature !== "number" || Number.isNaN(entry.temperature))
+	) {
+		warnings.push(
+			`Invalid temperature for ${label}; removing temperature override.`,
+		);
+		delete entry.temperature;
+	}
+}
+
+function normalizeConfig(config: PipelineConfig): string[] {
+	const warnings: string[] = [];
+	config.roles.swissJudges = config.roles.swissJudges ?? [];
+
+	config.roles.generators.forEach((entry, index) => {
+		normalizeRoleEntry(entry, `roles.generators[${index}]`, warnings);
+	});
+	config.roles.reviewers.forEach((entry, index) => {
+		normalizeRoleEntry(entry, `roles.reviewers[${index}]`, warnings);
+	});
+	config.roles.revisers.forEach((entry, index) => {
+		normalizeRoleEntry(entry, `roles.revisers[${index}]`, warnings);
+	});
+	config.roles.swissJudges.forEach((entry, index) => {
+		normalizeRoleEntry(entry, `roles.swissJudges[${index}]`, warnings);
+	});
+	config.roles.playoffJudges.forEach((entry, index) => {
+		normalizeRoleEntry(entry, `roles.playoffJudges[${index}]`, warnings);
+	});
+	(config.roles.initialLeaderboardJudges ?? []).forEach((entry, index) => {
+		normalizeRoleEntry(
+			entry,
+			`roles.initialLeaderboardJudges[${index}]`,
+			warnings,
+		);
+	});
+
+	return warnings;
+}
+
+function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
+	const generatorCount = config.roles.generators.length;
+	const reviewerCount = config.roles.reviewers.length;
+	const reviserCount = config.roles.revisers.length;
+	const swissJudgeCount = config.roles.swissJudges.length;
+	const playoffJudgeCount = config.roles.playoffJudges.length;
+	const initialGenerations = config.tournament.initialGenerations;
+	const initialLeaderboardEnabled =
+		config.tournament.initialLeaderboard.enabled;
+	const initialLeaderboardStyle =
+		config.tournament.initialLeaderboard.style ?? "per-model-pairwise";
+	const initialLeaderboardJudgeCount =
+		config.roles.initialLeaderboardJudges?.length ??
+		config.roles.playoffJudges.length;
+
+	const generation = generatorCount * initialGenerations;
+
+	let initialLeaderboard = 0;
+	if (initialLeaderboardEnabled && initialGenerations > 1) {
+		if (initialLeaderboardStyle === "per-model-pairwise") {
+			initialLeaderboard =
+				generatorCount *
+				((initialGenerations * (initialGenerations - 1)) / 2) *
+				initialLeaderboardJudgeCount;
+		} else if (initialLeaderboardStyle === "global-pairwise") {
+			const totalDrafts = generatorCount * initialGenerations;
+			initialLeaderboard =
+				((totalDrafts * (totalDrafts - 1)) / 2) * initialLeaderboardJudgeCount;
+		} else if (initialLeaderboardStyle === "per-model-rank") {
+			initialLeaderboard = generatorCount;
+		} else if (initialLeaderboardStyle === "global-rank") {
+			initialLeaderboard = 1;
+		}
+	}
+
+	const review = reviewerCount * generatorCount;
+	const revise = review * reviserCount;
+	const contestants = revise;
+	const swissMatchesPerRound =
+		(config.tournament.swissFormat ?? "1v1v1") === "1v1"
+			? Math.floor(contestants / 2)
+			: Math.floor(contestants / 3);
+	const swiss =
+		swissMatchesPerRound * config.tournament.swissRounds * swissJudgeCount;
+	const playoffContestants = Math.max(
+		1,
+		Math.min(config.tournament.playoffSize, contestants),
+	);
+	const playoffPairs = (playoffContestants * (playoffContestants - 1)) / 2;
+	const playoff = playoffPairs * playoffJudgeCount;
+	const total =
+		generation + initialLeaderboard + review + revise + swiss + playoff;
+
+	return {
+		generation,
+		initialLeaderboard,
+		review,
+		revise,
+		swiss,
+		playoff,
+		total,
+	};
+}
+
 /**
  * Parse TOML config file and convert to PipelineConfig.
  */
 function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 	const raw = parseTOML(content) as Record<string, unknown>;
 	const result: Partial<PipelineConfig> = {};
+	const knownTopLevelKeys = new Set([
+		"roles",
+		"tournament",
+		"output",
+		"concurrency",
+		"prompts",
+	]);
+	for (const key of Object.keys(raw)) {
+		if (!knownTopLevelKeys.has(key)) {
+			console.warn(`⚠️ Unknown config key ignored: ${key}`);
+		}
+	}
 
 	// Parse roles
 	if (raw.roles) {
 		const rolesRaw = raw.roles as Record<string, unknown>;
 		result.roles = {} as RolesConfig;
+		if (Object.hasOwn(rolesRaw, "swissJudge")) {
+			throw new Error(
+				"roles.swissJudge is no longer supported. Use [[roles.swissJudges]] instead.",
+			);
+		}
+		const knownRoleKeys = new Set([
+			"generators",
+			"reviewers",
+			"revisers",
+			"swissJudges",
+			"playoffJudges",
+			"initialLeaderboardJudges",
+		]);
+		for (const key of Object.keys(rolesRaw)) {
+			if (!knownRoleKeys.has(key)) {
+				console.warn(`⚠️ Unknown roles key ignored: roles.${key}`);
+			}
+		}
 
 		if (rolesRaw.generators) {
 			result.roles.generators = rolesRaw.generators as RoleEntry[];
@@ -297,8 +467,8 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		if (rolesRaw.revisers) {
 			result.roles.revisers = rolesRaw.revisers as RoleEntry[];
 		}
-		if (rolesRaw.swissJudge) {
-			result.roles.swissJudge = rolesRaw.swissJudge as RoleEntry;
+		if (rolesRaw.swissJudges) {
+			result.roles.swissJudges = rolesRaw.swissJudges as RoleEntry[];
 		}
 		if (rolesRaw.playoffJudges) {
 			result.roles.playoffJudges = rolesRaw.playoffJudges as RoleEntry[];
@@ -313,6 +483,18 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 	if (raw.tournament) {
 		const tournamentRaw = raw.tournament as Record<string, unknown>;
 		result.tournament = {} as TournamentConfig;
+		const knownTournamentKeys = new Set([
+			"swissRounds",
+			"playoffSize",
+			"initialGenerations",
+			"swissFormat",
+			"initialLeaderboard",
+		]);
+		for (const key of Object.keys(tournamentRaw)) {
+			if (!knownTournamentKeys.has(key)) {
+				console.warn(`⚠️ Unknown tournament key ignored: tournament.${key}`);
+			}
+		}
 
 		if (tournamentRaw.swissRounds !== undefined) {
 			result.tournament.swissRounds = tournamentRaw.swissRounds as number;
@@ -501,6 +683,10 @@ export function loadConfig(
 			userConfig = parseTOMLConfig(content);
 			console.log(`📁 Loaded config from: ${path}`);
 		} catch (e) {
+			if (configPath) {
+				const message = e instanceof Error ? e.message : String(e);
+				throw new Error(`Failed to parse config file ${path}: ${message}`);
+			}
 			console.error(`⚠️ Failed to parse config file ${path}:`, e);
 			console.log("   Using default configuration.");
 		}
@@ -546,7 +732,15 @@ export function loadConfig(
 	}
 	// If no prompts.toml found and no --prompts flag, silently use defaults
 
-	validateConfig(mergedConfig);
+	const normalizeWarnings = normalizeConfig(mergedConfig);
+	const validateWarnings = validateConfig(mergedConfig);
+	for (const warning of [...normalizeWarnings, ...validateWarnings]) {
+		console.warn(`⚠️ ${warning}`);
+	}
+	const estimate = estimateApiCalls(mergedConfig);
+	console.log(
+		`📊 Estimated API calls: total ${estimate.total} (gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, playoff ${estimate.playoff})`,
+	);
 	loadedConfig = mergedConfig;
 	loadedPaths = {
 		configPath: effectiveConfigPath,
@@ -614,14 +808,15 @@ export function getEffortForRole(
 		| "generators"
 		| "reviewers"
 		| "revisers"
-		| "swissJudge"
+		| "swissJudges"
 		| "playoffJudges",
 	modelSlug: string,
 ): ReasoningEffort {
 	const config = getConfig();
 
-	if (role === "swissJudge") {
-		return config.roles.swissJudge.effort ?? "high";
+	if (role === "swissJudges") {
+		const entry = config.roles.swissJudges.find((e) => e.model === modelSlug);
+		return entry?.effort ?? "high";
 	}
 
 	if (role === "playoffJudges") {
@@ -635,10 +830,10 @@ export function getEffortForRole(
 }
 
 /**
- * Gets the Swiss judge configuration.
+ * Gets Swiss judge configurations.
  */
-export function getSwissJudge(): RoleEntry {
-	return getConfig().roles.swissJudge;
+export function getSwissJudges(): RoleEntry[] {
+	return getConfig().roles.swissJudges;
 }
 
 /**
@@ -659,7 +854,9 @@ export function getInitialLeaderboardJudges(): RoleEntry[] {
 /**
  * Validates the loaded configuration for consistency.
  */
-function validateConfig(config: PipelineConfig): void {
+function validateConfig(config: PipelineConfig): string[] {
+	const warnings: string[] = [];
+
 	// Validate output config
 	if (
 		!config.output ||
@@ -679,11 +876,36 @@ function validateConfig(config: PipelineConfig): void {
 	if (!config.roles.revisers || config.roles.revisers.length === 0) {
 		throw new Error("roles.revisers must have at least one entry");
 	}
-	if (!config.roles.swissJudge || !config.roles.swissJudge.model) {
-		throw new Error("roles.swissJudge must be defined with a model");
+	if (!config.roles.swissJudges || config.roles.swissJudges.length === 0) {
+		throw new Error("roles.swissJudges must have at least one entry");
 	}
 	if (!config.roles.playoffJudges || config.roles.playoffJudges.length === 0) {
 		throw new Error("roles.playoffJudges must have at least one entry");
+	}
+	if (
+		!Number.isInteger(config.tournament.swissRounds) ||
+		config.tournament.swissRounds < 1
+	) {
+		throw new Error("tournament.swissRounds must be an integer >= 1");
+	}
+	if (
+		!Number.isInteger(config.tournament.initialGenerations) ||
+		config.tournament.initialGenerations < 1
+	) {
+		throw new Error("tournament.initialGenerations must be an integer >= 1");
+	}
+	if (
+		!Number.isInteger(config.tournament.playoffSize) ||
+		config.tournament.playoffSize < 2
+	) {
+		throw new Error("tournament.playoffSize must be an integer >= 2");
+	}
+	if (
+		config.tournament.swissFormat &&
+		config.tournament.swissFormat !== "1v1" &&
+		config.tournament.swissFormat !== "1v1v1"
+	) {
+		throw new Error('tournament.swissFormat must be either "1v1" or "1v1v1"');
 	}
 
 	// Validate that all role entries have valid model slugs
@@ -691,7 +913,7 @@ function validateConfig(config: PipelineConfig): void {
 		...config.roles.generators,
 		...config.roles.reviewers,
 		...config.roles.revisers,
-		config.roles.swissJudge,
+		...config.roles.swissJudges,
 		...config.roles.playoffJudges,
 		...(config.roles.initialLeaderboardJudges ?? []),
 	];
@@ -700,13 +922,39 @@ function validateConfig(config: PipelineConfig): void {
 		if (!entry.model || typeof entry.model !== "string") {
 			throw new Error(`Invalid role entry: missing or invalid 'model' field`);
 		}
-		// Basic OpenRouter slug validation (should contain a /)
-		if (!entry.model.includes("/")) {
+		const [provider, modelName] = entry.model.split("/");
+		if (!provider || !modelName || entry.model.split("/").length !== 2) {
 			throw new Error(
-				`Invalid model slug "${entry.model}": OpenRouter slugs should be in format "provider/model-name"`,
+				`Invalid model slug "${entry.model}": expected "provider/model-name"`,
 			);
 		}
 	}
+
+	const estimatedContestants =
+		config.roles.generators.length *
+		config.roles.reviewers.length *
+		config.roles.revisers.length;
+	if (config.tournament.playoffSize > estimatedContestants) {
+		const clamped = Math.max(1, estimatedContestants);
+		warnings.push(
+			`tournament.playoffSize (${config.tournament.playoffSize}) exceeds estimated contestant count (${estimatedContestants}); clamping to ${clamped}.`,
+		);
+		config.tournament.playoffSize = clamped;
+	}
+	if (estimatedContestants < 2) {
+		warnings.push(
+			`Only ${estimatedContestants} contestant expected from current role counts; playoff rounds will be minimal.`,
+		);
+	}
+
+	const estimate = estimateApiCalls(config);
+	if (estimate.total >= HIGH_CALL_VOLUME_THRESHOLD) {
+		warnings.push(
+			`High estimated API volume (${estimate.total} calls: gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, playoff ${estimate.playoff}). Consider reducing rounds/models for faster runs.`,
+		);
+	}
+
+	return warnings;
 }
 
 // ============================================================================
