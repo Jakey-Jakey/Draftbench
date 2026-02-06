@@ -412,15 +412,32 @@ export async function runSwissPhase(
 
 		if (SWISS_FORMAT === "1v1") {
 			// === 1v1 PAIRWISE FORMAT ===
-			const { pairs, bye } =
-				schedulingConfig.mode === "adaptive" && ratingState
-					? scheduleAdaptivePairs(contestants, ratingState, pairwiseHistory, {
-							exploration: schedulingConfig.exploration,
-							avoidRepeatPenalty: schedulingConfig.avoidRepeatPenalty,
-							maxRepeatPairs: schedulingConfig.maxRepeatPairs,
-							randomSeed: round * 9_973,
-						})
-					: generateSwissPairs(contestants);
+			let pairs: [string, string][];
+			let bye: string | null;
+			if (schedulingConfig.mode === "adaptive" && ratingState) {
+				const scheduled = scheduleAdaptivePairs(
+					contestants,
+					ratingState,
+					pairwiseHistory,
+					{
+						exploration: schedulingConfig.exploration,
+						avoidRepeatPenalty: schedulingConfig.avoidRepeatPenalty,
+						maxRepeatPairs: schedulingConfig.maxRepeatPairs,
+						randomSeed: round * 9_973,
+					},
+				);
+				pairs = scheduled.pairs;
+				bye = scheduled.bye;
+				if (scheduled.diagnostics.forcedRepeatPairs > 0) {
+					console.warn(
+						`    ⚠️ Adaptive scheduler forced ${scheduled.diagnostics.forcedRepeatPairs} over-cap rematch(es) to complete pairings. Consider increasing tournament.scheduling.maxRepeatPairs.`,
+					);
+				}
+			} else {
+				const scheduled = generateSwissPairs(contestants);
+				pairs = scheduled.pairs;
+				bye = scheduled.bye;
+			}
 			const pairPromises = pairs.map(
 				async ([idA, idB]): Promise<SwissMatch> => {
 					const textA = revisionsById.get(idA)?.result.text;
