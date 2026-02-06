@@ -104,7 +104,7 @@ enabled = true
 minBatches = 3
 maxBatches = 7              # Hard cap for swiss batches (<= swissRounds)
 topK = 8                    # Evaluate separation at playoff boundary
-minSeparation = 65          # Rating-point separation target
+minSeparation = 65          # Rating-point separation target (set to 0 to disable)
 confidence = 0.9
 stabilityBatches = 2        # Require same topK for N consecutive batches
 # budgetMaxCalls = 600       # Optional hard API-call budget for Swiss phase

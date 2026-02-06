@@ -36,6 +36,22 @@ describe("pairwiseFromSwissMatch", () => {
 		expect(obs[0]).toMatchObject({ scoreA: 0.5, scoreB: 0.5 });
 	});
 
+	test("respects tieValue override for draws", () => {
+		const match: SwissMatch = {
+			round: 2,
+			ids: ["A", "B", "N/A"],
+			first: "A",
+			second: "B",
+			third: "N/A",
+			reasoning: "draw",
+			tieGroup: "head_to_head",
+			sharedPoints: { A: 0.5, B: 0.5 },
+		};
+
+		const obs = pairwiseFromSwissMatch(match, 0.25);
+		expect(obs[0]).toMatchObject({ scoreA: 0.25, scoreB: 0.25 });
+	});
+
 	test("converts 1v1v1 into 3 pairwise edges", () => {
 		const match: SwissMatch = {
 			round: 1,

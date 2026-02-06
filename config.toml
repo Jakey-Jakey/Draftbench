@@ -99,7 +99,7 @@ enabled = true
 minBatches = 3
 maxBatches = 7
 topK = 8
-minSeparation = 65
+minSeparation = 65          # Set to 0 to disable separation check
 confidence = 0.9
 stabilityBatches = 2
 

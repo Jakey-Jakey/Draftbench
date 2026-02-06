@@ -83,7 +83,9 @@ export function evaluateStopRules(
 	}
 
 	const separation = boundaryLeft.rating - boundaryRight.rating;
-	const passesSeparation = separation >= config.minSeparation;
+	// Treat minSeparation <= 0 as "disabled" rather than "always passes".
+	const passesSeparation =
+		config.minSeparation > 0 && separation >= config.minSeparation;
 
 	const z = confidenceMultiplier(config.confidence);
 	const leftLow = boundaryLeft.rating - z * boundaryLeft.uncertainty;

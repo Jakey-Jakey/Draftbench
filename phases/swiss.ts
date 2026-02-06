@@ -9,6 +9,7 @@ import {
 	createRatingState,
 	deserializeRatingState,
 	getRatingStandings,
+	getRatingStandingsWithOptions,
 	serializeRatingState,
 } from "../rating/engine";
 import type { PairwiseObservation, RatingState } from "../rating/types";
@@ -241,8 +242,12 @@ export function applyThreeWaySwissMatch(
 function syncContestantsWithRatings(
 	contestants: SwissContestant[],
 	ratingState: RatingState,
+	options?: { bootstrapCi?: boolean },
 ): string[] {
-	const standings = getRatingStandings(ratingState);
+	const standings =
+		options?.bootstrapCi === true
+			? getRatingStandingsWithOptions(ratingState, { bootstrapCi: true })
+			: getRatingStandings(ratingState);
 	const byId = new Map(standings.map((entry) => [entry.id, entry]));
 	for (const contestant of contestants) {
 		const rating = byId.get(contestant.id);
@@ -253,6 +258,19 @@ function syncContestantsWithRatings(
 		contestant.ratingCiHigh = rating.ciHigh;
 	}
 	return standings.map((entry) => entry.id);
+}
+
+function countSwissJudgeCalls(
+	matches: SwissMatch[],
+	judgeCount: number,
+): number {
+	let judgedMatches = 0;
+	for (const match of matches) {
+		// Byes do not trigger judge calls.
+		if (match.ids.includes("BYE")) continue;
+		judgedMatches += 1;
+	}
+	return judgedMatches * judgeCount;
 }
 
 // ============================================================================
@@ -289,6 +307,11 @@ export async function runSwissPhase(
 	if (schedulingConfig.mode === "adaptive" && !ratingConfig.enabled) {
 		console.warn(
 			"  ⚠️ Adaptive scheduling requested without rating backend; falling back to static Swiss pairing.",
+		);
+	}
+	if (stopRulesConfig.enabled && !ratingConfig.enabled) {
+		console.warn(
+			"  ⚠️ Stop rules enabled without rating backend; stop rules will be ignored.",
 		);
 	}
 
@@ -857,7 +880,7 @@ export async function runSwissPhase(
 		lastCompletedRound = round;
 		const roundPairwise = allSwissMatches
 			.filter((match) => match.round === round)
-			.flatMap(pairwiseFromSwissMatch);
+			.flatMap((match) => pairwiseFromSwissMatch(match, ratingConfig.tieValue));
 		if (roundPairwise.length > 0) {
 			pairwiseHistory.push(...roundPairwise);
 		}
@@ -876,7 +899,10 @@ export async function runSwissPhase(
 			const stop = evaluateStopRules(
 				{
 					round,
-					totalCalls: allSwissMatches.length * SWISS_JUDGES.length,
+					totalCalls: countSwissJudgeCalls(
+						allSwissMatches,
+						SWISS_JUDGES.length,
+					),
 					standings: getRatingStandings(ratingState),
 					topKHistory,
 				},
@@ -921,6 +947,11 @@ export async function runSwissPhase(
 	}
 
 	console.log("");
+
+	// If rating is enabled and configured, compute final (potentially bootstrap) CIs for display.
+	if (ratingState) {
+		syncContestantsWithRatings(contestants, ratingState, { bootstrapCi: true });
+	}
 
 	// Save state
 	if (!dryRun) {

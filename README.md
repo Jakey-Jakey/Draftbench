@@ -219,7 +219,7 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 - Positions are randomized each match
 - When `tournament.rating.enabled = true`, Swiss standings and playoff seeding use rating estimates (with confidence), while points remain visible for readability
 - When `tournament.scheduling.mode = "adaptive"`, matchups are selected by uncertainty/closeness/repeat-penalty scoring
-- When `tournament.stopRules.enabled = true`, Swiss may stop before `swissRounds` once configured criteria are met
+- When `tournament.stopRules.enabled = true`, Swiss may stop before `swissRounds` once configured criteria are met (set `minSeparation = 0` to disable the separation threshold)
 
 ### Playoff (Multi-Judge Round Robin)
 - Configurable judges vote on each match

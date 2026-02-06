@@ -113,4 +113,29 @@ describe("stop rules", () => {
 		expect(result.shouldStop).toBe(true);
 		expect(result.reason).toContain("stable");
 	});
+
+	test("minSeparation=0 does not auto-stop (requires confidence)", () => {
+		const result = evaluateStopRules(
+			{
+				round: 5,
+				totalCalls: 80,
+				standings,
+				topKHistory: [
+					["A", "B"],
+					["A", "B"],
+					["A", "B"],
+				],
+			},
+			{
+				enabled: true,
+				minBatches: 3,
+				maxBatches: 9,
+				topK: 2,
+				minSeparation: 0,
+				confidence: 0.99,
+				stabilityBatches: 2,
+			},
+		);
+		expect(result.shouldStop).toBe(false);
+	});
 });

@@ -8,9 +8,17 @@ function toPairwiseFromScores(
 	bScore: number,
 	round: number,
 	sourceMatchId: string,
+	tieValue: number,
 ): PairwiseObservation {
 	if (aScore === bScore) {
-		return { aId, bId, scoreA: 0.5, scoreB: 0.5, round, sourceMatchId };
+		return {
+			aId,
+			bId,
+			scoreA: tieValue,
+			scoreB: tieValue,
+			round,
+			sourceMatchId,
+		};
 	}
 	if (aScore > bScore) {
 		return { aId, bId, scoreA: 1, scoreB: 0, round, sourceMatchId };
@@ -24,6 +32,7 @@ function getSourceMatchId(match: SwissMatch): string {
 
 export function pairwiseFromSwissMatch(
 	match: SwissMatch,
+	tieValue = 0.5,
 ): PairwiseObservation[] {
 	const sourceMatchId = getSourceMatchId(match);
 	const ids = match.ids.filter((id) => id !== "N/A" && id !== "BYE");
@@ -44,6 +53,7 @@ export function pairwiseFromSwissMatch(
 					sharedB,
 					match.round,
 					sourceMatchId,
+					tieValue,
 				),
 			];
 		}
@@ -53,8 +63,8 @@ export function pairwiseFromSwissMatch(
 				{
 					aId,
 					bId,
-					scoreA: 0.5,
-					scoreB: 0.5,
+					scoreA: tieValue,
+					scoreB: tieValue,
 					round: match.round,
 					sourceMatchId,
 				},
@@ -83,6 +93,7 @@ export function pairwiseFromSwissMatch(
 				pointsB,
 				match.round,
 				sourceMatchId,
+				tieValue,
 			),
 			toPairwiseFromScores(
 				idA,
@@ -91,6 +102,7 @@ export function pairwiseFromSwissMatch(
 				pointsC,
 				match.round,
 				sourceMatchId,
+				tieValue,
 			),
 			toPairwiseFromScores(
 				idB,
@@ -99,6 +111,7 @@ export function pairwiseFromSwissMatch(
 				pointsC,
 				match.round,
 				sourceMatchId,
+				tieValue,
 			),
 		];
 	}
@@ -118,6 +131,7 @@ export function pairwiseFromSwissMatch(
 			ordinalScores[idB] ?? 0,
 			match.round,
 			sourceMatchId,
+			tieValue,
 		),
 		toPairwiseFromScores(
 			idA,
@@ -126,6 +140,7 @@ export function pairwiseFromSwissMatch(
 			ordinalScores[idC] ?? 0,
 			match.round,
 			sourceMatchId,
+			tieValue,
 		),
 		toPairwiseFromScores(
 			idB,
@@ -134,6 +149,7 @@ export function pairwiseFromSwissMatch(
 			ordinalScores[idC] ?? 0,
 			match.round,
 			sourceMatchId,
+			tieValue,
 		),
 	];
 }

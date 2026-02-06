@@ -45,6 +45,10 @@ export async function runPlayoffPhase(
 	const config = getConfig();
 	const TOP_N_PLAYOFF = config.tournament.playoffSize;
 	const PLAYOFF_JUDGES = getPlayoffJudges();
+	const useRatingForSeeding =
+		config.tournament.rating.enabled &&
+		contestants.length > 0 &&
+		contestants.every((c) => typeof c.rating === "number");
 
 	console.log(
 		`Phase 6/6: Top-${TOP_N_PLAYOFF} Round Robin Playoff (judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})...`,
@@ -52,7 +56,7 @@ export async function runPlayoffPhase(
 
 	// Get top N by Swiss points
 	const sortedBySwiss = [...contestants].sort((a, b) => {
-		if (typeof a.rating === "number" && typeof b.rating === "number") {
+		if (useRatingForSeeding) {
 			if (b.rating !== a.rating) return b.rating - a.rating;
 		}
 		if (b.points !== a.points) return b.points - a.points;

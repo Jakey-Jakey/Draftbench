@@ -1,5 +1,5 @@
 import type { SwissContestant } from "../leaderboard";
-import { estimateWinProbability } from "../rating/engine";
+import { estimateWinProbability, STARTING_UNCERTAINTY } from "../rating/engine";
 import type { PairwiseObservation, RatingState } from "../rating/types";
 
 export interface AdaptiveSchedulerOptions {
@@ -12,6 +12,7 @@ export interface AdaptiveSchedulerOptions {
 export interface AdaptiveScheduleDiagnostics {
 	skippedByRepeatLimit: number;
 	candidateCount: number;
+	forcedRepeatPairs: number;
 }
 
 export interface AdaptiveScheduleResult {
@@ -82,7 +83,11 @@ export function scheduleAdaptivePairs(
 		return {
 			pairs: [],
 			bye: null,
-			diagnostics: { skippedByRepeatLimit: 0, candidateCount: 0 },
+			diagnostics: {
+				skippedByRepeatLimit: 0,
+				candidateCount: 0,
+				forcedRepeatPairs: 0,
+			},
 		};
 	}
 
@@ -93,6 +98,7 @@ export function scheduleAdaptivePairs(
 
 	const candidates: CandidatePair[] = [];
 	let skippedByRepeatLimit = 0;
+	let forcedRepeatPairs = 0;
 
 	for (let i = 0; i < active.length; i++) {
 		for (let j = i + 1; j < active.length; j++) {
@@ -110,8 +116,9 @@ export function scheduleAdaptivePairs(
 			const leftRecord = ratingState.records.get(left.id);
 			const rightRecord = ratingState.records.get(right.id);
 			const uncertaintyTerm =
-				((leftRecord?.uncertainty ?? 100) + (rightRecord?.uncertainty ?? 100)) /
-				200;
+				((leftRecord?.uncertainty ?? STARTING_UNCERTAINTY) +
+					(rightRecord?.uncertainty ?? STARTING_UNCERTAINTY)) /
+				(STARTING_UNCERTAINTY * 2);
 			const p = estimateWinProbability(ratingState, left.id, right.id);
 			const closenessTerm = 1 - Math.abs(p - 0.5) * 2;
 			const coverageTerm =
@@ -158,10 +165,33 @@ export function scheduleAdaptivePairs(
 					ratingState.config.initialRating;
 				return ratingB - ratingA;
 			});
-		for (let i = 0; i + 1 < remaining.length; i += 2) {
-			const left = remaining[i];
-			const right = remaining[i + 1];
-			if (!left || !right) continue;
+
+		// Fallback pairing: still try to respect maxRepeatPairs.
+		const pool = [...remaining];
+		while (pool.length >= 2) {
+			const left = pool.shift();
+			if (!left) break;
+
+			let partnerIdx = -1;
+			for (let i = 0; i < pool.length; i++) {
+				const right = pool[i];
+				if (!right) continue;
+				const repeats = repeatCounts.get(pairKey(left, right)) ?? 0;
+				if (repeats < options.maxRepeatPairs) {
+					partnerIdx = i;
+					break;
+				}
+			}
+
+			if (partnerIdx === -1) {
+				// No legal partner remains: pair anyway to avoid deadlocking the tournament,
+				// but track that we exceeded the repeat cap.
+				partnerIdx = 0;
+				forcedRepeatPairs += 1;
+			}
+
+			const right = pool.splice(partnerIdx, 1)[0];
+			if (!right) break;
 			pairs.push([left, right]);
 		}
 	}
@@ -172,6 +202,7 @@ export function scheduleAdaptivePairs(
 		diagnostics: {
 			skippedByRepeatLimit,
 			candidateCount: candidates.length,
+			forcedRepeatPairs,
 		},
 	};
 }

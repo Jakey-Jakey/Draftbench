@@ -9,7 +9,8 @@ import type {
 
 const RATING_SCALE = 400;
 const MIN_UNCERTAINTY = 40;
-const STARTING_UNCERTAINTY = 350;
+export const STARTING_UNCERTAINTY = 350;
+const DEFAULT_CI_CONFIDENCE = 0.9;
 
 function clampUnit(value: number): number {
 	if (Number.isNaN(value)) return 0;
@@ -165,8 +166,102 @@ function applyBradleyTerryBatch(
 	}
 }
 
-function confidenceMultiplier(): number {
-	return 1.64;
+function confidenceMultiplier(confidence: number): number {
+	// Normal approximation; used for the cheap CI display path.
+	if (confidence >= 0.99) return 2.58;
+	if (confidence >= 0.95) return 1.96;
+	if (confidence >= 0.9) return 1.64;
+	if (confidence >= 0.8) return 1.28;
+	return 1.0;
+}
+
+function mulberry32(seed: number): () => number {
+	let a = seed >>> 0;
+	return () => {
+		a |= 0;
+		a = (a + 0x6d2b79f5) | 0;
+		let t = Math.imul(a ^ (a >>> 15), 1 | a);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+function seedFromHistory(history: PairwiseObservation[]): number {
+	// Deterministic seed based on observations to avoid nondeterministic CIs.
+	let h = 2166136261; // FNV-1a 32-bit offset basis
+	for (const obs of history) {
+		const str = `${obs.aId}|${obs.bId}|${obs.scoreA}|${obs.scoreB}|${obs.round}|${obs.sourceMatchId ?? ""}`;
+		for (let i = 0; i < str.length; i++) {
+			h ^= str.charCodeAt(i);
+			h = Math.imul(h, 16777619);
+		}
+	}
+	return h >>> 0;
+}
+
+function quantile(sorted: number[], q: number): number {
+	if (sorted.length === 0) return 0;
+	const clamped = Math.max(0, Math.min(1, q));
+	const idx = (sorted.length - 1) * clamped;
+	const lo = Math.floor(idx);
+	const hi = Math.ceil(idx);
+	if (lo === hi) return sorted[lo] ?? 0;
+	const a = sorted[lo] ?? 0;
+	const b = sorted[hi] ?? 0;
+	const t = idx - lo;
+	return a + (b - a) * t;
+}
+
+function bootstrapCi(
+	state: RatingState,
+	confidence: number,
+): Map<string, { low: number; high: number }> {
+	const samples = state.config.ciBootstrapSamples;
+	const history = state.history;
+	const ids = Array.from(state.records.keys());
+	const result = new Map<string, { low: number; high: number }>();
+
+	if (samples <= 0 || history.length < 2 || ids.length < 2) {
+		return result;
+	}
+
+	const rng = mulberry32(seedFromHistory(history));
+	const perId = new Map<string, number[]>(
+		ids.map((id) => [id, [] as number[]]),
+	);
+
+	for (let s = 0; s < samples; s++) {
+		const boot: PairwiseObservation[] = [];
+		for (let i = 0; i < history.length; i++) {
+			const idx = Math.floor(rng() * history.length);
+			const picked = history[idx];
+			if (picked) boot.push(picked);
+		}
+
+		const bootState = createRatingState(ids, {
+			...state.config,
+			ciBootstrapSamples: 0, // prevent recursion
+		});
+		applyPairwiseBatch(bootState, boot);
+
+		for (const id of ids) {
+			const r =
+				bootState.records.get(id)?.rating ?? bootState.config.initialRating;
+			perId.get(id)?.push(r);
+		}
+	}
+
+	const alpha = (1 - confidence) / 2;
+	for (const id of ids) {
+		const arr = perId.get(id) ?? [];
+		arr.sort((a, b) => a - b);
+		result.set(id, {
+			low: quantile(arr, alpha),
+			high: quantile(arr, 1 - alpha),
+		});
+	}
+
+	return result;
 }
 
 export function createRatingState(
@@ -181,6 +276,7 @@ export function createRatingState(
 		provisionalMatches: partialConfig.provisionalMatches ?? 12,
 		btIterations: partialConfig.btIterations ?? 200,
 		btTolerance: partialConfig.btTolerance ?? 1e-6,
+		ciBootstrapSamples: partialConfig.ciBootstrapSamples ?? 0,
 	};
 
 	const records = new Map<string, RatingRecord>();
@@ -210,12 +306,26 @@ export function applyPairwiseBatch(
 }
 
 export function getRatingStandings(state: RatingState): RatingStanding[] {
-	const z = confidenceMultiplier();
+	return getRatingStandingsWithOptions(state, {});
+}
+
+export function getRatingStandingsWithOptions(
+	state: RatingState,
+	options: { bootstrapCi?: boolean; confidence?: number },
+): RatingStanding[] {
+	const confidence = options.confidence ?? DEFAULT_CI_CONFIDENCE;
+	const z = confidenceMultiplier(confidence);
+	const boot =
+		options.bootstrapCi === true
+			? bootstrapCi(state, confidence)
+			: new Map<string, { low: number; high: number }>();
+
 	return Array.from(state.records.values())
 		.map((record) => ({
 			...record,
-			ciLow: record.rating - z * record.uncertainty,
-			ciHigh: record.rating + z * record.uncertainty,
+			ciLow: boot.get(record.id)?.low ?? record.rating - z * record.uncertainty,
+			ciHigh:
+				boot.get(record.id)?.high ?? record.rating + z * record.uncertainty,
 		}))
 		.sort((a, b) => {
 			if (b.rating !== a.rating) return b.rating - a.rating;

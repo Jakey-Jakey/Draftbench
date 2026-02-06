@@ -126,12 +126,15 @@ export function getLeaderboard(
 	// Combine Swiss and Playoff scores for top-8
 	const finalScores = new Map<string, number>();
 	const playoffOnly = new Map<string, PlayoffResult>();
+	const ratingEnabled = getConfig().tournament.rating.enabled;
+	// Avoid mixing scales (rating vs points) if some contestants are missing ratings.
 	const useRating =
-		getConfig().tournament.rating.enabled &&
-		contestants.some((c) => typeof c.rating === "number");
+		ratingEnabled &&
+		contestants.length > 0 &&
+		contestants.every((c) => typeof c.rating === "number");
 
 	for (const c of contestants) {
-		finalScores.set(c.id, useRating ? (c.rating ?? c.points) : c.points);
+		finalScores.set(c.id, useRating ? (c.rating as number) : c.points);
 	}
 
 	// Add playoff bonus for top-8 (weighted higher)
@@ -146,32 +149,31 @@ export function getLeaderboard(
 
 	// Sort by final score, then tiebreakers
 	const sorted = [...contestants].sort((a, b) => {
+		// Playoff dominates final ordering for qualifiers, regardless of rating/points mode.
+		const playoffA = playoffOnly.get(a.id);
+		const playoffB = playoffOnly.get(b.id);
+		if (playoffA && !playoffB) return -1;
+		if (!playoffA && playoffB) return 1;
+		if (playoffA && playoffB) {
+			if (playoffB.points !== playoffA.points)
+				return playoffB.points - playoffA.points;
+			if (playoffA.losses !== playoffB.losses)
+				return playoffA.losses - playoffB.losses;
+			if (playoffB.wins !== playoffA.wins) return playoffB.wins - playoffA.wins;
+			if (playoffB.draws !== playoffA.draws)
+				return playoffB.draws - playoffA.draws;
+		}
+
 		const scoreA = finalScores.get(a.id) ?? 0;
 		const scoreB = finalScores.get(b.id) ?? 0;
 		if (scoreB !== scoreA) return scoreB - scoreA;
 
-		// Tiebreaker 1: Playoff performance (higher points, fewer losses)
-		const playoffA = playoffOnly.get(a.id);
-		const playoffB = playoffOnly.get(b.id);
-		if (playoffA && playoffB) {
-			// First by playoff points
-			if (playoffB.points !== playoffA.points)
-				return playoffB.points - playoffA.points;
-			// Then by fewer losses (undefeated > 1 loss)
-			if (playoffA.losses !== playoffB.losses)
-				return playoffA.losses - playoffB.losses;
-		} else if (playoffA && !playoffB) {
-			return -1; // A was in playoff, B wasn't
-		} else if (!playoffA && playoffB) {
-			return 1; // B was in playoff, A wasn't
-		}
-
-		// Tiebreaker 2: Win/Loss record (1v1 format specific)
+		// Tiebreaker: Win/Loss record (1v1 format specific)
 		const winsA = a.wins ?? 0;
 		const winsB = b.wins ?? 0;
 		if (winsB !== winsA) return winsB - winsA;
 
-		// Tiebreaker 3: Swiss placements (most 1sts, then most 2nds - multi-player format)
+		// Tiebreaker: Swiss placements (most 1sts, then most 2nds - multi-player format)
 		if (b.placements.first !== a.placements.first)
 			return b.placements.first - a.placements.first;
 		return b.placements.second - a.placements.second;

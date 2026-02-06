@@ -17,6 +17,7 @@ export interface RatingEngineConfig {
 	provisionalMatches: number;
 	btIterations: number;
 	btTolerance: number;
+	ciBootstrapSamples: number;
 }
 
 export interface RatingRecord {
