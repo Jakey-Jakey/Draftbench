@@ -50,12 +50,12 @@ effort = "high"
 model = "google/gemini-3-pro-preview"
 effort = "high"
 
-# Swiss Tournament Judge
-[roles.swissJudge]
+# Swiss Tournament Judges (single or multi-judge voting)
+[[roles.swissJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-# Playoff Judges (dual-judge voting)
+# Playoff Judges (multi-judge voting)
 [[roles.playoffJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"

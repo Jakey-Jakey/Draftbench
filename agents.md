@@ -13,7 +13,7 @@
 | **2. Initial Leaderboard** | *(Optional)* Per-model pairwise to pick best seed. | `style: per-model-pairwise` |
 | **3. Review** | Cross-review: each model reviews all selected drafts (including self). | 9 reviews (3×3) |
 | **4. Revise** | All models revise each draft based on each review. | 27 revisions (3 seeds × 3 reviewers × 3 revisers) |
-| **5. Swiss Tournament** | Configurable `1v1` or `1v1v1` Swiss system ranks revisions. | 7 rounds, Claude (low) judge |
+| **5. Swiss Tournament** | Configurable `1v1` or `1v1v1` Swiss system ranks revisions. | 7 rounds, configurable Swiss judges |
 | **6. Playoff** | Top-N Round Robin with multi-judge voting. | Top-8, Claude (low) + GPT (medium) |
 
 ---
@@ -112,8 +112,8 @@ effort = "medium"
 model = "anthropic/claude-opus-4.5"
 effort = "high"
 
-# Swiss Tournament Judge
-[roles.swissJudge]
+# Swiss Tournament Judges
+[[roles.swissJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
@@ -257,7 +257,7 @@ runs/<timestamp>/
 
 - **Anonymization**: All judging uses opaque IDs (`S1`, `S2`, `S3`) to prevent model-name bias.
 - **Randomization**: Presentation order is shuffled for every match.
-- **Multi-Judge Playoff**: Playoff supports multiple judges to reduce single-model bias.
+- **Multi-Judge Swiss/Playoff**: Both tournament stages support multiple judges to reduce single-model bias.
 - **Incremental I/O**: Results are persisted immediately to handle crashes gracefully.
 
 ---
