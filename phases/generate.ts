@@ -6,6 +6,7 @@ import {
 	type ModelSlug,
 } from "../aiClient";
 import { getConfig, getRoleEntries } from "../config";
+import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -17,7 +18,6 @@ import {
 	createMockStatblock,
 	getModelToken,
 	getShortModelName,
-	requireDefined,
 } from "../utils";
 
 // ============================================================================
@@ -116,85 +116,76 @@ export async function runGeneratePhase(
 			draftsByModel.set(generator.model, drafts);
 		}
 	} else {
-		// Real API calls - ALL drafts run in parallel
-		// Build flat list of all generation tasks
+		// Real API calls - models run in parallel.
+		// Save state after each model completes for granular resumability.
 		const pendingGenerators = generators.filter(
 			(g) => !completedGenerators.has(g.model),
 		);
 
-		interface GenerationTask {
-			generator: (typeof generators)[0];
-			draftIndex: number;
-		}
+		const stateLock = new Semaphore(1);
 
-		const tasks: GenerationTask[] = [];
-		for (const generator of pendingGenerators) {
-			for (let i = 0; i < INITIAL_GENERATIONS; i++) {
-				tasks.push({ generator, draftIndex: i });
-			}
-		}
+		await Promise.all(
+			pendingGenerators.map(async (generator) => {
+				const shortName = getShortModelName(generator.model);
+				const drafts = await Promise.all(
+					Array.from({ length: INITIAL_GENERATIONS }, async (_, draftIndex) => {
+						const result = await generateStatblock(
+							generator.model,
+							generator.effort ?? "high",
+							generator.temperature,
+						);
 
-		// Track results by model
-		const resultsByModel = new Map<string, GenerateResult[]>();
-		for (const generator of pendingGenerators) {
-			resultsByModel.set(generator.model, []);
-		}
+						// Write immediately
+						const safeFileName = getModelToken(generator.model);
+						const path = join(
+							runDir,
+							`${safeFileName}_original_${draftIndex + 1}.md`,
+						);
+						await writeFile(
+							path,
+							`# Original Statblock (${shortName} draft ${draftIndex + 1})\n\n${result.text}`,
+							"utf-8",
+						);
 
-		// Run all tasks in parallel
-		const generatePromises = tasks.map(async ({ generator, draftIndex }) => {
-			const shortName = getShortModelName(generator.model);
-			const result = await generateStatblock(
-				generator.model,
-				generator.effort ?? "high",
-				generator.temperature,
-			);
+						await stateLock.acquire();
+						try {
+							generateCount++;
+							console.log(
+								`  ✓ ${shortName} draft ${draftIndex + 1} generated (${generateCount}/${totalGenerations})`,
+							);
+						} finally {
+							stateLock.release();
+						}
 
-			// Store result
-			const modelResults = requireDefined(
-				resultsByModel.get(generator.model),
-				`Missing result bucket for generator ${generator.model}`,
-			);
-			modelResults[draftIndex] = result;
+						return result;
+					}),
+				);
 
-			generateCount++;
-			console.log(
-				`  ✓ ${shortName} draft ${draftIndex + 1} generated (${generateCount}/${totalGenerations})`,
-			);
+				await stateLock.acquire();
+				try {
+					if (!state.generatedDrafts) {
+						state.generatedDrafts = new Map<string, StoredGenerateResult[]>();
+					}
+					if (!state.completedGenerators) {
+						state.completedGenerators = [];
+					}
 
-			// Write immediately
-			const safeFileName = getModelToken(generator.model);
-			const path = join(
-				runDir,
-				`${safeFileName}_original_${draftIndex + 1}.md`,
-			);
-			await writeFile(
-				path,
-				`# Original Statblock (${shortName} draft ${draftIndex + 1})\n\n${result.text}`,
-				"utf-8",
-			);
+					draftsByModel.set(generator.model, drafts);
+					state.generatedDrafts.set(
+						generator.model,
+						drafts as StoredGenerateResult[],
+					);
+					if (!state.completedGenerators.includes(generator.model)) {
+						state.completedGenerators.push(generator.model);
+					}
+					saveState(runDir, state);
+					console.log(`  💾 State saved after ${shortName}`);
+				} finally {
+					stateLock.release();
+				}
+			}),
+		);
 
-			return { generator, draftIndex, result };
-		});
-
-		await Promise.all(generatePromises);
-
-		// Populate draftsByModel and save state
-		for (const generator of pendingGenerators) {
-			const drafts = requireDefined(
-				resultsByModel.get(generator.model),
-				`Missing generated drafts for ${generator.model}`,
-			);
-			draftsByModel.set(generator.model, drafts);
-
-			// Save state for this model
-			state.generatedDrafts?.set(
-				generator.model,
-				drafts as StoredGenerateResult[],
-			);
-			state.completedGenerators.push(generator.model);
-		}
-		saveState(runDir, state);
-		console.log(`  💾 State saved`);
 		console.log(`  ✓ Wrote originals to ${runDir}\n`);
 	}
 

@@ -131,15 +131,18 @@ export function getLeaderboard(
 	});
 
 	return sorted.map((c, index) => {
-		const [gen, rev, revi] = c.id.split("_");
+		const parts = c.id.split("_");
+		const safeGen = parts[0] ?? c.id;
+		const safeRev = parts[1] ?? "";
+		const safeRevi = parts[2] ?? "";
 		const revMeta = revisionsById?.get(c.id);
 
 		return {
 			...c,
 			rank: index + 1,
-			generator: revMeta?.task?.generator ?? gen,
-			reviewer: revMeta?.task?.reviewer ?? rev,
-			reviser: revMeta?.task?.reviser ?? revi,
+			generator: revMeta?.task?.generator ?? safeGen,
+			reviewer: revMeta?.task?.reviewer ?? safeRev,
+			reviser: revMeta?.task?.reviser ?? safeRevi,
 		};
 	});
 }
@@ -209,7 +212,7 @@ export function computeLeaderboard(
 
 	md += `> **${config.tournament.swissRounds} Swiss rounds (${SWISS_FORMAT})** → **Top-${TOP_K} Active Learning Finale**\n>\n`;
 	md += `> Swiss: ${SWISS_JUDGES.map((j) => `${getShortNickname(getShortModelName(j.model))} (${j.effort ?? "low"})`).join(" + ")}`;
-	md += ` | Finale: ${FINALE_JUDGES.map((j) => `${getShortNickname(getShortModelName(j.model))} (${j.effort ?? "low"})`).join(" + ")}\n\n`;
+	md += ` | Finale: ${FINALE_JUDGES.map((j) => `${getShortNickname(getShortModelName(j.model))} (${j.effort ?? "high"})`).join(" + ")}\n\n`;
 
 	md += "---\n\n";
 

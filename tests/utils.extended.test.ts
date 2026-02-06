@@ -136,13 +136,15 @@ describe("shuffleArray", () => {
 		expect(shuffled.filter((x) => x === 2).length).toBe(2);
 	});
 
-	test("shuffles in place (mutates original)", () => {
+	test("returns shuffled copy without mutating original", () => {
 		const arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 		const originalCopy = [...arr];
-		shuffleArray(arr);
-		// With 10 elements, extremely unlikely to stay the same
-		// But we can't guarantee it, so just check mutation happened
-		expect(arr.length).toBe(originalCopy.length);
+		const shuffled = shuffleArray(arr);
+
+		expect(arr).toEqual(originalCopy);
+		expect(shuffled).not.toBe(arr);
+		expect(shuffled.length).toBe(arr.length);
+		expect([...shuffled].sort()).toEqual([...arr].sort());
 	});
 });
 

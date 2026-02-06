@@ -308,6 +308,7 @@ describe("PipelineState", () => {
 				expect(loaded.finaleMatches?.[0]?.aId).toBe("contestant1");
 				expect(loaded.finaleMatches?.[0]?.bId).toBe("contestant2");
 				expect(loaded.finaleIterations).toBe(1);
+				expect(loaded.finaleConverged).toBe(false);
 			}
 		});
 	});

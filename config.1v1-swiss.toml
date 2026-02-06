@@ -12,6 +12,7 @@ swissRounds = 5
 mode = "adaptive"
 
 [tournament.stopRules]
+enabled = true
 maxBatches = 5
 
 [tournament.finale]

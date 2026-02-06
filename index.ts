@@ -7,7 +7,7 @@
 
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import {
 	getFinaleJudges,
 	getRoleEntries,
@@ -141,9 +141,12 @@ async function runCrossReviewPipeline(): Promise<void> {
 
 	// Helper for subdirectory paths
 	const getRelativeRunPath = () => {
-		if (runDir.includes(RUNS_DIR)) {
-			return runDir.slice(runDir.indexOf(RUNS_DIR) + RUNS_DIR.length + 1);
-		}
+		const runsRoot = resolve(RUNS_DIR);
+		const runAbs = resolve(runDir);
+		const rel = relative(runsRoot, runAbs);
+
+		// Only use the relative path if runDir is actually inside RUNS_DIR.
+		if (rel && !rel.startsWith("..") && !isAbsolute(rel)) return rel;
 		return runDir;
 	};
 	const relRunPath = getRelativeRunPath();

@@ -21,6 +21,7 @@
 ## 📂 Key Files
 
 ### Core
+
 | File | Purpose |
 |------|---------|
 | `index.ts` | **Entry point**. Thin orchestrator that imports and runs phases. |
@@ -30,6 +31,7 @@
 | `schemas.ts` | Zod schemas for LLM response validation. |
 
 ### Phase Modules (`phases/`)
+
 | File | Purpose |
 |------|---------|
 | `phases/generate.ts` | Phase 1: Generate initial statblocks from all models. |
@@ -40,6 +42,7 @@
 | `phases/finale.ts` | Phase 6: Active-learning finale with resume checkpoints per iteration. |
 
 ### Utilities
+
 | File | Purpose |
 |------|---------|
 | `utils.ts` | Shared utilities: directory creation, timestamps, shuffle, dry-run helpers. |
@@ -51,6 +54,7 @@
 | `scheduling/stopRules.ts` | Confidence/stability stop-rule evaluator for early Swiss termination. |
 
 ### Configuration Files
+
 | File | Purpose |
 |------|---------|
 | `config.toml` | **Main config**. User customizations (edit this). |
@@ -61,6 +65,7 @@
 | `prompts.toml` | Customizable prompts. Load with `--prompts` flag. |
 
 ### Tests
+
 | File | Purpose |
 |------|---------|
 | `tests/config.test.ts` | Config loading, CLI parsing, prompts tests. |
@@ -285,7 +290,7 @@ bun test
 
 ## 📂 Output Structure
 
-```
+```text
 runs/<timestamp>/
 ├── <generator-token>_original_<n>.md
 ├── reviews/

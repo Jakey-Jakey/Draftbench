@@ -49,7 +49,7 @@ Successfully generated **comprehensive unit tests** for the Draftbench AI benchm
    - interpolate function (from config.ts)
 
 4. **`leaderboard.extended.test.ts`** - Extended leaderboard tests:
-   - New markdown formatting features
+   - New Markdown formatting features
    - Seed selection section output
    - Contestant conversion (runtime ↔ stored)
    - Ranking logic and tiebreakers

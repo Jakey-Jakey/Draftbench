@@ -294,10 +294,6 @@ export async function runInitialLeaderboardPhase(
 	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
 	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
 	const leaderboardJudges = getInitialLeaderboardJudges();
-	const swissJudge = requireDefined(
-		getSwissJudges()[0],
-		"No Swiss judge configured for initial leaderboard ranking styles",
-	);
 
 	const style = getEffectiveStyle(
 		INITIAL_LEADERBOARD.style,
@@ -457,6 +453,11 @@ export async function runInitialLeaderboardPhase(
 			}
 		}
 	} else if (style === "per-model-rank") {
+		const swissJudge = requireDefined(
+			getSwissJudges()[0],
+			"No Swiss judge configured for initial leaderboard ranking styles",
+		);
+
 		// Run each model's ranking in parallel, returning results
 		const modelPromises = generatorSlugs
 			.filter((m) => !completedModels.has(m))
@@ -641,6 +642,11 @@ export async function runInitialLeaderboardPhase(
 			}
 		}
 	} else if (style === "global-rank") {
+		const swissJudge = requireDefined(
+			getSwissJudges()[0],
+			"No Swiss judge configured for initial leaderboard ranking styles",
+		);
+
 		// Single ranking call for all drafts
 		console.log("  Running 1 global ranking call");
 

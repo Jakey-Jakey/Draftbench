@@ -1056,7 +1056,12 @@ export function loadConfig(
 		console.log("📁 No config.toml found, using defaults.");
 	}
 
-	const mergedConfig = deepMerge(DEFAULT_CONFIG, userConfig);
+	// deepMerge is mostly "structural" and normalizeConfig mutates fields in-place.
+	// Clone defaults up front so we never mutate DEFAULT_CONFIG across loads.
+	const mergedConfig = deepMerge(
+		JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as PipelineConfig,
+		userConfig,
+	);
 
 	// Load prompts from separate file
 	// Priority: --prompts flag > prompts.toml in cwd > defaults
@@ -1249,8 +1254,13 @@ function validateConfig(config: PipelineConfig): string[] {
 	if (!config.roles.swissJudges || config.roles.swissJudges.length === 0) {
 		throw new Error("roles.swissJudges must have at least one entry");
 	}
-	if (!config.roles.finaleJudges || config.roles.finaleJudges.length === 0) {
-		throw new Error("roles.finaleJudges must have at least one entry");
+	if (
+		config.tournament.finale.enabled &&
+		(!config.roles.finaleJudges || config.roles.finaleJudges.length === 0)
+	) {
+		throw new Error(
+			"roles.finaleJudges must have at least one entry when tournament.finale.enabled is true",
+		);
 	}
 	if (
 		!Number.isInteger(config.tournament.swissRounds) ||

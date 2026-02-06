@@ -103,6 +103,16 @@ export async function runRevisePhase(
 		>) {
 			if (!revisionTaskIds.has(id)) continue;
 
+			const reviserFromConfig = revisers.find(
+				(r) => r.model === stored.reviser,
+			);
+			const reviserEffort =
+				(stored.reviserEffort as ReasoningEffort | undefined) ??
+				reviserFromConfig?.effort ??
+				"high";
+			const reviserTemperature =
+				stored.reviserTemperature ?? reviserFromConfig?.temperature;
+
 			revisionsById.set(id, {
 				result: { text: stored.text, model: stored.reviser },
 				task: {
@@ -110,7 +120,8 @@ export async function runRevisePhase(
 					generator: stored.generator as ModelSlug,
 					reviewer: stored.reviewer as ModelSlug,
 					reviser: stored.reviser as ModelSlug,
-					reviserEffort: "high",
+					reviserEffort,
+					reviserTemperature,
 				},
 			});
 			completedRevisionIds.add(id);
@@ -194,6 +205,8 @@ export async function runRevisePhase(
 						generator: task.generator,
 						reviewer: task.reviewer,
 						reviser: task.reviser,
+						reviserEffort: task.reviserEffort,
+						reviserTemperature: task.reviserTemperature,
 					});
 					saveState(runDir, state);
 				} finally {
@@ -221,6 +234,8 @@ export async function runRevisePhase(
 					generator: entry.task.generator,
 					reviewer: entry.task.reviewer,
 					reviser: entry.task.reviser,
+					reviserEffort: entry.task.reviserEffort,
+					reviserTemperature: entry.task.reviserTemperature,
 				},
 			]),
 		) as Map<string, StoredRevisionResult>;

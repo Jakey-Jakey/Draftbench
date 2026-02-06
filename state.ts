@@ -36,6 +36,8 @@ export interface StoredRevisionResult {
 	generator: ModelName;
 	reviewer: ModelName;
 	reviser: ModelName;
+	reviserEffort?: string;
+	reviserTemperature?: number;
 }
 
 /**
@@ -218,6 +220,8 @@ const StoredRevisionResultSchema = z.object({
 	generator: z.string(),
 	reviewer: z.string(),
 	reviser: z.string(),
+	reviserEffort: z.string().optional(),
+	reviserTemperature: z.number().optional(),
 });
 
 const StoredSwissMatchSchema = z.object({
