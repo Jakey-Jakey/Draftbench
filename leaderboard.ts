@@ -298,9 +298,7 @@ export function computeLeaderboard(
 				(r) => getShortNickname(getShortModelName(r.model)) === model,
 			);
 			if (seedResult) {
-				const selected = `${seedResult.selectedDraftIndex + 1}/${
-					seedResult.totalDrafts
-				}`;
+				const selected = `${seedResult.selectedDraftIndex}/${seedResult.totalDrafts}`;
 				const record = formatRecord(
 					seedResult.wins,
 					seedResult.draws,
@@ -371,9 +369,7 @@ export function computeLeaderboard(
 		md += "|-------|----------|--------|--------|\n";
 		for (const result of initialLeaderboardResults) {
 			const nickname = getShortNickname(getShortModelName(result.model));
-			const selected = `Draft ${result.selectedDraftIndex + 1}/${
-				result.totalDrafts
-			}`;
+			const selected = `Draft ${result.selectedDraftIndex}/${result.totalDrafts}`;
 			const record = formatRecord(result.wins, result.draws, result.losses);
 			const margin =
 				record !== "-"

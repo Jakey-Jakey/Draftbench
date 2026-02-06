@@ -73,7 +73,7 @@ describe("computeLeaderboard markdown", () => {
 			{ matches: 7, judgments: 14, iterations: 3, converged: true },
 		);
 		expect(md).toContain("## 🌱 Seed Selection");
-		expect(md).toContain("Draft 3/5");
+		expect(md).toContain("Draft 2/5");
 		expect(md).toContain("4W/0D/0L");
 		expect(md).toContain("+4");
 		expect(md).toContain("### As Generator");

@@ -179,6 +179,14 @@ export async function runFinalePhase(
 	const stateLock = new Semaphore(1);
 
 	if (isPhaseCompleted(state, "finale") && converged) {
+		// On resume, Swiss phase loads contestants from state, but the stored ratingState
+		// may already include finale updates. Sync in-memory contestants so the final
+		// leaderboard reflects the latest ratings.
+		const standings = getRatingStandingsWithOptions(ratingState, {
+			bootstrapCi: false,
+			confidence: finaleConfig.confidence,
+		});
+		syncContestantsWithRatings(contestants, standings);
 		console.log("Phase 6/6: Finale already complete, skipping.\n");
 		return { finaleMatches: storedMatches, iterations: iteration, converged };
 	}
