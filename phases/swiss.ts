@@ -181,7 +181,7 @@ function getSharedPoints(match: SwissMatch): Record<string, number> {
 	};
 }
 
-function applyThreeWaySwissMatch(
+export function applyThreeWaySwissMatch(
 	contestants: SwissContestant[],
 	match: SwissMatch,
 ): void {
@@ -196,10 +196,19 @@ function applyThreeWaySwissMatch(
 	second.points += sharedPoints[second.id] ?? 0;
 	third.points += sharedPoints[third.id] ?? 0;
 
-	if ((match.tieGroup ?? "none") === "none") {
+	const tieGroup = match.tieGroup ?? "none";
+	if (tieGroup === "none") {
 		first.placements.first++;
 		second.placements.second++;
 		third.placements.third++;
+	} else if (tieGroup === "top2") {
+		first.placements.ties = (first.placements.ties ?? 0) + 1;
+		second.placements.ties = (second.placements.ties ?? 0) + 1;
+		third.placements.third++;
+	} else if (tieGroup === "bottom2") {
+		first.placements.first++;
+		second.placements.ties = (second.placements.ties ?? 0) + 1;
+		third.placements.ties = (third.placements.ties ?? 0) + 1;
 	} else {
 		first.placements.ties = (first.placements.ties ?? 0) + 1;
 		second.placements.ties = (second.placements.ties ?? 0) + 1;

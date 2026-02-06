@@ -439,6 +439,11 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 	if (raw.roles) {
 		const rolesRaw = raw.roles as Record<string, unknown>;
 		result.roles = {} as RolesConfig;
+		if (Object.hasOwn(rolesRaw, "swissJudge")) {
+			throw new Error(
+				"roles.swissJudge is no longer supported. Use [[roles.swissJudges]] instead.",
+			);
+		}
 		const knownRoleKeys = new Set([
 			"generators",
 			"reviewers",
@@ -461,11 +466,6 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		}
 		if (rolesRaw.revisers) {
 			result.roles.revisers = rolesRaw.revisers as RoleEntry[];
-		}
-		if (rolesRaw.swissJudge) {
-			throw new Error(
-				"roles.swissJudge is no longer supported. Use [[roles.swissJudges]] instead.",
-			);
 		}
 		if (rolesRaw.swissJudges) {
 			result.roles.swissJudges = rolesRaw.swissJudges as RoleEntry[];
