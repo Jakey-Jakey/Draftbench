@@ -1090,8 +1090,10 @@ export async function runSwissPhase(
 							}
 
 							const totalVotes = Math.max(1, votesA + votesB);
-							const scoreA = isDraw ? 0.5 : votesA / totalVotes;
-							const scoreB = isDraw ? 0.5 : 1 - scoreA;
+							const scoreA = isDraw
+								? ratingConfig.tieValue
+								: votesA / totalVotes;
+							const scoreB = isDraw ? ratingConfig.tieValue : 1 - scoreA;
 							const sourceMatchId = `disambig:r${round}:${[idA, idB].sort().join("::")}:${disambiguationMatches.length + 1}`;
 
 							const observation: PairwiseObservation = {
