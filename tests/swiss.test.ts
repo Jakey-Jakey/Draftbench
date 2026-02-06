@@ -96,7 +96,11 @@ describe("generateSwissTriples", () => {
 		expect(triples.length).toBe(2);
 
 		// A, B, C should ideally be split up
-		const firstTriple = triples[0]!;
+		const firstTriple = triples[0];
+		expect(firstTriple).toBeDefined();
+		if (!firstTriple) {
+			throw new Error("Expected first Swiss triple");
+		}
 		const _hasABC =
 			firstTriple.includes("A") &&
 			firstTriple.includes("B") &&
@@ -114,13 +118,28 @@ describe("generateSwissTriples", () => {
 		];
 
 		const { triples } = generateSwissTriples(contestants, 1);
-		const [first, second, third] = triples[0]!;
+		const firstTriple = triples[0];
+		expect(firstTriple).toBeDefined();
+		if (!firstTriple) {
+			throw new Error("Expected first Swiss triple");
+		}
+		const [first, second, third] = firstTriple;
 
 		// Get the contestants back
 		const conMap = new Map(contestants.map((c) => [c.id, c]));
-		const firstPoints = conMap.get(first!)?.points;
-		const secondPoints = conMap.get(second!)?.points;
-		const thirdPoints = conMap.get(third!)?.points;
+		const firstPoints = conMap.get(first)?.points;
+		const secondPoints = conMap.get(second)?.points;
+		const thirdPoints = conMap.get(third)?.points;
+		expect(firstPoints).toBeDefined();
+		expect(secondPoints).toBeDefined();
+		expect(thirdPoints).toBeDefined();
+		if (
+			firstPoints === undefined ||
+			secondPoints === undefined ||
+			thirdPoints === undefined
+		) {
+			throw new Error("Expected all Swiss triple contestants to have points");
+		}
 
 		// Should be grouped by similar points
 		expect(firstPoints).toBeGreaterThanOrEqual(secondPoints - 3);
@@ -254,8 +273,13 @@ describe("generateSwissPairs (1v1)", () => {
 		const conMap = new Map(contestants.map((c) => [c.id, c]));
 		for (const pair of pairs) {
 			const [a, b] = pair;
-			const pointsA = conMap.get(a!)?.points;
-			const pointsB = conMap.get(b!)?.points;
+			const pointsA = conMap.get(a)?.points;
+			const pointsB = conMap.get(b)?.points;
+			expect(pointsA).toBeDefined();
+			expect(pointsB).toBeDefined();
+			if (pointsA === undefined || pointsB === undefined) {
+				throw new Error("Expected paired contestants to have points");
+			}
 			// Should be within a reasonable range
 			expect(Math.abs(pointsA - pointsB)).toBeLessThanOrEqual(5);
 		}

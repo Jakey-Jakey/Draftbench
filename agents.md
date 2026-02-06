@@ -9,12 +9,12 @@
 
 | Phase | Description | Default Config |
 |-------|-------------|----------------|
-| **1. Generate** | Each model creates initial drafts. State saved per model. | `initialGenerations: 1` |
+| **1. Generate** | Each model creates initial drafts. | `initialGenerations: 1` |
 | **2. Initial Leaderboard** | *(Optional)* Per-model pairwise to pick best seed. | `style: per-model-pairwise` |
 | **3. Review** | Cross-review: each model reviews all selected drafts (including self). | 9 reviews (3×3) |
 | **4. Revise** | All models revise each draft based on each review. | 27 revisions (3 seeds × 3 reviewers × 3 revisers) |
-| **5. Swiss Tournament** | 1v1v1 Swiss system ranks revisions. | 7 rounds, Claude (low) judge |
-| **6. Playoff** | Top-N Round Robin with dual-judge voting. | Top-8, Claude (low) + GPT (high) |
+| **5. Swiss Tournament** | Configurable `1v1` or `1v1v1` Swiss system ranks revisions. | 7 rounds, Claude (low) judge |
+| **6. Playoff** | Top-N Round Robin with multi-judge voting. | Top-8, Claude (low) + GPT (medium) |
 
 ---
 
@@ -36,8 +36,8 @@
 | `phases/initialLeaderboard.ts` | Phase 2: Optional round robin to select best draft per model. |
 | `phases/review.ts` | Phase 3: Cross-review statblocks (including self-review). |
 | `phases/revise.ts` | Phase 4: Revise statblocks based on reviews. |
-| `phases/swiss.ts` | Phase 5: Swiss tournament with 1v1v1 format. |
-| `phases/playoff.ts` | Phase 6: Top-N Round Robin playoff with dual judges. |
+| `phases/swiss.ts` | Phase 5: Swiss tournament (`1v1` or `1v1v1`) with resume checkpoints per round. |
+| `phases/playoff.ts` | Phase 6: Top-N Round Robin playoff with resume checkpoints per matchup. |
 
 ### Utilities
 | File | Purpose |
@@ -117,14 +117,14 @@ effort = "high"
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-# Playoff Judges (dual-judge voting)
+# Playoff Judges (multi-judge voting)
 [[roles.playoffJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
 [[roles.playoffJudges]]
 model = "openai/gpt-5.2"
-effort = "high"
+effort = "medium"
 
 [tournament]
 initialGenerations = 1
@@ -181,8 +181,9 @@ swissFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
 ## 🏷️ Naming Conventions
 
 ### Revision IDs
-Format: `{generator}_{reviewer}_{reviser}`
-- Example: `claude_gpt_gemini` = Claude generated, GPT reviewed, Gemini revised.
+Format: `{generatorToken}_{reviewerToken}_{reviserToken}`
+- Token format: `<short-model-name>-<8hexhash>` (deterministic from full model slug)
+- Example: `gpt-5-2-a1b2c3d4_claude-opus-4-5-e5f6a7b8_gemini-3-pro-preview-11223344`
 
 ### Anonymous Judging IDs
 During tournaments, revisions are presented as `S1`, `S2`, `S3` to prevent bias.
@@ -223,17 +224,18 @@ bun test
 
 ```
 runs/<timestamp>/
-├── <model>_original_<n>.md       # Initial generations
+├── <generator-token>_original_<n>.md
 ├── reviews/
-│   └── <reviewer>_reviews_<reviewed>.md
+│   └── <reviewer-token>_reviews_<reviewed-token>.md
 ├── revisions/
-│   └── <gen>_<rev>_<revi>.md     # The 27 tournament contestants
+│   └── <generator-token>_<reviewer-token>_<reviser-token>.md
 ├── swiss_judgments/              # Detailed per-match reasoning
 ├── playoff_judgments/
 ├── initial_leaderboard/          # (If enabled)
 ├── swiss_rounds.md               # Round-by-round log
-├── playoff_rounds.md             # Dual-judge voting log
-└── leaderboard.md                # Final rankings & stats
+├── playoff_rounds.md             # Multi-judge voting log
+├── leaderboard.md                # Final rankings & stats
+└── state.json                    # Resume checkpoint state
 ```
 
 ---
@@ -245,9 +247,9 @@ runs/<timestamp>/
 3. **Adding Models**: Use full OpenRouter slugs (e.g., `anthropic/claude-sonnet-4`).
 4. **Prompt Templates**: Use `{varname}` syntax. Available vars depend on phase (see `prompts.toml`).
 5. **Cost Control**: Use `--dry-run` liberally. Full runs cost ~$15-20 in API calls.
-6. **Incremental Writes**: Files are written as each phase completes—safe to interrupt and resume.
+6. **Resumability**: Reviews/revisions save incrementally, Swiss saves each round, and playoffs save each completed matchup.
 7. **Linting**: Use `bun run lint` to check for code style and potential errors using Biome.
-8. **Testing**: Use `bun test` to run the test suite (31 tests).
+8. **Testing**: Use `bun test` to run the full suite.
 
 ---
 
@@ -255,7 +257,7 @@ runs/<timestamp>/
 
 - **Anonymization**: All judging uses opaque IDs (`S1`, `S2`, `S3`) to prevent model-name bias.
 - **Randomization**: Presentation order is shuffled for every match.
-- **Dual Judging**: Playoff uses two judges with different reasoning efforts to reduce single-model bias.
+- **Multi-Judge Playoff**: Playoff supports multiple judges to reduce single-model bias.
 - **Incremental I/O**: Results are persisted immediately to handle crashes gracefully.
 
 ---
@@ -276,9 +278,9 @@ The test suite now includes comprehensive coverage for:
 - `tests/utils.test.ts` - Added timestamp, directory management, mock generation tests
 
 ### Test Statistics
-- **Total Test Files**: 7
+- **Total Test Files**: 11
 - **Test Suites**: 50+
-- **Individual Tests**: 150+
+- **Individual Tests**: 276
 - **Coverage Areas**: Config loading, TOML parsing, concurrency control, state persistence, tournament logic, leaderboard computation, utility functions
 
 Run tests with:

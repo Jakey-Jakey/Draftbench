@@ -59,7 +59,18 @@ style = "per-model-pairwise"  # Default: each model's drafts compete internally
 
 ### Resumability
 
-The pipeline saves state after each model completes its generation or leaderboard matches. If interrupted, use `--resume` to continue from where it left off.
+The pipeline saves checkpoints throughout execution:
+- reviews and revisions save incrementally per completed task
+- Swiss saves after each completed round
+- playoffs save after each completed matchup (`completedPlayoffPairs` in state)
+
+If interrupted, use `--resume` to continue from where it left off.
+
+### Stable IDs
+
+Revision and artifact filenames use deterministic model tokens:
+- token format: `<short-model-name>-<8hexhash>`
+- revision format: `<generator-token>_<reviewer-token>_<reviser-token>`
 
 ## APIs
 

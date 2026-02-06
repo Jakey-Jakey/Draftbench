@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { rmSync, writeFileSync } from "node:fs";
 import { interpolate, loadConfig, parseArgs, resetConfig } from "../config";
 
 describe("config loading", () => {
@@ -35,6 +36,29 @@ describe("config loading", () => {
 		expect(config.tournament.swissRounds).toBe(5);
 		// Should still have defaults for unspecified fields
 		expect(config.roles.generators.length).toBeGreaterThan(0);
+	});
+
+	test("keeps default runsDirectory when [output] omits runsDirectory", () => {
+		const tempPath = `tmp-output-missing-${Date.now()}.toml`;
+		writeFileSync(tempPath, "[output]\n");
+		try {
+			const config = loadConfig(tempPath);
+			expect(config.output.runsDirectory).toBe("runs");
+		} finally {
+			rmSync(tempPath, { force: true });
+		}
+	});
+
+	test("rejects empty output.runsDirectory", () => {
+		const tempPath = `tmp-output-empty-${Date.now()}.toml`;
+		writeFileSync(tempPath, '[output]\nrunsDirectory = ""\n');
+		try {
+			expect(() => loadConfig(tempPath)).toThrow(
+				"output.runsDirectory must be a non-empty string",
+			);
+		} finally {
+			rmSync(tempPath, { force: true });
+		}
 	});
 
 	test("validates model slugs contain /", () => {

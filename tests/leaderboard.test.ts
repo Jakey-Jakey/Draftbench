@@ -85,7 +85,11 @@ describe("getLeaderboard", () => {
 
 			const leaderboard = getLeaderboard(contestants, [], new Map(), new Map());
 
-			const entry = leaderboard[0]!;
+			const entry = leaderboard[0];
+			expect(entry).toBeDefined();
+			if (!entry) {
+				throw new Error("Expected leaderboard entry at index 0");
+			}
 			expect(entry.id).toBe("A");
 			expect(entry.points).toBe(10);
 			expect(entry.placements.first).toBe(2);

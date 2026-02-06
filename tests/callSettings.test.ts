@@ -132,7 +132,7 @@ describe("callSettings", () => {
 			// temperature may or may not be present
 			expect(
 				typeof settings.temperature === "number" ||
-				settings.temperature === undefined,
+					settings.temperature === undefined,
 			).toBe(true);
 		});
 	});

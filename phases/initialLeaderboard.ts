@@ -20,7 +20,7 @@ import {
 	type StoredGenerateResult,
 	saveState,
 } from "../state";
-import { getShortModelName } from "../utils";
+import { getModelToken, getShortModelName, requireDefined } from "../utils";
 
 // ============================================================================
 // Initial Leaderboard Phase
@@ -40,6 +40,14 @@ interface DraftStanding {
 export interface InitialLeaderboardResult {
 	/** Best draft selected for each model */
 	selectedByModel: Map<ModelSlug, GenerateResult>;
+}
+
+function getStanding(
+	standings: DraftStanding[],
+	index: number,
+	context: string,
+): DraftStanding {
+	return requireDefined(standings[index], context);
 }
 
 /**
@@ -92,28 +100,30 @@ async function runPerModelPairwise(
 	if (dryRun) {
 		// Mock matchups
 		for (const [i, j] of pairs) {
+			const left = getStanding(standings, i, "Missing left standing");
+			const right = getStanding(standings, j, "Missing right standing");
 			const outcome = Math.random();
 			if (outcome < 0.4) {
-				standings[i]!.points += 1;
-				standings[i]!.wins += 1;
-				standings[j]!.losses += 1;
+				left.points += 1;
+				left.wins += 1;
+				right.losses += 1;
 			} else if (outcome < 0.8) {
-				standings[j]!.points += 1;
-				standings[j]!.wins += 1;
-				standings[i]!.losses += 1;
+				right.points += 1;
+				right.wins += 1;
+				left.losses += 1;
 			} else {
-				standings[i]!.points += 0.5;
-				standings[j]!.points += 0.5;
-				standings[i]!.draws += 1;
-				standings[j]!.draws += 1;
+				left.points += 0.5;
+				right.points += 0.5;
+				left.draws += 1;
+				right.draws += 1;
 			}
 		}
 	} else {
 		// Real API calls - all pairs in parallel
 		await Promise.all(
 			pairs.map(async ([i, j]) => {
-				const a = standings[i]!;
-				const b = standings[j]!;
+				const a = getStanding(standings, i, "Missing left standing");
+				const b = getStanding(standings, j, "Missing right standing");
 				const swapped = Math.random() > 0.5;
 				const [first, second] = swapped ? [b, a] : [a, b];
 
@@ -140,14 +150,17 @@ async function runPerModelPairwise(
 				}
 
 				const votes = Array.from(voteCounts.entries());
-				votes.sort((x, y) => y[1]! - x[1]!);
+				votes.sort((x, y) => (y[1] ?? 0) - (x[1] ?? 0));
 				const topCount = votes[0]?.[1];
 				const topWinners = votes
 					.filter(([, count]) => count === topCount)
 					.map(([standing]) => standing);
 
 				if (topWinners.length === 1) {
-					const winner = topWinners[0]!;
+					const winner = requireDefined(
+						topWinners[0],
+						`Missing winner in ${shortName} draft pair`,
+					);
 					const loser = winner === first ? second : first;
 					winner.points += 1;
 					winner.wins += 1;
@@ -184,7 +197,10 @@ async function runPerModelPairwise(
 		return a.draftIndex - b.draftIndex;
 	});
 
-	const winner = standings[0]!;
+	const winner = requireDefined(
+		standings[0],
+		`No standings available for ${shortName}`,
+	);
 	console.log(
 		`  ✓ ${shortName}: Draft ${winner.draftIndex} wins (${winner.wins}W/${winner.draws}D/${winner.losses}L)`,
 	);
@@ -218,8 +234,13 @@ async function runPerModelRank(
 	if (dryRun) {
 		// Mock: random winner
 		const winnerIdx = Math.floor(Math.random() * standings.length);
-		standings[winnerIdx]!.points = 1;
-		standings[winnerIdx]!.wins = 1;
+		const winner = getStanding(
+			standings,
+			winnerIdx,
+			`No draft available for ${shortName}`,
+		);
+		winner.points = 1;
+		winner.wins = 1;
 	} else {
 		// Real API call - single ranking
 		const statblockMap = new Map<string, string>();
@@ -246,7 +267,10 @@ async function runPerModelRank(
 
 	// Sort standings
 	standings.sort((a, b) => b.points - a.points);
-	const winner = standings[0]!;
+	const winner = requireDefined(
+		standings[0],
+		`No standings available for ${shortName}`,
+	);
 	console.log(`  ✓ ${shortName}: Draft ${winner.draftIndex} selected`);
 
 	return { winner, standings };
@@ -303,8 +327,9 @@ export async function runInitialLeaderboardPhase(
 	if (!INITIAL_LEADERBOARD.enabled || INITIAL_GENERATIONS <= 1) {
 		for (const modelSlug of generatorSlugs) {
 			const drafts = draftsByModel.get(modelSlug) ?? [];
-			if (drafts[0]) {
-				selectedByModel.set(modelSlug, drafts[0]!);
+			const firstDraft = drafts[0];
+			if (firstDraft) {
+				selectedByModel.set(modelSlug, firstDraft);
 			}
 		}
 		const reason =
@@ -328,8 +353,9 @@ export async function runInitialLeaderboardPhase(
 	if (leaderboardJudges.length === 0 && !style.includes("rank")) {
 		for (const modelSlug of generatorSlugs) {
 			const drafts = draftsByModel.get(modelSlug) ?? [];
-			if (drafts[0]) {
-				selectedByModel.set(modelSlug, drafts[0]!);
+			const firstDraft = drafts[0];
+			if (firstDraft) {
+				selectedByModel.set(modelSlug, firstDraft);
 			}
 		}
 		console.log("  ✓ No judges configured - using first drafts\n");
@@ -480,9 +506,9 @@ export async function runInitialLeaderboardPhase(
 		const allStandings = new Map<string, DraftStanding>();
 		for (const modelSlug of generatorSlugs) {
 			const drafts = draftsByModel.get(modelSlug) ?? [];
-			const shortName = getShortModelName(modelSlug);
+			const modelToken = getModelToken(modelSlug);
 			drafts.forEach((draft, idx) => {
-				allStandings.set(`${shortName}_draft${idx + 1}`, {
+				allStandings.set(`${modelToken}_draft${idx + 1}`, {
 					model: modelSlug,
 					draftIndex: idx + 1,
 					text: draft.text,
@@ -499,7 +525,10 @@ export async function runInitialLeaderboardPhase(
 		const pairs: [string, string][] = [];
 		for (let i = 0; i < draftIds.length; i++) {
 			for (let j = i + 1; j < draftIds.length; j++) {
-				pairs.push([draftIds[i]!, draftIds[j]!]);
+				const idA = draftIds[i];
+				const idB = draftIds[j];
+				if (!idA || !idB) continue;
+				pairs.push([idA, idB]);
 			}
 		}
 
@@ -509,8 +538,14 @@ export async function runInitialLeaderboardPhase(
 		if (!dryRun) {
 			await Promise.all(
 				pairs.map(async ([idA, idB]) => {
-					const a = allStandings.get(idA)!;
-					const b = allStandings.get(idB)!;
+					const a = requireDefined(
+						allStandings.get(idA),
+						`Missing draft standing for ${idA}`,
+					);
+					const b = requireDefined(
+						allStandings.get(idB),
+						`Missing draft standing for ${idB}`,
+					);
 					const swapped = Math.random() > 0.5;
 					const [first, second] = swapped ? [b, a] : [a, b];
 					const [_firstId, _secondId] = swapped ? [idB, idA] : [idA, idB];
@@ -554,8 +589,14 @@ export async function runInitialLeaderboardPhase(
 		} else {
 			// Mock
 			for (const [idA, idB] of pairs) {
-				const a = allStandings.get(idA)!;
-				const b = allStandings.get(idB)!;
+				const a = requireDefined(
+					allStandings.get(idA),
+					`Missing draft standing for ${idA}`,
+				);
+				const b = requireDefined(
+					allStandings.get(idB),
+					`Missing draft standing for ${idB}`,
+				);
 				const outcome = Math.random();
 				if (outcome < 0.4) {
 					a.points += 1;
@@ -605,9 +646,9 @@ export async function runInitialLeaderboardPhase(
 
 		for (const modelSlug of generatorSlugs) {
 			const drafts = draftsByModel.get(modelSlug) ?? [];
-			const shortName = getShortModelName(modelSlug);
+			const modelToken = getModelToken(modelSlug);
 			drafts.forEach((draft, idx) => {
-				const id = `${shortName}_d${idx + 1}`;
+				const id = `${modelToken}_d${idx + 1}`;
 				statblockMap.set(id, draft.text);
 				idToStanding.set(id, {
 					model: modelSlug,

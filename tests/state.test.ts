@@ -37,6 +37,7 @@ describe("PipelineState", () => {
 			expect(state.revisions).toBeNull();
 			expect(state.contestants).toBeNull();
 			expect(state.playoffResults).toBeNull();
+			expect(state.completedPlayoffPairs).toEqual([]);
 			expect(state.swissMatches).toEqual([]);
 		});
 
@@ -194,6 +195,7 @@ describe("PipelineState", () => {
 					losses: 1,
 				},
 			];
+			state.completedPlayoffPairs = ["contestant1::contestant2"];
 
 			await saveState(TEST_RUN_DIR, state);
 			const loaded = await loadState(TEST_RUN_DIR);
@@ -203,6 +205,9 @@ describe("PipelineState", () => {
 				expect(loaded.playoffResults).toBeDefined();
 				expect(loaded.playoffResults?.[0]?.id).toBe("contestant1");
 				expect(loaded.playoffResults?.[0]?.points).toBe(3.5);
+				expect(loaded.completedPlayoffPairs).toEqual([
+					"contestant1::contestant2",
+				]);
 			}
 		});
 	});
@@ -314,6 +319,7 @@ describe("PipelineState", () => {
 				expect(loaded.contestants).toBeNull();
 				expect(loaded.swissMatches).toEqual([]);
 				expect(loaded.playoffResults).toBeNull();
+				expect(loaded.completedPlayoffPairs).toEqual([]);
 			}
 		});
 	});

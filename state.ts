@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import type { ModelName } from "./config";
@@ -116,6 +116,7 @@ export interface PipelineState {
 
 	// Phase 6: Playoffs
 	playoffResults: StoredPlayoffResult[] | null;
+	completedPlayoffPairs: string[];
 }
 
 // ============================================================================
@@ -169,6 +170,7 @@ function deserializeState(obj: Record<string, unknown>): PipelineState {
 					Object.entries(obj.revisions as Record<string, StoredRevisionResult>),
 				)
 			: null,
+		completedPlayoffPairs: (obj.completedPlayoffPairs as string[]) ?? [],
 	} as PipelineState;
 }
 
@@ -256,6 +258,7 @@ const PipelineStateSchema = z.object({
 	swissMatches: z.array(StoredSwissMatchSchema),
 	contestants: z.array(StoredSwissContestantSchema).nullable(),
 	playoffResults: z.array(StoredPlayoffResultSchema).nullable(),
+	completedPlayoffPairs: z.array(z.string()).default([]),
 });
 
 // ============================================================================
@@ -284,6 +287,7 @@ export function createInitialState(): PipelineState {
 		swissMatches: [],
 		contestants: null,
 		playoffResults: null,
+		completedPlayoffPairs: [],
 	};
 }
 
@@ -293,7 +297,6 @@ export function createInitialState(): PipelineState {
 export function saveState(runDir: string, state: PipelineState): void {
 	// Ensure directory exists
 	if (!existsSync(runDir)) {
-		const { mkdirSync } = require("node:fs");
 		mkdirSync(runDir, { recursive: true });
 	}
 	const statePath = join(runDir, STATE_FILENAME);

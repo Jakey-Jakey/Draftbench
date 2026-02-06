@@ -60,6 +60,14 @@ export interface LeaderboardEntry extends SwissContestant {
 	reviser?: string;
 }
 
+interface RevisionMetadata {
+	task?: {
+		generator?: string;
+		reviewer?: string;
+		reviser?: string;
+	};
+}
+
 // ============================================================================
 // Nickname Helper
 // ============================================================================
@@ -107,7 +115,7 @@ export function getLeaderboard(
 	_swissMatches: SwissMatch[],
 	playoffResults: Map<string, PlayoffResult> | null,
 	// Optional revisions map to add metadata
-	revisionsById?: Map<string, any>,
+	revisionsById?: Map<string, RevisionMetadata>,
 ): LeaderboardEntry[] {
 	// Combine Swiss and Playoff scores for top-8
 	const finalScores = new Map<string, number>();
@@ -194,7 +202,7 @@ export function computeLeaderboard(
 	contestants: SwissContestant[],
 	swissMatches: SwissMatch[],
 	playoffResults: Map<string, PlayoffResult> | null,
-	revisionsById?: Map<string, any>,
+	revisionsById?: Map<string, RevisionMetadata>,
 	initialLeaderboardResults?: StoredInitialLeaderboardResult[] | null,
 ): string {
 	const entries = getLeaderboard(
@@ -279,7 +287,10 @@ function formatLeaderboardMarkdown(
 
 	// Winner showcase (card format)
 	if (sorted.length > 0) {
-		const winner = sorted[0]!;
+		const winner = sorted[0];
+		if (!winner) {
+			return md;
+		}
 		md += "## 🥇 Winner\n\n";
 		md += `**${formatRevisionNickname(winner.id)}**\n\n`;
 		md += `- **Swiss:** ${winner.points} pts`;
@@ -381,8 +392,8 @@ function formatLeaderboardMarkdown(
 		const playoffEntries = sorted.filter((c) => c.playoffPoints !== undefined);
 		playoffEntries.sort(
 			(a, b) =>
-				b.playoffPoints! - a.playoffPoints! ||
-				a.playoffLosses! - b.playoffLosses!,
+				(b.playoffPoints ?? 0) - (a.playoffPoints ?? 0) ||
+				(a.playoffLosses ?? 0) - (b.playoffLosses ?? 0),
 		);
 
 		md += "| # | Revision | W | D | L | Pts | Win Rate |\n";
@@ -391,10 +402,10 @@ function formatLeaderboardMarkdown(
 		playoffEntries.forEach((c, index) => {
 			const medal = index < 3 ? ["🥇", "🥈", "🥉"][index] : "";
 			const nickname = formatRevisionNickname(c.id);
-			const wins = c.playoffWins!;
-			const draws = c.playoffDraws!;
-			const losses = c.playoffLosses!;
-			const points = c.playoffPoints!;
+			const wins = c.playoffWins ?? 0;
+			const draws = c.playoffDraws ?? 0;
+			const losses = c.playoffLosses ?? 0;
+			const points = c.playoffPoints ?? 0;
 
 			const totalGames = wins + draws + losses;
 			const winRate =
