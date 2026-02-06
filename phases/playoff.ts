@@ -30,7 +30,7 @@ function getPairKey(idA: string, idB: string): string {
 }
 
 /**
- * Phase 6: Top-N Round Robin Playoff with dual-judge voting.
+ * Phase 6: Top-N Round Robin Playoff with multi-judge voting.
  */
 export async function runPlayoffPhase(
 	runDir: string,
@@ -65,7 +65,6 @@ export async function runPlayoffPhase(
 	});
 	const topN = sortedBySwiss.slice(0, TOP_N_PLAYOFF);
 	const topNIds = new Set(topN.map((c) => c.id));
-	const topNIdSet = new Set(topN.map((c) => c.id));
 
 	console.log(
 		`  Top ${TOP_N_PLAYOFF} qualifiers: ${topN.map((c) => c.id).join(", ")}`,
@@ -114,7 +113,7 @@ export async function runPlayoffPhase(
 
 	if (isResuming && state.playoffResults) {
 		for (const result of state.playoffResults as StoredPlayoffResult[]) {
-			if (!topNIdSet.has(result.id)) continue;
+			if (!topNIds.has(result.id)) continue;
 			playoffResults.set(result.id, {
 				points: result.points,
 				wins: result.wins,

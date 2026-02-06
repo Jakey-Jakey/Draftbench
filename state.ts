@@ -258,7 +258,7 @@ const PipelineStateSchema = z.object({
 	swissMatches: z.array(StoredSwissMatchSchema),
 	contestants: z.array(StoredSwissContestantSchema).nullable(),
 	playoffResults: z.array(StoredPlayoffResultSchema).nullable(),
-	completedPlayoffPairs: z.array(z.string()).optional(),
+	completedPlayoffPairs: z.array(z.string()).default([]),
 });
 
 // ============================================================================

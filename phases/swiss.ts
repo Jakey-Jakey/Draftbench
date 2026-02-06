@@ -150,6 +150,20 @@ export function generateSwissPairs(contestants: SwissContestant[]): {
 	return { pairs, bye };
 }
 
+function serializeContestants(
+	contestants: SwissContestant[],
+): StoredSwissContestant[] {
+	return contestants.map((c) => ({
+		id: c.id,
+		points: c.points,
+		opponents: Array.from(c.opponents),
+		placements: c.placements,
+		wins: c.wins ?? 0,
+		losses: c.losses ?? 0,
+		draws: c.draws ?? 0,
+	}));
+}
+
 // ============================================================================
 // Swiss Phase
 // ============================================================================
@@ -557,15 +571,7 @@ export async function runSwissPhase(
 		if (!dryRun) {
 			state.swissRound = round;
 			state.swissMatches = allSwissMatches as StoredSwissMatch[];
-			state.contestants = contestants.map((c) => ({
-				id: c.id,
-				points: c.points,
-				opponents: Array.from(c.opponents),
-				placements: c.placements,
-				wins: c.wins ?? 0,
-				losses: c.losses ?? 0,
-				draws: c.draws ?? 0,
-			})) as StoredSwissContestant[];
+			state.contestants = serializeContestants(contestants);
 			saveState(runDir, state);
 		}
 	}
@@ -576,18 +582,8 @@ export async function runSwissPhase(
 	if (!dryRun) {
 		state.swissRound = SWISS_ROUNDS;
 		state.swissMatches = allSwissMatches as StoredSwissMatch[];
-		state.contestants = contestants.map((c) => ({
-			id: c.id,
-			points: c.points,
-			opponents: Array.from(c.opponents),
-			placements: c.placements,
-			wins: c.wins ?? 0,
-			losses: c.losses ?? 0,
-			draws: c.draws ?? 0,
-		})) as StoredSwissContestant[];
-		if (state.swissRound >= SWISS_ROUNDS) {
-			markPhaseCompleted(state, "swiss");
-		}
+		state.contestants = serializeContestants(contestants);
+		markPhaseCompleted(state, "swiss");
 		saveState(runDir, state);
 	}
 

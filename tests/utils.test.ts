@@ -38,6 +38,11 @@ describe("getModelToken", () => {
 		const token = getModelToken("weird/provider::Model Name@v2");
 		expect(token).toMatch(/^[a-z0-9-]+$/);
 	});
+
+	test("handles slugs without provider prefixes", () => {
+		const token = getModelToken("just-a-model");
+		expect(token).toMatch(/^just-a-model-[a-f0-9]{8}$/);
+	});
 });
 
 describe("shuffleArray", () => {

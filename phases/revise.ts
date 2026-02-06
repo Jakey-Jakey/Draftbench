@@ -30,7 +30,7 @@ interface RevisionTask {
 	generator: ModelSlug;
 	reviewer: ModelSlug;
 	reviser: ModelSlug;
-	reviserEffort: string;
+	reviserEffort: ReasoningEffort;
 	reviserTemperature?: number;
 	id: string;
 }
@@ -167,7 +167,7 @@ export async function runRevisePhase(
 					task.reviser,
 					originalStatblock,
 					feedback,
-					task.reviserEffort as ReasoningEffort,
+					task.reviserEffort,
 					task.reviserTemperature,
 				);
 

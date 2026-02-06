@@ -52,12 +52,20 @@ export async function runReviewPhase(
 	let reviewCount = 0;
 	const totalReviews = reviewers.length * draftModels.length;
 	const completedReviewKeys = new Set<string>();
+	const expectedReviewKeys = new Set<string>();
+	for (const reviewer of reviewers) {
+		for (const reviewed of draftModels) {
+			expectedReviewKeys.add(getReviewKey(reviewer.model, reviewed));
+		}
+	}
 
 	// Load previously completed review tasks from state for partial resume.
 	if (isResuming && state.reviews) {
 		for (const stored of state.reviews as StoredReviewResult[]) {
+			const key = getReviewKey(stored.reviewer, stored.reviewed);
+			if (!expectedReviewKeys.has(key)) continue;
 			reviews.push(stored);
-			completedReviewKeys.add(getReviewKey(stored.reviewer, stored.reviewed));
+			completedReviewKeys.add(key);
 		}
 		reviewCount = reviews.length;
 		console.log(

@@ -384,6 +384,7 @@ export async function pairwiseJudge(
 		});
 
 		// Parse and validate the JSON response
+		// Deterministic fallback preserves reproducibility; callers randomize S1/S2 order.
 		const fallback = {
 			winner: idA,
 			reasoning: "Failed to parse response, defaulted to first statblock.",
@@ -399,14 +400,13 @@ export async function pairwiseJudge(
 			);
 		}
 		const parsed = parseResult.data;
-		if (!isValidPairwiseWinner(parsed.winner, idA, idB)) {
+		const validWinner = isValidPairwiseWinner(parsed.winner, idA, idB);
+		if (!validWinner) {
 			console.error(
 				`Invalid pairwise winner from ${judgeSlug}: "${parsed.winner}". Expected ${idA} or ${idB}. Using fallback.`,
 			);
 		}
-		const winner = isValidPairwiseWinner(parsed.winner, idA, idB)
-			? parsed.winner
-			: idA;
+		const winner = validWinner ? parsed.winner : idA;
 
 		return {
 			winner,
@@ -478,6 +478,7 @@ export async function threeWayJudge(
 		});
 
 		// Parse and validate the JSON response
+		// Deterministic fallback preserves reproducibility; callers randomize S1/S2/S3 order.
 		const fallback = {
 			first: idA,
 			second: idB,
