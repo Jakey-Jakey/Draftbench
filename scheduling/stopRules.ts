@@ -1,15 +1,5 @@
+import type { StopRulesConfig } from "../config";
 import type { RatingStanding } from "../rating/types";
-
-export interface StopRulesConfig {
-	enabled: boolean;
-	minBatches: number;
-	maxBatches: number;
-	topK: number;
-	minSeparation: number;
-	confidence: number;
-	stabilityBatches: number;
-	budgetMaxCalls?: number;
-}
 
 export interface StopRuleContext {
 	round: number;

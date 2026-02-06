@@ -104,7 +104,7 @@ export function scheduleAdaptivePairs(
 
 	const candidates: CandidatePair[] = [];
 	let skippedByRepeatLimit = 0;
-	const forcedRepeatPairs = 0;
+	let forcedRepeatPairs = 0;
 	const unpairedIds: string[] = [];
 
 	for (let i = 0; i < active.length; i++) {
@@ -202,6 +202,7 @@ export function scheduleAdaptivePairs(
 				unpairedIds.push(left);
 				break;
 			}
+			forcedRepeatPairs += 1;
 			pairs.push([left, right]);
 		}
 

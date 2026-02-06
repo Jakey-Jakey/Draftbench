@@ -213,9 +213,9 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 | Swiss (7 rounds × 9 matches × 1 judge) | 63 | ~$5.67 |
 | Disambiguation (optional) | up to `maxTotalMatches × judges` | varies |
 | Playoff (28 × 2 judges) | 56 | ~$5.80 |
-| **Total** | **158** | **~$15** |
+| **Total (excluding optional disambiguation)** | **158** | **~$15** |
 
-*Costs vary based on model selection, judge counts, and reasoning effort.*
+*Total excludes optional disambiguation; enabling it can add up to `maxTotalMatches × judges` additional calls. Costs vary based on model selection, judge counts, and reasoning effort.*
 
 ## Scoring
 

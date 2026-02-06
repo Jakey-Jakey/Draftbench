@@ -47,6 +47,7 @@
 | `rating/engine.ts` | Elo and Bradley-Terry rating backend used by Swiss standings. |
 | `rating/convert.ts` | Converts Swiss match outcomes into pairwise observations for rating updates. |
 | `scheduling/adaptive.ts` | Adaptive pair scheduler for Swiss `1v1`. |
+| `scheduling/disambiguation.ts` | Planner to disambiguate Swiss cutoff via targeted pairwise matches. |
 | `scheduling/stopRules.ts` | Confidence/stability stop-rule evaluator for early Swiss termination. |
 
 ### Configuration Files

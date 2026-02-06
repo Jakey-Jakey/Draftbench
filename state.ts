@@ -291,7 +291,7 @@ const RatingConfigSchema = z.object({
 	provisionalMatches: z.number(),
 	btIterations: z.number(),
 	btTolerance: z.number(),
-	ciBootstrapSamples: z.number().int().min(1).default(200),
+	ciBootstrapSamples: z.number().int().min(0).default(200),
 });
 
 const RatingRecordSchema = z.object({

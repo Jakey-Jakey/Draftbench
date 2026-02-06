@@ -1217,10 +1217,10 @@ function validateConfig(config: PipelineConfig): string[] {
 	}
 	if (
 		!Number.isInteger(config.tournament.rating.ciBootstrapSamples) ||
-		config.tournament.rating.ciBootstrapSamples < 1
+		config.tournament.rating.ciBootstrapSamples < 0
 	) {
 		throw new Error(
-			"tournament.rating.ciBootstrapSamples must be an integer >= 1",
+			"tournament.rating.ciBootstrapSamples must be an integer >= 0",
 		);
 	}
 	if (
