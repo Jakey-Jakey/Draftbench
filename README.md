@@ -10,7 +10,7 @@ This pipeline benchmarks AI models on creative artifact generation end-to-end:
 2. **Review**: Each model reviews all generated artifacts
 3. **Revise**: All models revise each artifact based on each review
 4. **Swiss Tournament**: 7 rounds of configurable `1v1` or `1v1v1` judging to rank all revisions
-5. **Playoff**: Top-8 Round Robin with multi-judge voting for final rankings
+5. **Finale**: Active-learning pairwise matches among the top-K (budget-capped) for final ranking confidence
 
 ## Features
 
@@ -18,12 +18,12 @@ This pipeline benchmarks AI models on creative artifact generation end-to-end:
 - **Formal Rating Backend**: Swiss can rank by `elo` or `bradley-terry` instead of raw points
 - **Adaptive Swiss Scheduling**: Prioritizes informative comparisons and avoids redundant rematches
 - **Optional Early Stop Rules**: End Swiss when top-K is stable/confident or budget/round caps are hit
-- **Disambiguation Matches (Optional)**: When top-K is stable but not separated, run targeted pairwise matches near the cutoff to tighten confidence
+- **Active Learning Finale**: Iteratively selects the most informative pairwise matches to separate the top-K ordering
 - **Position Randomization**: All matches randomize presentation order to eliminate position bias
 - **Multi-Judge Swiss (Optional)**: Swiss can use one or many judges with majority/tie aggregation
-- **Multi-Judge Playoff**: Configurable judges vote on each playoff match
+- **Multi-Judge Finale**: Configurable judges vote on each finale match
 - **Anonymized Judging**: All artifacts are presented with anonymous IDs (S1, S2, S3)
-- **Resumable Runs**: Interrupted pipelines can be resumed with `--resume` with phase checkpoints (reviews/revisions saved incrementally, Swiss saved per round, playoff saved per matchup)
+- **Resumable Runs**: Interrupted pipelines can be resumed with `--resume` with phase checkpoints (reviews/revisions saved incrementally, Swiss saved per round, finale saved per iteration)
 - **Incremental Writes**: Files are written as each result completes
 - **Stable IDs**: Filenames and revision IDs use deterministic model tokens (`<model>-<hash>`) to avoid collisions
 - **Judge Fallback Safety**: Judge payloads are schema-validated and semantically checked before scoring
@@ -92,18 +92,17 @@ model = "openai/gpt-5.2"
 effort = "low"
 # ... add more judges ...
 
-[[roles.playoffJudges]]
+[[roles.finaleJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-[[roles.playoffJudges]]
+[[roles.finaleJudges]]
 model = "mistral/mistral-large-2"
 effort = "medium"
 
 [tournament]
 swissFormat = "1v1v1"    # "1v1" or "1v1v1"
 swissRounds = 7
-playoffSize = 8
 
 [tournament.rating]
 enabled = true
@@ -118,11 +117,14 @@ minBatches = 3
 maxBatches = 7
 topK = 8
 
-[tournament.disambiguation]
+[tournament.finale]
 enabled = true
-judgesSource = "playoff"        # "playoff" (recommended) or "swiss"
-maxMatchesPerSwissRound = 2
-maxTotalMatches = 12
+maxMatchesPerBatch = 4
+maxTotalMatches = 30
+targetWinProb = 0.5
+confidence = 0.9
+minSeparation = 0
+allowOverRepeatCap = false
 
 [concurrency]
 maxParallel = 5          # Limit parallel API calls
@@ -194,9 +196,9 @@ runs/YYYY-MM-DDTHH-MM-SS/
 ├── initial_leaderboard/     # Optional initial draft selection output
 │   └── leaderboard.md
 ├── swiss_judgments/         # Detailed Swiss judge outputs
-├── playoff_judgments/       # Detailed playoff judge outputs
+├── finale_judgments/        # Detailed finale judge outputs
 ├── swiss_rounds.md          # Swiss tournament log
-├── playoff_rounds.md        # Playoff round robin log
+├── finale_rounds.md         # Finale active-learning log
 ├── leaderboard.md           # Final rankings
 └── state.json               # Pipeline state (for resume)
 ```
@@ -211,11 +213,9 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 | Review | 9 | ~$1.00 |
 | Revise | 27 | ~$2.00 |
 | Swiss (7 rounds × 9 matches × 1 judge) | 63 | ~$5.67 |
-| Disambiguation (optional) | up to `maxTotalMatches × judges` | varies |
-| Playoff (28 × 2 judges) | 56 | ~$5.80 |
-| **Total (excluding optional disambiguation)** | **158** | **~$15** |
+| Finale (variable) | up to `maxTotalMatches × judges` | varies |
 
-*Total excludes optional disambiguation; enabling it can add up to `maxTotalMatches × judges` additional calls. Costs vary based on model selection, judge counts, and reasoning effort.*
+*Finale cost is variable and capped by `tournament.finale.maxTotalMatches`. Costs vary based on model selection, judge counts, and reasoning effort.*
 
 ## Scoring
 
@@ -225,15 +225,15 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 - 3rd place: 0 points
 - With multiple Swiss judges, points are aggregated per match and ties split points (for example, 1.5/1.5/0)
 - Positions are randomized each match
-- When `tournament.rating.enabled = true`, Swiss standings and playoff seeding use rating estimates (with confidence), while points remain visible for readability
+- When `tournament.rating.enabled = true`, Swiss standings (and the finale) use rating estimates (with confidence), while points remain visible for readability
 - When `tournament.scheduling.mode = "adaptive"`, matchups are selected by uncertainty/closeness/repeat-penalty scoring
 - When `tournament.stopRules.enabled = true`, Swiss may stop before `swissRounds` once configured criteria are met (set `minSeparation = 0` to disable the separation threshold)
 
-### Playoff (Multi-Judge Round Robin)
+### Finale (Active Learning Pairwise)
 - Configurable judges vote on each match
-- Both agree (2-0): 1 point to winner
-- Disagree (1-1): 0.5 points each (draw)
-- Positions are randomized each match
+- Matches are selected to maximize information gain (prioritizing predicted ~50/50 outcomes)
+- Scores are applied in pairwise space using vote proportions (draws use `tieValue`)
+- Stops when adjacent pairs in the top-K separate by confidence interval (or when the match budget is exhausted)
 
 ---
 

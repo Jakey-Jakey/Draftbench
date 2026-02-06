@@ -49,7 +49,7 @@ This document summarizes the comprehensive test coverage for the Draftbench AI b
 **Coverage**:
 - `computeLeaderboard()` - Final ranking computation
 - Swiss-only leaderboards
-- Playoff integration
+- Finale integration
 - Tiebreaker cascades (points → 1sts → 2nds → 3rds)
 - Revision metadata mapping
 

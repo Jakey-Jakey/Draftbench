@@ -148,7 +148,6 @@ export function createMockReview(reviewer?: string, reviewed?: string): string {
 export function printDryRunConfig(): void {
 	const config = getConfig();
 	const SWISS_ROUNDS = config.tournament.swissRounds;
-	const TOP_N_PLAYOFF = config.tournament.playoffSize;
 	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
 	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
 	const RUNS_DIR = config.output.runsDirectory;
@@ -186,15 +185,14 @@ export function printDryRunConfig(): void {
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
-	console.log(`  Playoff Judges (${config.roles.playoffJudges.length}):`);
-	for (const entry of config.roles.playoffJudges) {
+	console.log(`  Finale Judges (${config.roles.finaleJudges.length}):`);
+	for (const entry of config.roles.finaleJudges) {
 		console.log(
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
 	console.log(`\nTournament:`);
 	console.log(`  Swiss Rounds: ${SWISS_ROUNDS}`);
-	console.log(`  Playoff Size: ${TOP_N_PLAYOFF}`);
 	console.log(`  Initial Generations per Model: ${INITIAL_GENERATIONS}`);
 	console.log(`  Initial Leaderboard Enabled: ${INITIAL_LEADERBOARD.enabled}`);
 	console.log(
@@ -205,7 +203,7 @@ export function printDryRunConfig(): void {
 		`  Stop Rules: ${config.tournament.stopRules.enabled ? `enabled (min ${config.tournament.stopRules.minBatches}, max ${config.tournament.stopRules.maxBatches}, topK ${config.tournament.stopRules.topK})` : "disabled"}`,
 	);
 	console.log(
-		`  Disambiguation: ${config.tournament.disambiguation.enabled ? `enabled (judges ${config.tournament.disambiguation.judgesSource}, max ${config.tournament.disambiguation.maxTotalMatches} total, max ${config.tournament.disambiguation.maxMatchesPerSwissRound}/round)` : "disabled"}`,
+		`  Finale: ${config.tournament.finale.enabled ? `enabled (max ${config.tournament.finale.maxTotalMatches} total, batch ${config.tournament.finale.maxMatchesPerBatch}, confidence ${config.tournament.finale.confidence})` : "disabled"}`,
 	);
 	console.log(`  Total Contestants: ${totalContestants}`);
 	console.log(`\nOutput:`);

@@ -76,17 +76,16 @@ maxBatches = 7
 topK = 8
 ```
 
-Swiss can also run optional "disambiguation" matches when the top-K is stable but not yet separated with confidence. These matches are **rating-only** (they do not change Swiss points) and are designed to tighten confidence intervals near the cutoff:
+After Swiss, Draftbench can run an active-learning **finale** to confidently order the top-K by iteratively selecting the most informative pairwise matchups (budget-capped).
 
 ```toml
-[tournament.disambiguation]
+[tournament.finale]
 enabled = true
-judgesSource = "playoff"        # "playoff" (recommended) or "swiss"
-maxMatchesPerSwissRound = 2     # cap per Swiss round
-maxTotalMatches = 12            # cap across the whole Swiss phase
-candidatesOutsideK = 2          # consider challengers K+1..K+N
-includeTopKInternal = false     # if true, allow some top-K internal matches too
+maxMatchesPerBatch = 4          # parallel matches per iteration
+maxTotalMatches = 30            # budget cap
 targetWinProb = 0.5             # prioritize matchups with predicted win prob near this target
+confidence = 0.9                # CI separation confidence
+minSeparation = 0               # rating-gap fallback (0 disables)
 allowOverRepeatCap = false      # if false, respects tournament.scheduling.maxRepeatPairs
 ```
 
@@ -95,7 +94,7 @@ allowOverRepeatCap = false      # if false, respects tournament.scheduling.maxRe
 The pipeline saves checkpoints throughout execution:
 - reviews and revisions save incrementally per completed task
 - Swiss saves after each completed round
-- playoffs save after each completed matchup (`completedPlayoffPairs` in state)
+- finale saves after each completed iteration (`finaleMatches` in state)
 
 If interrupted, use `--resume` to continue from where it left off.
 

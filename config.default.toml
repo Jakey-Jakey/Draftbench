@@ -59,12 +59,12 @@ effort = "low"
 # model = "openai/gpt-5.2"
 # effort = "low"
 
-# Playoff Judges (multi-judge voting for fairness)
-[[roles.playoffJudges]]
+# Finale Judges (multi-judge voting for fairness)
+[[roles.finaleJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-[[roles.playoffJudges]]
+[[roles.finaleJudges]]
 model = "openai/gpt-5.2"
 effort = "medium"
 
@@ -75,7 +75,6 @@ effort = "medium"
 [tournament]
 initialGenerations = 1      # Drafts per generator model
 swissRounds = 7             # Number of Swiss tournament rounds
-playoffSize = 8             # Top N contestants advance to playoffs
 swissFormat = "1v1v1"       # "1v1" (pairwise) or "1v1v1" (three-way)
 
 [tournament.initialLeaderboard]
@@ -103,22 +102,20 @@ maxRepeatPairs = 2          # Hard repeat cap per pair before fallback
 enabled = true
 minBatches = 3
 maxBatches = 7              # Hard cap for swiss batches (<= swissRounds)
-topK = 8                    # Evaluate separation at playoff boundary
+topK = 8                    # Evaluate separation at the top-K boundary
 minSeparation = 65          # Rating-point separation target (set to 0 to disable)
 confidence = 0.9
 stabilityBatches = 2        # Require same topK for N consecutive batches
 # budgetMaxCalls = 600       # Optional hard API-call budget for Swiss phase
 
-[tournament.disambiguation]
-# When Swiss top-K is stable but not yet separated with confidence, run targeted
-# pairwise "disambiguation" matches (rating-only) near the cutoff to tighten CIs.
+[tournament.finale]
+# Active-learning finale to confidently rank the top-K after Swiss.
 enabled = true
-judgesSource = "playoff"        # "playoff" (recommended) or "swiss"
-maxMatchesPerSwissRound = 2     # cap per Swiss round
-maxTotalMatches = 12            # cap across the whole Swiss phase
-candidatesOutsideK = 2          # consider challengers K+1..K+N
-includeTopKInternal = false     # if true, allow some top-K internal matches too
+maxMatchesPerBatch = 4          # parallel matches per iteration
+maxTotalMatches = 30            # cap across the whole finale
 targetWinProb = 0.5             # prioritize matchups with predicted win prob near this target
+confidence = 0.9                # CI separation confidence
+minSeparation = 0               # rating-gap fallback (0 disables)
 allowOverRepeatCap = false      # if false, respects tournament.scheduling.maxRepeatPairs
 
 # -----------------------------------------------------------------------------

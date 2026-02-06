@@ -9,17 +9,17 @@ import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-	getPlayoffJudges,
+	getFinaleJudges,
 	getRoleEntries,
 	getSwissJudges,
 	loadConfig,
 	parseArgs,
 } from "./config";
 import { computeLeaderboard } from "./leaderboard";
+import { runFinalePhase } from "./phases/finale";
 // Phase imports
 import { runGeneratePhase } from "./phases/generate";
 import { runInitialLeaderboardPhase } from "./phases/initialLeaderboard";
-import { runPlayoffPhase } from "./phases/playoff";
 import { runReviewPhase } from "./phases/review";
 import { runRevisePhase } from "./phases/revise";
 import { runSwissPhase } from "./phases/swiss";
@@ -44,10 +44,11 @@ initConcurrencyLimiter(config.concurrency?.maxParallel);
 
 const RUNS_DIR = config.output.runsDirectory;
 const SWISS_ROUNDS = config.tournament.swissRounds;
-const TOP_N_PLAYOFF = config.tournament.playoffSize;
 const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
 const SWISS_JUDGES = getSwissJudges();
-const PLAYOFF_JUDGES = getPlayoffJudges();
+const FINALE = config.tournament.finale;
+const TOP_K = config.tournament.stopRules.topK;
+const FINALE_JUDGES = getFinaleJudges();
 const DRY_RUN = cliArgs.dryRun;
 const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 const RATING = config.tournament.rating;
@@ -65,7 +66,7 @@ const STOP_RULES = config.tournament.stopRules;
  * 3. Each model reviews ALL models' selected drafts (cross-review)
  * 4. ALL models revise each original based on each review (27 revisions for 3 models)
  * 5. Swiss tournament: 7 rounds of 1v1v1 judging (9 matches/round = 63 total)
- * 6. Top-8 Round Robin playoff with configurable judges
+ * 6. Active learning finale to confidently rank the top-K
  * 7. Compute final leaderboard
  */
 async function runCrossReviewPipeline(): Promise<void> {
@@ -96,7 +97,11 @@ async function runCrossReviewPipeline(): Promise<void> {
 		}`,
 	);
 	console.log(
-		`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`,
+		`Finale: ${
+			FINALE.enabled
+				? `active learning (topK ${TOP_K}, max ${FINALE.maxTotalMatches} matches, batch ${FINALE.maxMatchesPerBatch}, judges: ${FINALE_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`
+				: "off"
+		}`,
 	);
 	console.log(
 		`Swiss Judges: ${SWISS_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`).join(", ")} | Initial Leaderboard: ${
@@ -162,17 +167,16 @@ async function runCrossReviewPipeline(): Promise<void> {
 		join(relRunPath, "swiss_judgments"),
 		DRY_RUN,
 	);
-	const playoffJudgmentsDir = await ensureRunsDirectory(
-		join(relRunPath, "playoff_judgments"),
-		DRY_RUN,
-	);
+	const finaleJudgmentsDir = FINALE.enabled
+		? await ensureRunsDirectory(join(relRunPath, "finale_judgments"), DRY_RUN)
+		: null;
 
 	// Log paths
 	const swissLogPath = join(runDir, "swiss_rounds.md");
 	const initialLeaderboardLogPath = initialLeaderboardDir
 		? join(initialLeaderboardDir, "leaderboard.md")
 		: null;
-	const playoffLogPath = join(runDir, "playoff_rounds.md");
+	const finaleLogPath = join(runDir, "finale_rounds.md");
 
 	// Initialize logs (only for new runs)
 	if (!DRY_RUN && !isResuming) {
@@ -188,7 +192,9 @@ async function runCrossReviewPipeline(): Promise<void> {
 				"utf-8",
 			);
 		}
-		await writeFile(playoffLogPath, "# Top-8 Round Robin Playoff\n\n", "utf-8");
+		if (FINALE.enabled) {
+			await writeFile(finaleLogPath, "# Active Learning Finale\n\n", "utf-8");
+		}
 	}
 
 	// === PHASE 1: Generate ===
@@ -241,11 +247,11 @@ async function runCrossReviewPipeline(): Promise<void> {
 		isResuming,
 	);
 
-	// === PHASE 6: Playoff ===
-	const { results: playoffResults } = await runPlayoffPhase(
+	// === PHASE 6: Finale ===
+	const { finaleMatches } = await runFinalePhase(
 		runDir,
-		playoffLogPath,
-		playoffJudgmentsDir,
+		finaleLogPath,
+		finaleJudgmentsDir ?? join(runDir, "finale_judgments"),
 		state,
 		contestants,
 		revisionsById,
@@ -254,12 +260,22 @@ async function runCrossReviewPipeline(): Promise<void> {
 	);
 
 	// === FINAL: Leaderboard ===
+	const finaleJudgmentCalls = finaleMatches.reduce(
+		(acc, m) => acc + (m.judges?.length ?? 0),
+		0,
+	);
+
 	const leaderboard = computeLeaderboard(
 		contestants,
 		allSwissMatches,
-		playoffResults,
 		revisionsById,
 		state.initialLeaderboardResults,
+		{
+			matches: finaleMatches.length,
+			judgments: finaleJudgmentCalls,
+			iterations: state.finaleIterations ?? 0,
+			converged: state.finaleConverged ?? false,
+		},
 	);
 	const leaderboardPath = join(runDir, "leaderboard.md");
 	if (!DRY_RUN) {
@@ -270,8 +286,6 @@ async function runCrossReviewPipeline(): Promise<void> {
 	}
 
 	// Print summary stats
-	const playoffPairCount = (TOP_N_PLAYOFF * (TOP_N_PLAYOFF - 1)) / 2;
-
 	console.log(`\n${"=".repeat(60)}`);
 	console.log("📊 TOURNAMENT SUMMARY");
 	console.log("=".repeat(60));
@@ -281,26 +295,33 @@ async function runCrossReviewPipeline(): Promise<void> {
 	console.log(`Swiss Rounds: ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`);
 	console.log(`Swiss Matches: ${allSwissMatches.length}`);
 	console.log(
-		`Playoff Judgments: ${playoffPairCount * PLAYOFF_JUDGES.length} (${playoffPairCount} pairs × ${PLAYOFF_JUDGES.length} judges)`,
+		`Finale Matches: ${finaleMatches.length} (judgments: ${finaleJudgmentCalls})`,
 	);
 	console.log("");
 	console.log("🏆 TOP 3 (Final Rankings):");
 
 	const finalSorted = [...contestants].sort((a, b) => {
-		const playoffA = playoffResults.get(a.id);
-		const playoffB = playoffResults.get(b.id);
-		const scoreA = a.points + (playoffA?.points ?? 0) * 2;
-		const scoreB = b.points + (playoffB?.points ?? 0) * 2;
-		return scoreB - scoreA;
+		const ratingA = typeof a.rating === "number" ? a.rating : null;
+		const ratingB = typeof b.rating === "number" ? b.rating : null;
+		if (ratingA !== null && ratingB !== null && ratingB !== ratingA) {
+			return ratingB - ratingA;
+		}
+		if (b.points !== a.points) return b.points - a.points;
+		const winsA = a.wins ?? 0;
+		const winsB = b.wins ?? 0;
+		if (winsB !== winsA) return winsB - winsA;
+		if (b.placements.first !== a.placements.first)
+			return b.placements.first - a.placements.first;
+		return b.placements.second - a.placements.second;
 	});
 
 	for (let i = 0; i < 3; i++) {
 		const c = finalSorted[i];
 		if (!c) break;
-		const playoff = playoffResults.get(c.id);
-		const playoffStr = playoff ? ` + ${playoff.points} playoff` : "";
+		const ratingStr =
+			typeof c.rating === "number" ? `, rating ${c.rating.toFixed(1)}` : "";
 		console.log(
-			`  ${["🥇", "🥈", "🥉"][i]} ${c.id} (${c.points} Swiss${playoffStr})`,
+			`  ${["🥇", "🥈", "🥉"][i]} ${c.id} (${c.points} Swiss${ratingStr})`,
 		);
 	}
 	console.log("=".repeat(60));

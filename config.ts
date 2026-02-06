@@ -37,9 +37,9 @@ export interface RolesConfig {
 	revisers: RoleEntry[];
 	/** Swiss tournament judges */
 	swissJudges: RoleEntry[];
-	/** Playoff judges (multi-judge voting) */
-	playoffJudges: RoleEntry[];
-	/** Initial leaderboard judges (optional, defaults to playoffJudges) */
+	/** Finale judges (multi-judge voting) */
+	finaleJudges: RoleEntry[];
+	/** Initial leaderboard judges (optional, defaults to finaleJudges) */
 	initialLeaderboardJudges?: RoleEntry[];
 }
 
@@ -58,7 +58,6 @@ export interface InitialLeaderboardConfig {
 
 export type RatingBackend = "elo" | "bradley-terry";
 export type SchedulingMode = "adaptive" | "static";
-export type DisambiguationJudgesSource = "playoff" | "swiss";
 
 export interface RatingConfig {
 	enabled: boolean;
@@ -90,27 +89,24 @@ export interface StopRulesConfig {
 	budgetMaxCalls?: number;
 }
 
-export interface DisambiguationConfig {
+export interface FinaleConfig {
 	enabled: boolean;
-	/** Which judge pool to use for disambiguation matches. Default: playoff */
-	judgesSource: DisambiguationJudgesSource;
-	/** Max number of disambiguation matches to run after a single Swiss round. */
-	maxMatchesPerSwissRound: number;
-	/** Max number of disambiguation matches across the entire Swiss phase. */
+	/** Parallelism within a single active-learning iteration (batch). */
+	maxMatchesPerBatch: number;
+	/** Budget cap for the entire finale phase. */
 	maxTotalMatches: number;
-	/** How many challengers outside the top-K to consider (K+1..K+N). */
-	candidatesOutsideK: number;
-	/** If true, allow some matches within the top-K as well (near the cutoff). */
-	includeTopKInternal: boolean;
 	/** Target win probability for "most informative" matchups. Usually 0.5. */
 	targetWinProb: number;
-	/** If false, respects scheduling.maxRepeatPairs as a hard cap. */
+	/** CI separation confidence threshold for declaring adjacent ordering "settled". */
+	confidence: number;
+	/** Fallback rating gap threshold (0 disables). */
+	minSeparation: number;
+	/** If true, allows scheduling beyond scheduling.maxRepeatPairs. */
 	allowOverRepeatCap: boolean;
 }
 
 export interface TournamentConfig {
 	swissRounds: number;
-	playoffSize: number;
 	initialGenerations: number;
 	initialLeaderboard: InitialLeaderboardConfig;
 	/** Swiss match format: 1v1 (pairwise) or 1v1v1 (three-way). Default: 1v1v1 */
@@ -118,7 +114,7 @@ export interface TournamentConfig {
 	rating: RatingConfig;
 	scheduling: SchedulingConfig;
 	stopRules: StopRulesConfig;
-	disambiguation: DisambiguationConfig;
+	finale: FinaleConfig;
 }
 
 export interface OutputConfig {
@@ -183,14 +179,13 @@ const DEFAULT_CONFIG: PipelineConfig = {
 			{ model: "google/gemini-3-pro-preview", effort: "high" },
 		],
 		swissJudges: [{ model: "anthropic/claude-opus-4.5", effort: "low" }],
-		playoffJudges: [
+		finaleJudges: [
 			{ model: "anthropic/claude-opus-4.5", effort: "low" },
 			{ model: "openai/gpt-5.2", effort: "medium" },
 		],
 	},
 	tournament: {
 		swissRounds: 7,
-		playoffSize: 8,
 		initialGenerations: 1,
 		swissFormat: "1v1v1",
 		initialLeaderboard: {
@@ -222,14 +217,13 @@ const DEFAULT_CONFIG: PipelineConfig = {
 			confidence: 0.9,
 			stabilityBatches: 2,
 		},
-		disambiguation: {
+		finale: {
 			enabled: true,
-			judgesSource: "playoff",
-			maxMatchesPerSwissRound: 2,
-			maxTotalMatches: 12,
-			candidatesOutsideK: 2,
-			includeTopKInternal: false,
+			maxMatchesPerBatch: 4,
+			maxTotalMatches: 30,
 			targetWinProb: 0.5,
+			confidence: 0.9,
+			minSeparation: 0,
 			allowOverRepeatCap: false,
 		},
 	},
@@ -326,8 +320,7 @@ interface ApiCallEstimate {
 	review: number;
 	revise: number;
 	swiss: number;
-	disambiguation: number;
-	playoff: number;
+	finale: number;
 	total: number;
 }
 
@@ -369,9 +362,9 @@ function deepMerge(
 				...target.tournament.stopRules,
 				...source.tournament.stopRules,
 			},
-			disambiguation: {
-				...target.tournament.disambiguation,
-				...source.tournament.disambiguation,
+			finale: {
+				...target.tournament.finale,
+				...source.tournament.finale,
 			},
 		};
 	}
@@ -448,8 +441,8 @@ function normalizeConfig(config: PipelineConfig): string[] {
 	config.roles.swissJudges.forEach((entry, index) => {
 		normalizeRoleEntry(entry, `roles.swissJudges[${index}]`, warnings);
 	});
-	config.roles.playoffJudges.forEach((entry, index) => {
-		normalizeRoleEntry(entry, `roles.playoffJudges[${index}]`, warnings);
+	config.roles.finaleJudges.forEach((entry, index) => {
+		normalizeRoleEntry(entry, `roles.finaleJudges[${index}]`, warnings);
 	});
 	(config.roles.initialLeaderboardJudges ?? []).forEach((entry, index) => {
 		normalizeRoleEntry(
@@ -467,7 +460,7 @@ function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 	const reviewerCount = config.roles.reviewers.length;
 	const reviserCount = config.roles.revisers.length;
 	const swissJudgeCount = config.roles.swissJudges.length;
-	const playoffJudgeCount = config.roles.playoffJudges.length;
+	const finaleJudgeCount = config.roles.finaleJudges.length;
 	const initialGenerations = config.tournament.initialGenerations;
 	const initialLeaderboardEnabled =
 		config.tournament.initialLeaderboard.enabled;
@@ -475,7 +468,7 @@ function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 		config.tournament.initialLeaderboard.style ?? "per-model-pairwise";
 	const initialLeaderboardJudgeCount =
 		config.roles.initialLeaderboardJudges?.length ??
-		config.roles.playoffJudges.length;
+		config.roles.finaleJudges.length;
 
 	const generation = generatorCount * initialGenerations;
 
@@ -512,29 +505,12 @@ function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 		: config.tournament.swissRounds;
 	const swiss = swissMatchesPerRound * effectiveSwissBatches * swissJudgeCount;
 
-	const disambiguationJudgeCount =
-		(config.tournament.disambiguation.judgesSource ?? "playoff") === "swiss"
-			? swissJudgeCount
-			: playoffJudgeCount;
-	const disambiguation =
-		config.tournament.disambiguation.enabled === true
-			? config.tournament.disambiguation.maxTotalMatches *
-				disambiguationJudgeCount
+	const finale =
+		config.tournament.finale.enabled === true
+			? config.tournament.finale.maxTotalMatches * finaleJudgeCount
 			: 0;
-	const playoffContestants = Math.max(
-		1,
-		Math.min(config.tournament.playoffSize, contestants),
-	);
-	const playoffPairs = (playoffContestants * (playoffContestants - 1)) / 2;
-	const playoff = playoffPairs * playoffJudgeCount;
 	const total =
-		generation +
-		initialLeaderboard +
-		review +
-		revise +
-		swiss +
-		disambiguation +
-		playoff;
+		generation + initialLeaderboard + review + revise + swiss + finale;
 
 	return {
 		generation,
@@ -542,8 +518,7 @@ function estimateApiCalls(config: PipelineConfig): ApiCallEstimate {
 		review,
 		revise,
 		swiss,
-		disambiguation,
-		playoff,
+		finale,
 		total,
 	};
 }
@@ -581,6 +556,7 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			"reviewers",
 			"revisers",
 			"swissJudges",
+			"finaleJudges",
 			"playoffJudges",
 			"initialLeaderboardJudges",
 		]);
@@ -602,8 +578,20 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		if (rolesRaw.swissJudges) {
 			result.roles.swissJudges = rolesRaw.swissJudges as RoleEntry[];
 		}
+		if (rolesRaw.finaleJudges) {
+			result.roles.finaleJudges = rolesRaw.finaleJudges as RoleEntry[];
+		}
 		if (rolesRaw.playoffJudges) {
-			result.roles.playoffJudges = rolesRaw.playoffJudges as RoleEntry[];
+			if (!rolesRaw.finaleJudges) {
+				console.warn(
+					"⚠️ Deprecated config key roles.playoffJudges detected; please rename to [[roles.finaleJudges]].",
+				);
+				result.roles.finaleJudges = rolesRaw.playoffJudges as RoleEntry[];
+			} else {
+				console.warn(
+					"⚠️ Deprecated config key roles.playoffJudges ignored because [[roles.finaleJudges]] is set.",
+				);
+			}
 		}
 		if (rolesRaw.initialLeaderboardJudges) {
 			result.roles.initialLeaderboardJudges =
@@ -617,13 +605,15 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		result.tournament = {} as TournamentConfig;
 		const knownTournamentKeys = new Set([
 			"swissRounds",
-			"playoffSize",
 			"initialGenerations",
 			"swissFormat",
 			"initialLeaderboard",
 			"rating",
 			"scheduling",
 			"stopRules",
+			"finale",
+			// Deprecated keys (migration)
+			"playoffSize",
 			"disambiguation",
 		]);
 		for (const key of Object.keys(tournamentRaw)) {
@@ -635,8 +625,14 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		if (tournamentRaw.swissRounds !== undefined) {
 			result.tournament.swissRounds = tournamentRaw.swissRounds as number;
 		}
-		if (tournamentRaw.playoffSize !== undefined) {
-			result.tournament.playoffSize = tournamentRaw.playoffSize as number;
+		const deprecatedPlayoffSize =
+			tournamentRaw.playoffSize !== undefined
+				? (tournamentRaw.playoffSize as number)
+				: undefined;
+		if (deprecatedPlayoffSize !== undefined) {
+			console.warn(
+				"⚠️ Deprecated config key tournament.playoffSize detected; please remove it and use tournament.stopRules.topK instead.",
+			);
 		}
 		if (tournamentRaw.initialGenerations !== undefined) {
 			result.tournament.initialGenerations =
@@ -791,58 +787,95 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 					stopRulesRaw.budgetMaxCalls as number;
 			}
 		}
-		if (tournamentRaw.disambiguation) {
-			const disRaw = tournamentRaw.disambiguation as Record<string, unknown>;
-			const knownDisambiguationKeys = new Set([
+
+		if (tournamentRaw.finale) {
+			const finaleRaw = tournamentRaw.finale as Record<string, unknown>;
+			const knownFinaleKeys = new Set([
 				"enabled",
-				"judgesSource",
-				"maxMatchesPerSwissRound",
+				"maxMatchesPerBatch",
 				"maxTotalMatches",
-				"candidatesOutsideK",
-				"includeTopKInternal",
 				"targetWinProb",
+				"confidence",
+				"minSeparation",
 				"allowOverRepeatCap",
 			]);
-			for (const key of Object.keys(disRaw)) {
-				if (!knownDisambiguationKeys.has(key)) {
+			for (const key of Object.keys(finaleRaw)) {
+				if (!knownFinaleKeys.has(key)) {
 					console.warn(
-						`⚠️ Unknown tournament.disambiguation key ignored: tournament.disambiguation.${key}`,
+						`⚠️ Unknown tournament.finale key ignored: tournament.finale.${key}`,
 					);
 				}
 			}
-			result.tournament.disambiguation =
-				{} as TournamentConfig["disambiguation"];
-			if (disRaw.enabled !== undefined) {
-				result.tournament.disambiguation.enabled = disRaw.enabled as boolean;
+			result.tournament.finale = {} as TournamentConfig["finale"];
+			if (finaleRaw.enabled !== undefined) {
+				result.tournament.finale.enabled = finaleRaw.enabled as boolean;
 			}
-			if (disRaw.judgesSource !== undefined) {
-				result.tournament.disambiguation.judgesSource =
-					disRaw.judgesSource as DisambiguationJudgesSource;
+			if (finaleRaw.maxMatchesPerBatch !== undefined) {
+				result.tournament.finale.maxMatchesPerBatch =
+					finaleRaw.maxMatchesPerBatch as number;
+			}
+			if (finaleRaw.maxTotalMatches !== undefined) {
+				result.tournament.finale.maxTotalMatches =
+					finaleRaw.maxTotalMatches as number;
+			}
+			if (finaleRaw.targetWinProb !== undefined) {
+				result.tournament.finale.targetWinProb =
+					finaleRaw.targetWinProb as number;
+			}
+			if (finaleRaw.confidence !== undefined) {
+				result.tournament.finale.confidence = finaleRaw.confidence as number;
+			}
+			if (finaleRaw.minSeparation !== undefined) {
+				result.tournament.finale.minSeparation =
+					finaleRaw.minSeparation as number;
+			}
+			if (finaleRaw.allowOverRepeatCap !== undefined) {
+				result.tournament.finale.allowOverRepeatCap =
+					finaleRaw.allowOverRepeatCap as boolean;
+			}
+		}
+
+		// Migration: tournament.playoffSize -> tournament.stopRules.topK (only if topK not explicitly set)
+		if (
+			deprecatedPlayoffSize !== undefined &&
+			(result.tournament.stopRules?.topK === undefined ||
+				result.tournament.stopRules.topK === null)
+		) {
+			if (!result.tournament.stopRules) {
+				result.tournament.stopRules = {} as TournamentConfig["stopRules"];
+			}
+			result.tournament.stopRules.topK = deprecatedPlayoffSize;
+		}
+
+		// Migration: tournament.disambiguation -> tournament.finale (best-effort mapping).
+		if (tournamentRaw.disambiguation && !result.tournament.finale) {
+			console.warn(
+				"⚠️ Deprecated config section tournament.disambiguation detected; please rename it to tournament.finale.",
+			);
+			const disRaw = tournamentRaw.disambiguation as Record<string, unknown>;
+			result.tournament.finale = {} as TournamentConfig["finale"];
+			if (disRaw.enabled !== undefined) {
+				result.tournament.finale.enabled = disRaw.enabled as boolean;
 			}
 			if (disRaw.maxMatchesPerSwissRound !== undefined) {
-				result.tournament.disambiguation.maxMatchesPerSwissRound =
+				result.tournament.finale.maxMatchesPerBatch =
 					disRaw.maxMatchesPerSwissRound as number;
 			}
 			if (disRaw.maxTotalMatches !== undefined) {
-				result.tournament.disambiguation.maxTotalMatches =
+				result.tournament.finale.maxTotalMatches =
 					disRaw.maxTotalMatches as number;
 			}
-			if (disRaw.candidatesOutsideK !== undefined) {
-				result.tournament.disambiguation.candidatesOutsideK =
-					disRaw.candidatesOutsideK as number;
-			}
-			if (disRaw.includeTopKInternal !== undefined) {
-				result.tournament.disambiguation.includeTopKInternal =
-					disRaw.includeTopKInternal as boolean;
-			}
 			if (disRaw.targetWinProb !== undefined) {
-				result.tournament.disambiguation.targetWinProb =
-					disRaw.targetWinProb as number;
+				result.tournament.finale.targetWinProb = disRaw.targetWinProb as number;
 			}
 			if (disRaw.allowOverRepeatCap !== undefined) {
-				result.tournament.disambiguation.allowOverRepeatCap =
+				result.tournament.finale.allowOverRepeatCap =
 					disRaw.allowOverRepeatCap as boolean;
 			}
+			// Sensible defaults for fields that didn't exist on disambiguation.
+			result.tournament.finale.confidence =
+				(result.tournament.stopRules?.confidence as number | undefined) ?? 0.9;
+			result.tournament.finale.minSeparation = 0;
 		}
 	}
 
@@ -1065,7 +1098,7 @@ export function loadConfig(
 	}
 	const estimate = estimateApiCalls(mergedConfig);
 	console.log(
-		`📊 Estimated API calls: total ${estimate.total} (gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, disambig ${estimate.disambiguation}, playoff ${estimate.playoff})`,
+		`📊 Estimated API calls: total ${estimate.total} (gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, finale ${estimate.finale})`,
 	);
 	loadedConfig = mergedConfig;
 	loadedPaths = {
@@ -1135,6 +1168,7 @@ export function getEffortForRole(
 		| "reviewers"
 		| "revisers"
 		| "swissJudges"
+		| "finaleJudges"
 		| "playoffJudges",
 	modelSlug: string,
 ): ReasoningEffort {
@@ -1145,8 +1179,8 @@ export function getEffortForRole(
 		return entry?.effort ?? "high";
 	}
 
-	if (role === "playoffJudges") {
-		const entry = config.roles.playoffJudges.find((e) => e.model === modelSlug);
+	if (role === "finaleJudges" || role === "playoffJudges") {
+		const entry = config.roles.finaleJudges.find((e) => e.model === modelSlug);
 		return entry?.effort ?? "high";
 	}
 
@@ -1163,18 +1197,28 @@ export function getSwissJudges(): RoleEntry[] {
 }
 
 /**
- * Gets the playoff judges configuration.
+ * Gets the finale judges configuration.
  */
-export function getPlayoffJudges(): RoleEntry[] {
-	return getConfig().roles.playoffJudges;
+export function getFinaleJudges(): RoleEntry[] {
+	return getConfig().roles.finaleJudges;
 }
 
 /**
- * Gets the initial leaderboard judges (falls back to playoff judges if not set).
+ * Deprecated alias for getFinaleJudges (config key was renamed from roles.playoffJudges).
+ */
+export function getPlayoffJudges(): RoleEntry[] {
+	console.warn(
+		"⚠️ getPlayoffJudges() is deprecated. Use getFinaleJudges() and [[roles.finaleJudges]] instead.",
+	);
+	return getFinaleJudges();
+}
+
+/**
+ * Gets the initial leaderboard judges (falls back to finale judges if not set).
  */
 export function getInitialLeaderboardJudges(): RoleEntry[] {
 	const config = getConfig();
-	return config.roles.initialLeaderboardJudges ?? config.roles.playoffJudges;
+	return config.roles.initialLeaderboardJudges ?? config.roles.finaleJudges;
 }
 
 /**
@@ -1205,8 +1249,8 @@ function validateConfig(config: PipelineConfig): string[] {
 	if (!config.roles.swissJudges || config.roles.swissJudges.length === 0) {
 		throw new Error("roles.swissJudges must have at least one entry");
 	}
-	if (!config.roles.playoffJudges || config.roles.playoffJudges.length === 0) {
-		throw new Error("roles.playoffJudges must have at least one entry");
+	if (!config.roles.finaleJudges || config.roles.finaleJudges.length === 0) {
+		throw new Error("roles.finaleJudges must have at least one entry");
 	}
 	if (
 		!Number.isInteger(config.tournament.swissRounds) ||
@@ -1219,12 +1263,6 @@ function validateConfig(config: PipelineConfig): string[] {
 		config.tournament.initialGenerations < 1
 	) {
 		throw new Error("tournament.initialGenerations must be an integer >= 1");
-	}
-	if (
-		!Number.isInteger(config.tournament.playoffSize) ||
-		config.tournament.playoffSize < 2
-	) {
-		throw new Error("tournament.playoffSize must be an integer >= 2");
 	}
 	if (
 		config.tournament.swissFormat &&
@@ -1372,64 +1410,53 @@ function validateConfig(config: PipelineConfig): string[] {
 		);
 	}
 
+	if (typeof config.tournament.finale.enabled !== "boolean") {
+		throw new Error("tournament.finale.enabled must be a boolean");
+	}
 	if (
-		config.tournament.disambiguation.judgesSource !== "playoff" &&
-		config.tournament.disambiguation.judgesSource !== "swiss"
+		!Number.isInteger(config.tournament.finale.maxMatchesPerBatch) ||
+		config.tournament.finale.maxMatchesPerBatch < 0
 	) {
 		throw new Error(
-			'tournament.disambiguation.judgesSource must be either "playoff" or "swiss"',
+			"tournament.finale.maxMatchesPerBatch must be an integer >= 0",
 		);
 	}
 	if (
-		!Number.isInteger(
-			config.tournament.disambiguation.maxMatchesPerSwissRound,
-		) ||
-		config.tournament.disambiguation.maxMatchesPerSwissRound < 0
+		!Number.isInteger(config.tournament.finale.maxTotalMatches) ||
+		config.tournament.finale.maxTotalMatches < 0
 	) {
 		throw new Error(
-			"tournament.disambiguation.maxMatchesPerSwissRound must be an integer >= 0",
+			"tournament.finale.maxTotalMatches must be an integer >= 0",
+		);
+	}
+	if (!Number.isFinite(config.tournament.finale.targetWinProb)) {
+		throw new Error("tournament.finale.targetWinProb must be a number");
+	}
+	if (
+		config.tournament.finale.targetWinProb < 0 ||
+		config.tournament.finale.targetWinProb > 1
+	) {
+		throw new Error("tournament.finale.targetWinProb must be between 0 and 1");
+	}
+	if (!Number.isFinite(config.tournament.finale.confidence)) {
+		throw new Error("tournament.finale.confidence must be a number");
+	}
+	if (
+		config.tournament.finale.confidence <= 0 ||
+		config.tournament.finale.confidence >= 1
+	) {
+		throw new Error(
+			"tournament.finale.confidence must be a number in the open interval (0, 1)",
 		);
 	}
 	if (
-		!Number.isInteger(config.tournament.disambiguation.maxTotalMatches) ||
-		config.tournament.disambiguation.maxTotalMatches < 0
+		!Number.isFinite(config.tournament.finale.minSeparation) ||
+		config.tournament.finale.minSeparation < 0
 	) {
-		throw new Error(
-			"tournament.disambiguation.maxTotalMatches must be an integer >= 0",
-		);
+		throw new Error("tournament.finale.minSeparation must be a number >= 0");
 	}
-	if (
-		!Number.isInteger(config.tournament.disambiguation.candidatesOutsideK) ||
-		config.tournament.disambiguation.candidatesOutsideK < 0
-	) {
-		throw new Error(
-			"tournament.disambiguation.candidatesOutsideK must be an integer >= 0",
-		);
-	}
-	if (
-		typeof config.tournament.disambiguation.includeTopKInternal !== "boolean"
-	) {
-		throw new Error(
-			"tournament.disambiguation.includeTopKInternal must be a boolean",
-		);
-	}
-	if (!Number.isFinite(config.tournament.disambiguation.targetWinProb)) {
-		throw new Error("tournament.disambiguation.targetWinProb must be a number");
-	}
-	if (
-		config.tournament.disambiguation.targetWinProb < 0 ||
-		config.tournament.disambiguation.targetWinProb > 1
-	) {
-		throw new Error(
-			"tournament.disambiguation.targetWinProb must be between 0 and 1",
-		);
-	}
-	if (
-		typeof config.tournament.disambiguation.allowOverRepeatCap !== "boolean"
-	) {
-		throw new Error(
-			"tournament.disambiguation.allowOverRepeatCap must be a boolean",
-		);
+	if (typeof config.tournament.finale.allowOverRepeatCap !== "boolean") {
+		throw new Error("tournament.finale.allowOverRepeatCap must be a boolean");
 	}
 
 	// Validate that all role entries have valid model slugs
@@ -1438,7 +1465,7 @@ function validateConfig(config: PipelineConfig): string[] {
 		...config.roles.reviewers,
 		...config.roles.revisers,
 		...config.roles.swissJudges,
-		...config.roles.playoffJudges,
+		...config.roles.finaleJudges,
 		...(config.roles.initialLeaderboardJudges ?? []),
 	];
 
@@ -1458,16 +1485,9 @@ function validateConfig(config: PipelineConfig): string[] {
 		config.roles.generators.length *
 		config.roles.reviewers.length *
 		config.roles.revisers.length;
-	if (config.tournament.playoffSize > estimatedContestants) {
-		const clamped = Math.max(1, estimatedContestants);
-		warnings.push(
-			`tournament.playoffSize (${config.tournament.playoffSize}) exceeds estimated contestant count (${estimatedContestants}); clamping to ${clamped}.`,
-		);
-		config.tournament.playoffSize = clamped;
-	}
 	if (estimatedContestants < 2) {
 		warnings.push(
-			`Only ${estimatedContestants} contestant expected from current role counts; playoff rounds will be minimal.`,
+			`Only ${estimatedContestants} contestant expected from current role counts; results may be degenerate.`,
 		);
 	}
 	if (config.tournament.stopRules.maxBatches > config.tournament.swissRounds) {
@@ -1486,14 +1506,12 @@ function validateConfig(config: PipelineConfig): string[] {
 		config.tournament.stopRules.minBatches =
 			config.tournament.stopRules.maxBatches;
 	}
-	if (
-		config.tournament.stopRules.topK > config.tournament.playoffSize &&
-		config.tournament.stopRules.enabled
-	) {
+	if (config.tournament.stopRules.topK > estimatedContestants) {
+		const clamped = Math.max(1, estimatedContestants);
 		warnings.push(
-			`tournament.stopRules.topK (${config.tournament.stopRules.topK}) exceeds playoffSize (${config.tournament.playoffSize}); clamping to ${config.tournament.playoffSize}.`,
+			`tournament.stopRules.topK (${config.tournament.stopRules.topK}) exceeds estimated contestant count (${estimatedContestants}); clamping to ${clamped}.`,
 		);
-		config.tournament.stopRules.topK = config.tournament.playoffSize;
+		config.tournament.stopRules.topK = clamped;
 	}
 	if (
 		config.tournament.stopRules.enabled &&
@@ -1505,30 +1523,27 @@ function validateConfig(config: PipelineConfig): string[] {
 		config.tournament.stopRules.enabled = false;
 	}
 
-	if (
-		config.tournament.disambiguation.enabled &&
-		(!config.tournament.stopRules.enabled || !config.tournament.rating.enabled)
-	) {
+	if (config.tournament.finale.enabled && !config.tournament.rating.enabled) {
 		warnings.push(
-			"tournament.disambiguation.enabled requires tournament.stopRules.enabled and tournament.rating.enabled; disabling disambiguation.",
+			"tournament.finale.enabled requires tournament.rating.enabled; disabling finale.",
 		);
-		config.tournament.disambiguation.enabled = false;
+		config.tournament.finale.enabled = false;
 	}
 	if (
-		config.tournament.disambiguation.maxTotalMatches <
-		config.tournament.disambiguation.maxMatchesPerSwissRound
+		config.tournament.finale.maxTotalMatches <
+		config.tournament.finale.maxMatchesPerBatch
 	) {
 		warnings.push(
-			`tournament.disambiguation.maxTotalMatches (${config.tournament.disambiguation.maxTotalMatches}) is less than maxMatchesPerSwissRound (${config.tournament.disambiguation.maxMatchesPerSwissRound}); clamping maxMatchesPerSwissRound to ${config.tournament.disambiguation.maxTotalMatches}.`,
+			`tournament.finale.maxTotalMatches (${config.tournament.finale.maxTotalMatches}) is less than maxMatchesPerBatch (${config.tournament.finale.maxMatchesPerBatch}); clamping maxMatchesPerBatch to ${config.tournament.finale.maxTotalMatches}.`,
 		);
-		config.tournament.disambiguation.maxMatchesPerSwissRound =
-			config.tournament.disambiguation.maxTotalMatches;
+		config.tournament.finale.maxMatchesPerBatch =
+			config.tournament.finale.maxTotalMatches;
 	}
 
 	const estimate = estimateApiCalls(config);
 	if (estimate.total >= HIGH_CALL_VOLUME_THRESHOLD) {
 		warnings.push(
-			`High estimated API volume (${estimate.total} calls: gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, disambig ${estimate.disambiguation}, playoff ${estimate.playoff}). Consider reducing rounds/models for faster runs.`,
+			`High estimated API volume (${estimate.total} calls: gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, finale ${estimate.finale}). Consider reducing rounds/models for faster runs.`,
 		);
 	}
 

@@ -11,7 +11,7 @@ describe("config loading", () => {
 		const config = loadConfig("config.example.toml");
 		expect(config.roles.generators.length).toBeGreaterThan(0);
 		expect(config.tournament.swissRounds).toBe(7);
-		expect(config.tournament.playoffSize).toBe(8);
+		expect(config.tournament.stopRules.topK).toBe(8);
 	});
 
 	test("uses defaults when no config path specified", () => {
@@ -71,8 +71,8 @@ describe("config loading", () => {
 		}
 	});
 
-	test("auto-clamps playoffSize when contestants are fewer than requested", () => {
-		const tempPath = `tmp-playoff-clamp-${Date.now()}.toml`;
+	test("auto-clamps stopRules.topK when contestants are fewer than requested", () => {
+		const tempPath = `tmp-topk-clamp-${Date.now()}.toml`;
 		writeFileSync(
 			tempPath,
 			`[roles]
@@ -92,17 +92,19 @@ effort = "high"
 model = "openai/gpt-5.2"
 effort = "low"
 
-[[roles.playoffJudges]]
+[[roles.finaleJudges]]
 model = "openai/gpt-5.2"
 effort = "low"
 
 [tournament]
-playoffSize = 8
+
+[tournament.stopRules]
+topK = 8
 `,
 		);
 		try {
 			const config = loadConfig(tempPath);
-			expect(config.tournament.playoffSize).toBe(1);
+			expect(config.tournament.stopRules.topK).toBe(1);
 		} finally {
 			rmSync(tempPath, { force: true });
 		}
@@ -311,17 +313,18 @@ effort = "low"
 		}
 	});
 
-	test("playoffJudges is an array", () => {
+	test("finaleJudges is an array", () => {
 		const config = loadConfig("config.example.toml");
-		expect(Array.isArray(config.roles.playoffJudges)).toBe(true);
-		expect(config.roles.playoffJudges.length).toBeGreaterThan(0);
+		expect(Array.isArray(config.roles.finaleJudges)).toBe(true);
+		expect(config.roles.finaleJudges.length).toBeGreaterThan(0);
 	});
 
 	test("tournament config has required fields", () => {
 		const config = loadConfig("config.example.toml");
 		expect(config.tournament.initialGenerations).toBeGreaterThan(0);
 		expect(config.tournament.swissRounds).toBeGreaterThan(0);
-		expect(config.tournament.playoffSize).toBeGreaterThan(0);
+		expect(config.tournament.stopRules.topK).toBeGreaterThan(0);
+		expect(config.tournament.finale.maxTotalMatches).toBeGreaterThanOrEqual(0);
 	});
 
 	test("swissFormat is valid", () => {
@@ -443,6 +446,13 @@ describe("config helpers", () => {
 	test("getSwissJudges returns judge entries", () => {
 		const { getSwissJudges } = require("../config");
 		const judges = getSwissJudges();
+		expect(Array.isArray(judges)).toBe(true);
+		expect(judges.length).toBeGreaterThan(0);
+	});
+
+	test("getFinaleJudges returns judge array", () => {
+		const { getFinaleJudges } = require("../config");
+		const judges = getFinaleJudges();
 		expect(Array.isArray(judges)).toBe(true);
 		expect(judges.length).toBeGreaterThan(0);
 	});

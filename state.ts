@@ -82,21 +82,10 @@ export interface StoredInitialLeaderboardResult {
 }
 
 /**
- * Playoff result for a single contestant.
+ * Finale match result stored in state (active learning).
  */
-export interface StoredPlayoffResult {
-	id: string;
-	points: number;
-	wins: number;
-	losses: number;
-	draws: number;
-}
-
-/**
- * Disambiguation match result stored in state (rating-only, does not affect Swiss points).
- */
-export interface StoredDisambiguationMatch {
-	round: number;
+export interface StoredFinaleMatch {
+	iteration: number;
 	aId: string;
 	bId: string;
 	scoreA: number;
@@ -104,7 +93,6 @@ export interface StoredDisambiguationMatch {
 	votesA: number;
 	votesB: number;
 	judges: string[];
-	sourceMatchId: string;
 }
 
 /**
@@ -140,12 +128,12 @@ export interface PipelineState {
 	ratingState?: StoredRatingState | null;
 	pairwiseHistory?: PairwiseObservation[];
 	topKHistory?: string[][];
-	disambiguationMatches?: StoredDisambiguationMatch[];
 	swissStopReason?: string | null;
 
-	// Phase 6: Playoffs
-	playoffResults: StoredPlayoffResult[] | null;
-	completedPlayoffPairs: string[];
+	// Phase 6: Finale (active learning)
+	finaleMatches?: StoredFinaleMatch[] | null;
+	finaleIterations?: number;
+	finaleConverged?: boolean;
 }
 
 // ============================================================================
@@ -202,10 +190,10 @@ function deserializeState(obj: Record<string, unknown>): PipelineState {
 		ratingState: (obj.ratingState as StoredRatingState | null) ?? null,
 		pairwiseHistory: (obj.pairwiseHistory as PairwiseObservation[]) ?? [],
 		topKHistory: (obj.topKHistory as string[][]) ?? [],
-		disambiguationMatches:
-			(obj.disambiguationMatches as StoredDisambiguationMatch[]) ?? [],
 		swissStopReason: (obj.swissStopReason as string | null) ?? null,
-		completedPlayoffPairs: (obj.completedPlayoffPairs as string[]) ?? [],
+		finaleMatches: (obj.finaleMatches as StoredFinaleMatch[] | null) ?? null,
+		finaleIterations: (obj.finaleIterations as number | undefined) ?? 0,
+		finaleConverged: (obj.finaleConverged as boolean | undefined) ?? false,
 	} as PipelineState;
 }
 
@@ -273,8 +261,8 @@ const PairwiseObservationSchema = z.object({
 	sourceMatchId: z.string().optional(),
 });
 
-const StoredDisambiguationMatchSchema = z.object({
-	round: z.number(),
+const StoredFinaleMatchSchema = z.object({
+	iteration: z.number(),
 	aId: z.string(),
 	bId: z.string(),
 	scoreA: z.number(),
@@ -282,7 +270,6 @@ const StoredDisambiguationMatchSchema = z.object({
 	votesA: z.number(),
 	votesB: z.number(),
 	judges: z.array(z.string()),
-	sourceMatchId: z.string(),
 });
 
 const RatingConfigSchema = z.object({
@@ -310,14 +297,6 @@ const StoredRatingStateSchema = z.object({
 	config: RatingConfigSchema,
 	records: z.array(RatingRecordSchema),
 	history: z.array(PairwiseObservationSchema),
-});
-
-const StoredPlayoffResultSchema = z.object({
-	id: z.string(),
-	points: z.number(),
-	wins: z.number(),
-	losses: z.number(),
-	draws: z.number(),
 });
 
 const StoredInitialLeaderboardResultSchema = z.object({
@@ -352,10 +331,10 @@ const PipelineStateSchema = z.object({
 	ratingState: StoredRatingStateSchema.nullable().optional(),
 	pairwiseHistory: z.array(PairwiseObservationSchema).optional(),
 	topKHistory: z.array(z.array(z.string())).optional(),
-	disambiguationMatches: z.array(StoredDisambiguationMatchSchema).optional(),
 	swissStopReason: z.string().nullable().optional(),
-	playoffResults: z.array(StoredPlayoffResultSchema).nullable(),
-	completedPlayoffPairs: z.array(z.string()).default([]),
+	finaleMatches: z.array(StoredFinaleMatchSchema).nullable().optional(),
+	finaleIterations: z.number().int().min(0).optional(),
+	finaleConverged: z.boolean().optional(),
 });
 
 // ============================================================================
@@ -386,10 +365,10 @@ export function createInitialState(): PipelineState {
 		ratingState: null,
 		pairwiseHistory: [],
 		topKHistory: [],
-		disambiguationMatches: [],
 		swissStopReason: null,
-		playoffResults: null,
-		completedPlayoffPairs: [],
+		finaleMatches: null,
+		finaleIterations: 0,
+		finaleConverged: false,
 	};
 }
 

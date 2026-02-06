@@ -37,7 +37,7 @@ export function getEffort(
 }
 
 /**
- * Gets call settings for a judge (swiss or playoff).
+ * Gets call settings for a judge (Swiss or finale).
  */
 export function getJudgeSettings(judgeEntry: RoleEntry): CallSettings {
 	return {
