@@ -414,6 +414,7 @@ export async function runSwissPhase(
 			// === 1v1 PAIRWISE FORMAT ===
 			let pairs: [string, string][];
 			let bye: string | null;
+			const byeIds = new Set<string>();
 			if (schedulingConfig.mode === "adaptive" && ratingState) {
 				const scheduled = scheduleAdaptivePairs(
 					contestants,
@@ -428,15 +429,18 @@ export async function runSwissPhase(
 				);
 				pairs = scheduled.pairs;
 				bye = scheduled.bye;
-				if (scheduled.diagnostics.forcedRepeatPairs > 0) {
+				if (bye) byeIds.add(bye);
+				for (const id of scheduled.unpairedIds ?? []) byeIds.add(id);
+				if ((scheduled.unpairedIds ?? []).length > 0) {
 					console.warn(
-						`    ⚠️ Adaptive scheduler forced ${scheduled.diagnostics.forcedRepeatPairs} over-cap rematch(es) to complete pairings. Consider increasing tournament.scheduling.maxRepeatPairs.`,
+						`    ⚠️ Adaptive scheduler could not legally pair ${(scheduled.unpairedIds ?? []).length} contestant(s) without exceeding tournament.scheduling.maxRepeatPairs. Treating them as byes. Consider increasing maxRepeatPairs to reduce byes.`,
 					);
 				}
 			} else {
 				const scheduled = generateSwissPairs(contestants);
 				pairs = scheduled.pairs;
 				bye = scheduled.bye;
+				if (bye) byeIds.add(bye);
 			}
 			const pairPromises = pairs.map(
 				async ([idA, idB]): Promise<SwissMatch> => {
@@ -630,8 +634,8 @@ export async function runSwissPhase(
 				allSwissMatches.push(match);
 			}
 
-			if (bye) {
-				const byeContestant = contestants.find((c) => c.id === bye);
+			for (const byeId of byeIds) {
+				const byeContestant = contestants.find((c) => c.id === byeId);
 				if (byeContestant) {
 					byeContestant.points += 1;
 					byeContestant.wins = (byeContestant.wins ?? 0) + 1;
@@ -639,8 +643,8 @@ export async function runSwissPhase(
 
 				const byeMatch: SwissMatch = {
 					round,
-					ids: [bye, "BYE", "N/A"],
-					first: bye,
+					ids: [byeId, "BYE", "N/A"],
+					first: byeId,
 					second: "BYE",
 					third: "N/A",
 					reasoning: "Bye (no opponent available this round).",
@@ -649,16 +653,16 @@ export async function runSwissPhase(
 				if (!dryRun) {
 					await appendFile(
 						swissLogPath,
-						`- **Winner: ${bye}** (bye)\n  - *${byeMatch.reasoning}*\n`,
+						`- **Winner: ${byeId}** (bye)\n  - *${byeMatch.reasoning}*\n`,
 						"utf-8",
 					);
 				}
 
-				console.log(`    ✓ ${bye} receives a bye (1 point awarded)`);
+				console.log(`    ✓ ${byeId} receives a bye (1 point awarded)`);
 				allSwissMatches.push(byeMatch);
 			}
 			if (!dryRun) await appendFile(swissLogPath, "\n", "utf-8");
-			const matchCount = pairs.length + (bye ? 1 : 0);
+			const matchCount = pairs.length + byeIds.size;
 			console.log(`    ✓ Round ${round} complete (${matchCount} matches)`);
 		} else {
 			// === 1v1v1 TRIPLE FORMAT (Original) ===

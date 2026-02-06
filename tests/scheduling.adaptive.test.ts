@@ -110,4 +110,49 @@ describe("adaptive scheduler", () => {
 		);
 		expect(hasAB).toBe(false);
 	});
+
+	test("does not create over-repeated matchups in fallback (leaves unpaired)", () => {
+		const contestants = [
+			contestant("A"),
+			contestant("B"),
+			contestant("C"),
+			contestant("D"),
+		];
+		const ratingState = createRatingState(
+			contestants.map((c) => c.id),
+			{
+				backend: "elo",
+				initialRating: 1500,
+				kFactor: 24,
+				tieValue: 0.5,
+				provisionalMatches: 12,
+			},
+		);
+
+		const history: PairwiseObservation[] = [];
+		const ids = ["A", "B", "C", "D"];
+		for (let i = 0; i < ids.length; i++) {
+			for (let j = i + 1; j < ids.length; j++) {
+				const aId = ids[i];
+				const bId = ids[j];
+				if (!aId || !bId) continue;
+				// Mark every possible pair as already repeated up to the cap.
+				history.push(
+					{ aId, bId, scoreA: 1, scoreB: 0, round: 1 },
+					{ aId, bId, scoreA: 0, scoreB: 1, round: 2 },
+				);
+			}
+		}
+		applyPairwiseBatch(ratingState, history);
+
+		const scheduled = scheduleAdaptivePairs(contestants, ratingState, history, {
+			exploration: 0,
+			avoidRepeatPenalty: 0.8,
+			maxRepeatPairs: 2,
+			randomSeed: 7,
+		});
+
+		expect(scheduled.pairs.length).toBe(0);
+		expect(scheduled.unpairedIds.length).toBe(4);
+	});
 });

@@ -18,6 +18,11 @@ export interface AdaptiveScheduleDiagnostics {
 export interface AdaptiveScheduleResult {
 	pairs: [string, string][];
 	bye: string | null;
+	/**
+	 * IDs that could not be legally paired without exceeding maxRepeatPairs.
+	 * Caller can treat these as additional byes or handle them at a higher level.
+	 */
+	unpairedIds: string[];
 	diagnostics: AdaptiveScheduleDiagnostics;
 }
 
@@ -83,6 +88,7 @@ export function scheduleAdaptivePairs(
 		return {
 			pairs: [],
 			bye: null,
+			unpairedIds: [],
 			diagnostics: {
 				skippedByRepeatLimit: 0,
 				candidateCount: 0,
@@ -98,7 +104,8 @@ export function scheduleAdaptivePairs(
 
 	const candidates: CandidatePair[] = [];
 	let skippedByRepeatLimit = 0;
-	let forcedRepeatPairs = 0;
+	const forcedRepeatPairs = 0;
+	const unpairedIds: string[] = [];
 
 	for (let i = 0; i < active.length; i++) {
 		for (let j = i + 1; j < active.length; j++) {
@@ -184,21 +191,28 @@ export function scheduleAdaptivePairs(
 			}
 
 			if (partnerIdx === -1) {
-				// No legal partner remains: pair anyway to avoid deadlocking the tournament,
-				// but track that we exceeded the repeat cap.
-				partnerIdx = 0;
-				forcedRepeatPairs += 1;
+				// No legal partner remains without exceeding maxRepeatPairs.
+				// Leave left unpaired so the caller can treat it as a bye (or other higher-level handling).
+				unpairedIds.push(left);
+				continue;
 			}
 
 			const right = pool.splice(partnerIdx, 1)[0];
-			if (!right) break;
+			if (!right) {
+				unpairedIds.push(left);
+				break;
+			}
 			pairs.push([left, right]);
 		}
+
+		// Any leftovers couldn't be paired legally.
+		unpairedIds.push(...pool);
 	}
 
 	return {
 		pairs,
 		bye,
+		unpairedIds,
 		diagnostics: {
 			skippedByRepeatLimit,
 			candidateCount: candidates.length,
