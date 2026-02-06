@@ -50,6 +50,9 @@ const SWISS_JUDGES = getSwissJudges();
 const PLAYOFF_JUDGES = getPlayoffJudges();
 const DRY_RUN = cliArgs.dryRun;
 const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
+const RATING = config.tournament.rating;
+const SCHEDULING = config.tournament.scheduling;
+const STOP_RULES = config.tournament.stopRules;
 
 // ============================================================================
 // Main Pipeline
@@ -85,6 +88,13 @@ async function runCrossReviewPipeline(): Promise<void> {
 		);
 	}
 	console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`);
+	console.log(
+		`Swiss Engine: ${RATING.enabled ? `${RATING.backend} ratings + ${SCHEDULING.mode} scheduling` : "legacy points-only"} | Stop Rules: ${
+			STOP_RULES.enabled
+				? `on (min ${STOP_RULES.minBatches}, max ${STOP_RULES.maxBatches}, topK ${STOP_RULES.topK})`
+				: "off"
+		}`,
+	);
 	console.log(
 		`Playoff: Top-${TOP_N_PLAYOFF} Round Robin (judges: ${PLAYOFF_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`,
 	);

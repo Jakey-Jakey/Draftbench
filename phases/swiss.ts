@@ -3,6 +3,18 @@ import { join } from "node:path";
 import { pairwiseJudge, threeWayJudge } from "../aiClient";
 import { getConfig, getSwissJudges } from "../config";
 import type { SwissContestant, SwissMatch } from "../leaderboard";
+import { pairwiseFromSwissMatch } from "../rating/convert";
+import {
+	applyPairwiseBatch,
+	createRatingState,
+	deserializeRatingState,
+	getRatingStandings,
+	getRatingStandingsWithOptions,
+	serializeRatingState,
+} from "../rating/engine";
+import type { PairwiseObservation, RatingState } from "../rating/types";
+import { scheduleAdaptivePairs } from "../scheduling/adaptive";
+import { evaluateStopRules } from "../scheduling/stopRules";
 import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
@@ -166,6 +178,10 @@ function serializeContestants(
 		wins: c.wins ?? 0,
 		losses: c.losses ?? 0,
 		draws: c.draws ?? 0,
+		rating: c.rating,
+		ratingUncertainty: c.ratingUncertainty,
+		ratingCiLow: c.ratingCiLow,
+		ratingCiHigh: c.ratingCiHigh,
 	}));
 }
 
@@ -223,6 +239,40 @@ export function applyThreeWaySwissMatch(
 	third.opponents.add(second.id);
 }
 
+function syncContestantsWithRatings(
+	contestants: SwissContestant[],
+	ratingState: RatingState,
+	options?: { bootstrapCi?: boolean },
+): string[] {
+	const standings =
+		options?.bootstrapCi === true
+			? getRatingStandingsWithOptions(ratingState, { bootstrapCi: true })
+			: getRatingStandings(ratingState);
+	const byId = new Map(standings.map((entry) => [entry.id, entry]));
+	for (const contestant of contestants) {
+		const rating = byId.get(contestant.id);
+		if (!rating) continue;
+		contestant.rating = rating.rating;
+		contestant.ratingUncertainty = rating.uncertainty;
+		contestant.ratingCiLow = rating.ciLow;
+		contestant.ratingCiHigh = rating.ciHigh;
+	}
+	return standings.map((entry) => entry.id);
+}
+
+function countSwissJudgeCalls(
+	matches: SwissMatch[],
+	judgeCount: number,
+): number {
+	let judgedMatches = 0;
+	for (const match of matches) {
+		// Byes do not trigger judge calls.
+		if (match.ids.includes("BYE")) continue;
+		judgedMatches += 1;
+	}
+	return judgedMatches * judgeCount;
+}
+
 // ============================================================================
 // Swiss Phase
 // ============================================================================
@@ -244,6 +294,9 @@ export async function runSwissPhase(
 	const SWISS_ROUNDS = config.tournament.swissRounds;
 	const SWISS_JUDGES = getSwissJudges();
 	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
+	const ratingConfig = config.tournament.rating;
+	const schedulingConfig = config.tournament.scheduling;
+	const stopRulesConfig = config.tournament.stopRules;
 	const judgeLabel = SWISS_JUDGES.map(
 		(j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`,
 	).join(", ");
@@ -251,6 +304,16 @@ export async function runSwissPhase(
 	console.log(
 		`Phase 5/6: Swiss Tournament (${SWISS_ROUNDS} rounds, ${SWISS_FORMAT} format, judges: ${judgeLabel})...`,
 	);
+	if (schedulingConfig.mode === "adaptive" && !ratingConfig.enabled) {
+		console.warn(
+			"  ⚠️ Adaptive scheduling requested without rating backend; falling back to static Swiss pairing.",
+		);
+	}
+	if (stopRulesConfig.enabled && !ratingConfig.enabled) {
+		console.warn(
+			"  ⚠️ Stop rules enabled without rating backend; stop rules will be ignored.",
+		);
+	}
 
 	const fileLock = new Semaphore(1);
 
@@ -262,7 +325,7 @@ export async function runSwissPhase(
 	const swissAlreadyCompleted =
 		hasSwissProgress &&
 		isPhaseCompleted(state, "swiss") &&
-		state.swissRound >= SWISS_ROUNDS;
+		state.swissRound >= 1;
 
 	// Initialize contestants
 	const contestants: SwissContestant[] = hasSwissProgress
@@ -280,6 +343,10 @@ export async function runSwissPhase(
 				wins: c.wins ?? 0,
 				losses: c.losses ?? 0,
 				draws: c.draws ?? 0,
+				rating: c.rating,
+				ratingUncertainty: c.ratingUncertainty,
+				ratingCiLow: c.ratingCiLow,
+				ratingCiHigh: c.ratingCiHigh,
 			}))
 		: Array.from(revisionsById.entries()).map(([id, data]) => ({
 				id,
@@ -290,11 +357,36 @@ export async function runSwissPhase(
 				wins: 0,
 				losses: 0,
 				draws: 0,
+				rating: undefined,
+				ratingUncertainty: undefined,
+				ratingCiLow: undefined,
+				ratingCiHigh: undefined,
 			}));
 
 	const allSwissMatches: SwissMatch[] = hasSwissProgress
 		? [...(state.swissMatches as StoredSwissMatch[])]
 		: [];
+	const pairwiseHistory: PairwiseObservation[] =
+		hasSwissProgress && (state.pairwiseHistory?.length ?? 0) > 0
+			? [...(state.pairwiseHistory ?? [])]
+			: [];
+	const topKHistory: string[][] =
+		hasSwissProgress && (state.topKHistory?.length ?? 0) > 0
+			? [...(state.topKHistory ?? [])]
+			: [];
+
+	let ratingState: RatingState | null = null;
+	if (ratingConfig.enabled) {
+		if (hasSwissProgress && state.ratingState) {
+			ratingState = deserializeRatingState(state.ratingState);
+		} else {
+			ratingState = createRatingState(
+				contestants.map((c) => c.id),
+				ratingConfig,
+			);
+			syncContestantsWithRatings(contestants, ratingState);
+		}
+	}
 
 	if (swissAlreadyCompleted) {
 		console.log(
@@ -303,6 +395,8 @@ export async function runSwissPhase(
 		return { contestants, matches: allSwissMatches };
 	}
 	const startRound = hasSwissProgress ? state.swissRound + 1 : 1;
+	let lastCompletedRound = hasSwissProgress ? state.swissRound : 0;
+	let stopReason = state.swissStopReason ?? null;
 	if (hasSwissProgress) {
 		console.log(
 			`  ↩︎ Loaded Swiss progress through round ${state.swissRound}; resuming at round ${startRound}`,
@@ -318,7 +412,36 @@ export async function runSwissPhase(
 
 		if (SWISS_FORMAT === "1v1") {
 			// === 1v1 PAIRWISE FORMAT ===
-			const { pairs, bye } = generateSwissPairs(contestants);
+			let pairs: [string, string][];
+			let bye: string | null;
+			const byeIds = new Set<string>();
+			if (schedulingConfig.mode === "adaptive" && ratingState) {
+				const scheduled = scheduleAdaptivePairs(
+					contestants,
+					ratingState,
+					pairwiseHistory,
+					{
+						exploration: schedulingConfig.exploration,
+						avoidRepeatPenalty: schedulingConfig.avoidRepeatPenalty,
+						maxRepeatPairs: schedulingConfig.maxRepeatPairs,
+						randomSeed: round * 9_973,
+					},
+				);
+				pairs = scheduled.pairs;
+				bye = scheduled.bye;
+				if (bye) byeIds.add(bye);
+				for (const id of scheduled.unpairedIds ?? []) byeIds.add(id);
+				if ((scheduled.unpairedIds ?? []).length > 0) {
+					console.warn(
+						`    ⚠️ Adaptive scheduler could not legally pair ${(scheduled.unpairedIds ?? []).length} contestant(s) without exceeding tournament.scheduling.maxRepeatPairs. Treating them as byes. Consider increasing maxRepeatPairs to reduce byes.`,
+					);
+				}
+			} else {
+				const scheduled = generateSwissPairs(contestants);
+				pairs = scheduled.pairs;
+				bye = scheduled.bye;
+				if (bye) byeIds.add(bye);
+			}
 			const pairPromises = pairs.map(
 				async ([idA, idB]): Promise<SwissMatch> => {
 					const textA = revisionsById.get(idA)?.result.text;
@@ -511,8 +634,8 @@ export async function runSwissPhase(
 				allSwissMatches.push(match);
 			}
 
-			if (bye) {
-				const byeContestant = contestants.find((c) => c.id === bye);
+			for (const byeId of byeIds) {
+				const byeContestant = contestants.find((c) => c.id === byeId);
 				if (byeContestant) {
 					byeContestant.points += 1;
 					byeContestant.wins = (byeContestant.wins ?? 0) + 1;
@@ -520,8 +643,8 @@ export async function runSwissPhase(
 
 				const byeMatch: SwissMatch = {
 					round,
-					ids: [bye, "BYE", "N/A"],
-					first: bye,
+					ids: [byeId, "BYE", "N/A"],
+					first: byeId,
 					second: "BYE",
 					third: "N/A",
 					reasoning: "Bye (no opponent available this round).",
@@ -530,16 +653,16 @@ export async function runSwissPhase(
 				if (!dryRun) {
 					await appendFile(
 						swissLogPath,
-						`- **Winner: ${bye}** (bye)\n  - *${byeMatch.reasoning}*\n`,
+						`- **Winner: ${byeId}** (bye)\n  - *${byeMatch.reasoning}*\n`,
 						"utf-8",
 					);
 				}
 
-				console.log(`    ✓ ${bye} receives a bye (1 point awarded)`);
+				console.log(`    ✓ ${byeId} receives a bye (1 point awarded)`);
 				allSwissMatches.push(byeMatch);
 			}
 			if (!dryRun) await appendFile(swissLogPath, "\n", "utf-8");
-			const matchCount = pairs.length + (bye ? 1 : 0);
+			const matchCount = pairs.length + byeIds.size;
 			console.log(`    ✓ Round ${round} complete (${matchCount} matches)`);
 		} else {
 			// === 1v1v1 TRIPLE FORMAT (Original) ===
@@ -775,21 +898,91 @@ export async function runSwissPhase(
 			console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
 		}
 
+		lastCompletedRound = round;
+		const roundPairwise = allSwissMatches
+			.filter((match) => match.round === round)
+			.flatMap((match) => pairwiseFromSwissMatch(match, ratingConfig.tieValue));
+		if (roundPairwise.length > 0) {
+			pairwiseHistory.push(...roundPairwise);
+		}
+
+		if (ratingState && roundPairwise.length > 0) {
+			applyPairwiseBatch(ratingState, roundPairwise);
+			const orderedIds = syncContestantsWithRatings(contestants, ratingState);
+			const topK = Math.max(
+				1,
+				Math.min(stopRulesConfig.topK, orderedIds.length),
+			);
+			topKHistory.push(orderedIds.slice(0, topK));
+		}
+
+		if (ratingState && stopRulesConfig.enabled) {
+			const stop = evaluateStopRules(
+				{
+					round,
+					totalCalls: countSwissJudgeCalls(
+						allSwissMatches,
+						SWISS_JUDGES.length,
+					),
+					standings: getRatingStandings(ratingState),
+					topKHistory,
+				},
+				stopRulesConfig,
+			);
+			if (stop.shouldStop) {
+				stopReason = stop.reason;
+				console.log(`    ⏹ Swiss stop rule triggered: ${stop.reason}`);
+				if (!dryRun) {
+					await appendFile(
+						swissLogPath,
+						`\n> Swiss stopped early at round ${round}: ${stop.reason}\n\n`,
+						"utf-8",
+					);
+				}
+				if (!dryRun) {
+					state.swissRound = round;
+					state.swissMatches = allSwissMatches as StoredSwissMatch[];
+					state.contestants = serializeContestants(contestants);
+					state.ratingState = serializeRatingState(ratingState);
+					state.pairwiseHistory = pairwiseHistory;
+					state.topKHistory = topKHistory;
+					state.swissStopReason = stopReason;
+					saveState(runDir, state);
+				}
+				break;
+			}
+		}
+
 		if (!dryRun) {
 			state.swissRound = round;
 			state.swissMatches = allSwissMatches as StoredSwissMatch[];
 			state.contestants = serializeContestants(contestants);
+			state.ratingState = ratingState
+				? serializeRatingState(ratingState)
+				: null;
+			state.pairwiseHistory = pairwiseHistory;
+			state.topKHistory = topKHistory;
+			state.swissStopReason = stopReason;
 			saveState(runDir, state);
 		}
 	}
 
 	console.log("");
 
+	// If rating is enabled and configured, compute final (potentially bootstrap) CIs for display.
+	if (ratingState) {
+		syncContestantsWithRatings(contestants, ratingState, { bootstrapCi: true });
+	}
+
 	// Save state
 	if (!dryRun) {
-		state.swissRound = SWISS_ROUNDS;
+		state.swissRound = lastCompletedRound;
 		state.swissMatches = allSwissMatches as StoredSwissMatch[];
 		state.contestants = serializeContestants(contestants);
+		state.ratingState = ratingState ? serializeRatingState(ratingState) : null;
+		state.pairwiseHistory = pairwiseHistory;
+		state.topKHistory = topKHistory;
+		state.swissStopReason = stopReason;
 		markPhaseCompleted(state, "swiss");
 		saveState(runDir, state);
 	}

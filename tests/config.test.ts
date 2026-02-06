@@ -107,6 +107,49 @@ playoffSize = 8
 			rmSync(tempPath, { force: true });
 		}
 	});
+
+	test("parses rating/scheduling/stopRules overrides", () => {
+		const tempPath = `tmp-rating-scheduling-${Date.now()}.toml`;
+		writeFileSync(
+			tempPath,
+			`[tournament.rating]
+enabled = true
+backend = "bradley-terry"
+kFactor = 18
+initialRating = 1400
+provisionalMatches = 10
+tieValue = 0.5
+btIterations = 150
+btTolerance = 0.00001
+ciBootstrapSamples = 120
+
+[tournament.scheduling]
+mode = "adaptive"
+exploration = 0.2
+avoidRepeatPenalty = 0.8
+maxRepeatPairs = 3
+
+[tournament.stopRules]
+enabled = true
+minBatches = 2
+maxBatches = 4
+topK = 6
+minSeparation = 40
+confidence = 0.9
+stabilityBatches = 2
+`,
+		);
+		try {
+			const config = loadConfig(tempPath);
+			expect(config.tournament.rating.backend).toBe("bradley-terry");
+			expect(config.tournament.rating.kFactor).toBe(18);
+			expect(config.tournament.scheduling.mode).toBe("adaptive");
+			expect(config.tournament.scheduling.maxRepeatPairs).toBe(3);
+			expect(config.tournament.stopRules.maxBatches).toBe(4);
+		} finally {
+			rmSync(tempPath, { force: true });
+		}
+	});
 });
 
 describe("config caching", () => {

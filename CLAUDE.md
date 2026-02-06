@@ -57,6 +57,25 @@ style = "per-model-pairwise"  # Default: each model's drafts compete internally
 # style = "global-rank"       # Single ranking call for all (cheapest)
 ```
 
+### Swiss Rating + Adaptive Scheduling
+
+Swiss supports a formal rating backend and optional early stop rules:
+
+```toml
+[tournament.rating]
+enabled = true
+backend = "elo" # or "bradley-terry"
+
+[tournament.scheduling]
+mode = "adaptive" # or "static"
+
+[tournament.stopRules]
+enabled = true
+minBatches = 3
+maxBatches = 7
+topK = 8
+```
+
 ### Resumability
 
 The pipeline saves checkpoints throughout execution:
