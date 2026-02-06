@@ -656,6 +656,24 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		}
 		if (tournamentRaw.rating) {
 			const ratingRaw = tournamentRaw.rating as Record<string, unknown>;
+			const knownRatingKeys = new Set([
+				"enabled",
+				"backend",
+				"kFactor",
+				"initialRating",
+				"provisionalMatches",
+				"tieValue",
+				"btIterations",
+				"btTolerance",
+				"ciBootstrapSamples",
+			]);
+			for (const key of Object.keys(ratingRaw)) {
+				if (!knownRatingKeys.has(key)) {
+					console.warn(
+						`⚠️ Unknown tournament.rating key ignored: tournament.rating.${key}`,
+					);
+				}
+			}
 			result.tournament.rating = {} as TournamentConfig["rating"];
 			if (ratingRaw.enabled !== undefined) {
 				result.tournament.rating.enabled = ratingRaw.enabled as boolean;
@@ -691,6 +709,19 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		}
 		if (tournamentRaw.scheduling) {
 			const schedulingRaw = tournamentRaw.scheduling as Record<string, unknown>;
+			const knownSchedulingKeys = new Set([
+				"mode",
+				"exploration",
+				"avoidRepeatPenalty",
+				"maxRepeatPairs",
+			]);
+			for (const key of Object.keys(schedulingRaw)) {
+				if (!knownSchedulingKeys.has(key)) {
+					console.warn(
+						`⚠️ Unknown tournament.scheduling key ignored: tournament.scheduling.${key}`,
+					);
+				}
+			}
 			result.tournament.scheduling = {} as TournamentConfig["scheduling"];
 			if (schedulingRaw.mode !== undefined) {
 				result.tournament.scheduling.mode =
@@ -711,6 +742,23 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		}
 		if (tournamentRaw.stopRules) {
 			const stopRulesRaw = tournamentRaw.stopRules as Record<string, unknown>;
+			const knownStopRulesKeys = new Set([
+				"enabled",
+				"minBatches",
+				"maxBatches",
+				"topK",
+				"minSeparation",
+				"confidence",
+				"stabilityBatches",
+				"budgetMaxCalls",
+			]);
+			for (const key of Object.keys(stopRulesRaw)) {
+				if (!knownStopRulesKeys.has(key)) {
+					console.warn(
+						`⚠️ Unknown tournament.stopRules key ignored: tournament.stopRules.${key}`,
+					);
+				}
+			}
 			result.tournament.stopRules = {} as TournamentConfig["stopRules"];
 			if (stopRulesRaw.enabled !== undefined) {
 				result.tournament.stopRules.enabled = stopRulesRaw.enabled as boolean;
@@ -745,6 +793,23 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		}
 		if (tournamentRaw.disambiguation) {
 			const disRaw = tournamentRaw.disambiguation as Record<string, unknown>;
+			const knownDisambiguationKeys = new Set([
+				"enabled",
+				"judgesSource",
+				"maxMatchesPerSwissRound",
+				"maxTotalMatches",
+				"candidatesOutsideK",
+				"includeTopKInternal",
+				"targetWinProb",
+				"allowOverRepeatCap",
+			]);
+			for (const key of Object.keys(disRaw)) {
+				if (!knownDisambiguationKeys.has(key)) {
+					console.warn(
+						`⚠️ Unknown tournament.disambiguation key ignored: tournament.disambiguation.${key}`,
+					);
+				}
+			}
 			result.tournament.disambiguation =
 				{} as TournamentConfig["disambiguation"];
 			if (disRaw.enabled !== undefined) {

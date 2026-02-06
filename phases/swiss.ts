@@ -36,6 +36,27 @@ import type { RevisionEntry } from "./revise";
 // Swiss Tournament Types & Logic
 // ============================================================================
 
+function fnv1a32(input: string): number {
+	// Deterministic 32-bit hash (FNV-1a) for seeded RNG.
+	let h = 2166136261;
+	for (let i = 0; i < input.length; i++) {
+		h ^= input.charCodeAt(i);
+		h = Math.imul(h, 16777619);
+	}
+	return h >>> 0;
+}
+
+function mulberry32(seed: number): () => number {
+	let a = seed >>> 0;
+	return () => {
+		a |= 0;
+		a = (a + 0x6d2b79f5) | 0;
+		let t = Math.imul(a ^ (a >>> 15), 1 | a);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
 export interface SwissPhaseResult {
 	contestants: SwissContestant[];
 	matches: SwissMatch[];
@@ -941,11 +962,13 @@ export async function runSwissPhase(
 		if (ratingState && roundPairwise.length > 0) {
 			applyPairwiseBatch(ratingState, roundPairwise);
 			const orderedIds = syncContestantsWithRatings(contestants, ratingState);
-			const topK = Math.max(
-				1,
-				Math.min(stopRulesConfig.topK, orderedIds.length),
-			);
-			topKHistory.push(orderedIds.slice(0, topK));
+			if (stopRulesConfig.enabled) {
+				const topK = Math.max(
+					1,
+					Math.min(stopRulesConfig.topK, orderedIds.length),
+				);
+				topKHistory.push(orderedIds.slice(0, topK));
+			}
 		}
 
 		if (ratingState && stopRulesConfig.enabled) {
@@ -1029,7 +1052,12 @@ export async function runSwissPhase(
 								);
 							}
 
-							const swapped = Math.random() > 0.5;
+							const rng = mulberry32(
+								fnv1a32(
+									`disambig|r${round}|${[idA, idB].sort().join("::")}|${i}`,
+								),
+							);
+							const swapped = rng() > 0.5;
 							const [firstId, secondId] = swapped ? [idB, idA] : [idA, idB];
 							const [firstText, secondText] = swapped
 								? [revisionB.result.text, revisionA.result.text]
@@ -1040,7 +1068,7 @@ export async function runSwissPhase(
 							let isDraw = false;
 
 							if (dryRun) {
-								const outcome = Math.random();
+								const outcome = rng();
 								if (outcome < 0.45) votesA = disambigJudges.length;
 								else if (outcome < 0.9) votesB = disambigJudges.length;
 								else {
@@ -1141,7 +1169,9 @@ export async function runSwissPhase(
 							1,
 							Math.min(stopRulesConfig.topK, orderedIds.length),
 						);
-						if (topKHistory.length > 0) {
+						if (topKHistory.length === 0) {
+							topKHistory.push(orderedIds.slice(0, topK));
+						} else {
 							topKHistory[topKHistory.length - 1] = orderedIds.slice(0, topK);
 						}
 
@@ -1169,6 +1199,8 @@ export async function runSwissPhase(
 					);
 				}
 				if (!dryRun) {
+					// Persist intermediate stop state; the final save (with phase-complete marker)
+					// happens after the Swiss loop.
 					state.swissRound = round;
 					state.swissMatches = allSwissMatches as StoredSwissMatch[];
 					state.contestants = serializeContestants(contestants);
@@ -1207,6 +1239,7 @@ export async function runSwissPhase(
 
 	// Save state
 	if (!dryRun) {
+		// Final save ensures the swiss phase-complete marker is persisted.
 		state.swissRound = lastCompletedRound;
 		state.swissMatches = allSwissMatches as StoredSwissMatch[];
 		state.contestants = serializeContestants(contestants);

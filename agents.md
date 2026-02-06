@@ -203,7 +203,7 @@ swissFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
 # swissFormat = "1v1"  # Alternative: pairwise matches
 ```
 
-### Rating, Scheduling, and Stop Rules
+### Rating, Scheduling, Stop Rules, and Disambiguation
 
 ```toml
 [tournament.rating]

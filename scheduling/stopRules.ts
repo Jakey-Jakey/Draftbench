@@ -30,6 +30,8 @@ export interface StopRuleResult {
 }
 
 function confidenceMultiplier(confidence: number): number {
+	// Step-function z-score approximation at common confidence thresholds.
+	// Values between thresholds fall to the next lower tier (e.g. 0.97 -> 1.96).
 	if (confidence >= 0.99) return 2.58;
 	if (confidence >= 0.95) return 1.96;
 	if (confidence >= 0.9) return 1.64;
@@ -45,9 +47,10 @@ function isStableTopK(
 	if (topKHistory.length < stabilityBatches) return false;
 
 	const recent = topKHistory.slice(-stabilityBatches);
-	const first = recent[0]?.join("|");
+	const sep = "\u0000";
+	const first = recent[0]?.join(sep);
 	if (!first) return false;
-	return recent.every((entry) => entry.join("|") === first);
+	return recent.every((entry) => entry.join(sep) === first);
 }
 
 export function evaluateStopRules(

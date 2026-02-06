@@ -204,6 +204,9 @@ export function printDryRunConfig(): void {
 	console.log(
 		`  Stop Rules: ${config.tournament.stopRules.enabled ? `enabled (min ${config.tournament.stopRules.minBatches}, max ${config.tournament.stopRules.maxBatches}, topK ${config.tournament.stopRules.topK})` : "disabled"}`,
 	);
+	console.log(
+		`  Disambiguation: ${config.tournament.disambiguation.enabled ? `enabled (judges ${config.tournament.disambiguation.judgesSource}, max ${config.tournament.disambiguation.maxTotalMatches} total, max ${config.tournament.disambiguation.maxMatchesPerSwissRound}/round)` : "disabled"}`,
+	);
 	console.log(`  Total Contestants: ${totalContestants}`);
 	console.log(`\nOutput:`);
 	console.log(`  Runs Directory: ${RUNS_DIR}`);

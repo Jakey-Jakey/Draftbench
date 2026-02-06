@@ -1,3 +1,5 @@
+// Note: We use sync node:fs here because state load/save is used in CLI flow and tests.
+// A future cleanup could migrate to Bun.file/Bun.write for consistency with project guidelines.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";

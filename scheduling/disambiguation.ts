@@ -1,24 +1,8 @@
 import { estimateWinProbability } from "../rating/engine";
-import type {
-	PairwiseObservation,
-	RatingStanding,
-	RatingState,
-} from "../rating/types";
+import type { RatingStanding, RatingState } from "../rating/types";
+import { countRepeatPairs, pairKey } from "./pairs";
 
-function pairKey(aId: string, bId: string): string {
-	return [aId, bId].sort().join("::");
-}
-
-export function countRepeatPairs(
-	history: PairwiseObservation[],
-): Map<string, number> {
-	const counts = new Map<string, number>();
-	for (const obs of history) {
-		const key = pairKey(obs.aId, obs.bId);
-		counts.set(key, (counts.get(key) ?? 0) + 1);
-	}
-	return counts;
-}
+export { countRepeatPairs };
 
 export function planDisambiguationPairs(args: {
 	standings: RatingStanding[];
