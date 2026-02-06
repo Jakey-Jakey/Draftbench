@@ -168,24 +168,24 @@ export interface PipelineConfig {
 const DEFAULT_CONFIG: PipelineConfig = {
 	roles: {
 		generators: [
-			{ model: "anthropic/claude-sonnet-4", effort: "high" },
-			{ model: "openai/gpt-4.1", effort: "high" },
-			{ model: "google/gemini-2.5-pro-preview", effort: "high" },
+			{ model: "openai/gpt-5.2", effort: "high" },
+			{ model: "anthropic/claude-opus-4.5", effort: "high" },
+			{ model: "google/gemini-3-pro-preview", effort: "high" },
 		],
 		reviewers: [
-			{ model: "anthropic/claude-sonnet-4", effort: "medium" },
-			{ model: "openai/gpt-4.1", effort: "medium" },
-			{ model: "google/gemini-2.5-pro-preview", effort: "medium" },
+			{ model: "openai/gpt-5.2", effort: "high" },
+			{ model: "anthropic/claude-opus-4.5", effort: "high" },
+			{ model: "google/gemini-3-pro-preview", effort: "high" },
 		],
 		revisers: [
-			{ model: "anthropic/claude-sonnet-4", effort: "high" },
-			{ model: "openai/gpt-4.1", effort: "high" },
-			{ model: "google/gemini-2.5-pro-preview", effort: "high" },
+			{ model: "openai/gpt-5.2", effort: "high" },
+			{ model: "anthropic/claude-opus-4.5", effort: "high" },
+			{ model: "google/gemini-3-pro-preview", effort: "high" },
 		],
-		swissJudges: [{ model: "anthropic/claude-sonnet-4", effort: "low" }],
+		swissJudges: [{ model: "anthropic/claude-opus-4.5", effort: "low" }],
 		playoffJudges: [
-			{ model: "anthropic/claude-sonnet-4", effort: "low" },
-			{ model: "openai/gpt-4.1", effort: "high" },
+			{ model: "anthropic/claude-opus-4.5", effort: "low" },
+			{ model: "openai/gpt-5.2", effort: "medium" },
 		],
 	},
 	tournament: {

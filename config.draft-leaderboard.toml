@@ -1,7 +1,9 @@
 # Enable initial draft leaderboard to pick best seed per model
 # Generates multiple drafts per model, then runs round-robin to select the best
 # This preset overrides tournament settings only.
-# Model roles (including [[roles.swissJudges]]) come from your base config.
+# If you run this via `--config`, any missing sections (like [roles]) come from
+# the built-in defaults in `config.ts`. Copy your [roles] from config.toml into
+# this file if you want to use your own models.
 
 [tournament]
 initialGenerations = 3  # Generate 3 drafts per model

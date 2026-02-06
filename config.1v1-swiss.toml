@@ -1,6 +1,8 @@
 # Swiss 1v1 format (pairwise matches instead of default 3-way)
 # This preset overrides tournament settings only.
-# Model roles (including [[roles.swissJudges]]) come from your base config.
+# If you run this via `--config`, any missing sections (like [roles]) come from
+# the built-in defaults in `config.ts`. Copy your [roles] from config.toml into
+# this file if you want to use your own models.
 
 [tournament]
 swissFormat = "1v1"

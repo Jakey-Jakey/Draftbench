@@ -1,0 +1,46 @@
+# Showcase preset: fast + budget-aware Swiss (1v1)
+#
+# Use with:
+#   bun run index.ts --config config.showcase.fast-budget.toml
+#
+# Note: since `--config` replaces `config.toml`, any sections you omit (like
+# [roles]) will fall back to the built-in defaults in `config.ts`.
+# Copy your [roles] block into this file if you want to use your own models.
+
+[tournament]
+swissFormat = "1v1"
+swissRounds = 7
+playoffSize = 8
+initialGenerations = 1
+
+[tournament.rating]
+enabled = true
+backend = "elo"
+ciBootstrapSamples = 0     # faster; use 200+ if you want bootstrap CIs
+
+[tournament.scheduling]
+mode = "adaptive"
+exploration = 0.15
+avoidRepeatPenalty = 0.35
+maxRepeatPairs = 2
+
+[tournament.stopRules]
+enabled = true
+minBatches = 2
+maxBatches = 7
+topK = 8
+minSeparation = 0
+confidence = 0.9
+stabilityBatches = 2
+budgetMaxCalls = 250
+
+[tournament.disambiguation]
+enabled = true
+judgesSource = "swiss"
+maxMatchesPerSwissRound = 1
+maxTotalMatches = 6
+candidatesOutsideK = 2
+includeTopKInternal = false
+targetWinProb = 0.5
+allowOverRepeatCap = false
+
