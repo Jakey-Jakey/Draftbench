@@ -133,11 +133,11 @@ export interface PromptsConfig {
 	};
 	review: {
 		system: string;
-		userTemplate: string; // {artifact} (alias: {statblock})
+		userTemplate: string; // {statblock} (alias: {artifact})
 	};
 	revise: {
 		system: string;
-		userTemplate: string; // {artifact} (alias: {statblock}), {feedback}
+		userTemplate: string; // {statblock} (alias: {artifact}), {feedback}
 	};
 	judgePairwise: {
 		system: string;
@@ -751,15 +751,20 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 						"⚠️ Both [tournament.firstDraftSelection] and [tournament.initialLeaderboard] are set; using [tournament.firstDraftSelection].",
 					);
 				}
-				result.tournament.initialLeaderboard = {
-					enabled: firstDraftSelectionRaw.enabled as boolean,
-					style: firstDraftSelectionRaw.style as InitialLeaderboardStyle | undefined,
-				};
-				if (firstDraftSelectionRaw.initialGenerations !== undefined) {
-					result.tournament.initialGenerations =
-						firstDraftSelectionRaw.initialGenerations as number;
-				}
-			} else if (initialLeaderboardRaw) {
+					result.tournament.initialLeaderboard = {
+						enabled: firstDraftSelectionRaw.enabled as boolean,
+						style: firstDraftSelectionRaw.style as InitialLeaderboardStyle | undefined,
+					};
+					if (firstDraftSelectionRaw.initialGenerations !== undefined) {
+						if (tournamentRaw.initialGenerations !== undefined) {
+							console.warn(
+								"⚠️ Both tournament.initialGenerations and tournament.firstDraftSelection.initialGenerations are set; using tournament.firstDraftSelection.initialGenerations.",
+							);
+						}
+						result.tournament.initialGenerations =
+							firstDraftSelectionRaw.initialGenerations as number;
+					}
+				} else if (initialLeaderboardRaw) {
 				console.warn(
 					"⚠️ Deprecated config section [tournament.initialLeaderboard] detected; please rename to [tournament.firstDraftSelection].",
 				);

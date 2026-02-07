@@ -93,30 +93,30 @@ model = "moonshot/kimi-k2-preview"
 effort = "high"
 # ... add more revisers ...
 
-	[[roles.coarseJudges]]
-	model = "openai/gpt-5.2"
-	effort = "low"
-	# ... add more judges ...
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+effort = "low"
+# ... add more judges ...
 
-	[[roles.fineJudges]]
-	model = "anthropic/claude-opus-4.5"
-	effort = "low"
+[[roles.fineJudges]]
+model = "anthropic/claude-opus-4.5"
+effort = "low"
 
-	[[roles.fineJudges]]
-	model = "mistral/mistral-large-2"
-	effort = "medium"
+[[roles.fineJudges]]
+model = "mistral/mistral-large-2"
+effort = "medium"
 
-	[tournament]
-	coarseFormat = "1v1v1"    # "1v1" or "1v1v1"
-	coarseRounds = 7
+[tournament]
+coarseFormat = "1v1v1"    # "1v1" or "1v1v1"
+coarseRounds = 7
 
-	[tournament.firstDraftSelection]
-	enabled = false
-	initialGenerations = 1
+[tournament.firstDraftSelection]
+enabled = false
+initialGenerations = 1
 
-	[tournament.rating]
-	enabled = true
-	backend = "elo"          # "elo" or "bradley-terry"
+[tournament.rating]
+enabled = true
+backend = "elo"          # "elo" or "bradley-terry"
 
 [tournament.scheduling]
 mode = "adaptive"        # "adaptive" or "static"
@@ -124,17 +124,17 @@ mode = "adaptive"        # "adaptive" or "static"
 [tournament.stopRules]
 enabled = true
 minBatches = 3
-	maxBatches = 7
-	topK = 8
+maxBatches = 7
+topK = 8
 
-	[tournament.fineRanking]
-	enabled = true
-	maxMatchesPerBatch = 4
-	maxTotalMatches = 30
-	targetWinProb = 0.5
-	confidence = 0.9
-	minSeparation = 0
-	allowOverRepeatCap = false
+[tournament.fineRanking]
+enabled = true
+maxMatchesPerBatch = 4
+maxTotalMatches = 30
+targetWinProb = 0.5
+confidence = 0.9
+minSeparation = 0
+allowOverRepeatCap = false
 
 [concurrency]
 maxParallel = 5          # Limit parallel API calls
@@ -242,7 +242,7 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 - Positions are randomized each match
 - When `tournament.rating.enabled = true`, Swiss standings (and the finale) use rating estimates (with confidence), while points remain visible for readability
 - When `tournament.scheduling.mode = "adaptive"`, matchups are selected by uncertainty/closeness/repeat-penalty scoring
-- When `tournament.stopRules.enabled = true`, Swiss may stop before `swissRounds` once configured criteria are met (set `minSeparation = 0` to disable the separation threshold)
+- When `tournament.stopRules.enabled = true`, coarse ranking may stop before `coarseRounds` once configured criteria are met (set `minSeparation = 0` to disable the separation threshold)
 
 ### Fine Ranking (Top-K refinement matches; active-learning pairwise)
 - Configurable judges vote on each match

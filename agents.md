@@ -122,28 +122,28 @@ effort = "medium"
 model = "anthropic/claude-opus-4.5"
 effort = "high"
 
-	# Coarse Ranking Judges (Swiss)
-	[[roles.coarseJudges]]
-	model = "anthropic/claude-opus-4.5"
-	effort = "low"
-	
-	# Fine Ranking Judges (multi-judge voting)
-	[[roles.fineJudges]]
-	model = "anthropic/claude-opus-4.5"
-	effort = "low"
-	
-	[[roles.fineJudges]]
-	model = "openai/gpt-5.2"
-	effort = "medium"
-	
-	[tournament]
-	coarseRounds = 7
-	coarseFormat = "1v1v1"  # "1v1" or "1v1v1"
-	
-	[tournament.firstDraftSelection]
-	enabled = false
-	style = "per-model-pairwise"  # See styles below
-	initialGenerations = 1
+# Coarse Ranking Judges (Swiss)
+[[roles.coarseJudges]]
+model = "anthropic/claude-opus-4.5"
+effort = "low"
+
+# Fine Ranking Judges (multi-judge voting)
+[[roles.fineJudges]]
+model = "anthropic/claude-opus-4.5"
+effort = "low"
+
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+effort = "medium"
+
+[tournament]
+coarseRounds = 7
+coarseFormat = "1v1v1"  # "1v1" or "1v1v1"
+
+[tournament.firstDraftSelection]
+enabled = false
+style = "per-model-pairwise"  # See styles below
+initialGenerations = 1
 
 [tournament.rating]
 enabled = true
@@ -161,11 +161,11 @@ minSeparation = 65 # Set to 0 to disable separation check
 confidence = 0.9
 stabilityBatches = 2
 
-	[tournament.fineRanking]
-	enabled = true
-	maxMatchesPerBatch = 4
-	maxTotalMatches = 30
-	targetWinProb = 0.5
+[tournament.fineRanking]
+enabled = true
+maxMatchesPerBatch = 4
+maxTotalMatches = 30
+targetWinProb = 0.5
 confidence = 0.9
 minSeparation = 0
 allowOverRepeatCap = false
@@ -230,11 +230,11 @@ minBatches = 3
 maxBatches = 7
 topK = 8
 
-	[tournament.fineRanking]
-	enabled = true
-	maxMatchesPerBatch = 4
-	maxTotalMatches = 30
-	targetWinProb = 0.5
+[tournament.fineRanking]
+enabled = true
+maxMatchesPerBatch = 4
+maxTotalMatches = 30
+targetWinProb = 0.5
 confidence = 0.9
 minSeparation = 0
 allowOverRepeatCap = false

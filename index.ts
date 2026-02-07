@@ -286,24 +286,18 @@ const STOP_RULES = config.tournament.stopRules;
 		isResuming,
 	);
 
-	// === PHASE 6: Fine Ranking (Top-K Refinement Matches) ===
-	const { finaleMatches } = await runFinalePhase(
-		runDir,
-		{
-			mode: layoutMode,
-			iterationsRoot:
-				finaleIterationsRoot ??
-				(layoutMode === "legacy" ? legacyFinaleLogPath : join(runDir, "fine", "iterations")),
-			standingsDir: finaleStandingsDir,
-			judgmentsDir:
-				finaleJudgmentsDir ??
-				(layoutMode === "legacy"
-					? join(runDir, "finale_judgments")
-					: join(runDir, "fine", "judgments")),
-		},
-		state,
-		contestants,
-		revisionsById,
+		// === PHASE 6: Fine Ranking (Top-K Refinement Matches) ===
+		const { finaleMatches } = await runFinalePhase(
+			runDir,
+			{
+				mode: layoutMode,
+				iterationsRoot: finaleIterationsRoot ?? null,
+				standingsDir: finaleStandingsDir,
+				judgmentsDir: finaleJudgmentsDir ?? null,
+			},
+			state,
+			contestants,
+			revisionsById,
 		DRY_RUN,
 		isResuming,
 	);
