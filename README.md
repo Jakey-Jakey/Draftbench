@@ -239,3 +239,11 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 ---
 
 Built with [Bun](https://bun.sh).
+
+## Origins
+
+Draftbench began as a fork of Auto-Draftify. Thanks to Theo Browne for inspiring me to try programming.
+
+```text
+https://github.com/T3-Content/auto-draftify
+```
