@@ -42,6 +42,46 @@ export interface InitialLeaderboardResult {
 	selectedByModel: Map<ModelSlug, GenerateResult>;
 }
 
+/**
+ * Build inputs for the global ranking judge call using opaque IDs.
+ *
+ * This is a safety-critical anonymization step: the judge LLM must not see
+ * model slugs/names in the IDs it is asked to rank.
+ */
+export function buildGlobalRankInputs(
+	generatorSlugs: ModelSlug[],
+	draftsByModel: Map<ModelSlug, GenerateResult[]>,
+): {
+	statblockMap: Map<string, string>;
+	idToStanding: Map<string, DraftStanding>;
+} {
+	const statblockMap = new Map<string, string>();
+	const idToStanding = new Map<string, DraftStanding>();
+
+	let counter = 0;
+	for (const modelSlug of generatorSlugs) {
+		const drafts = draftsByModel.get(modelSlug) ?? [];
+		drafts.forEach((draft, idx) => {
+			counter += 1;
+			// Deterministic, opaque IDs.
+			const id = `R${counter}`;
+			statblockMap.set(id, draft.text);
+			idToStanding.set(id, {
+				model: modelSlug,
+				draftIndex: idx + 1,
+				text: draft.text,
+				result: draft,
+				points: 0,
+				wins: 0,
+				draws: 0,
+				losses: 0,
+			});
+		});
+	}
+
+	return { statblockMap, idToStanding };
+}
+
 function getStanding(
 	standings: DraftStanding[],
 	index: number,
@@ -659,27 +699,10 @@ export async function runInitialLeaderboardPhase(
 		// Single ranking call for all drafts
 		console.log("  Running 1 global ranking call");
 
-		const statblockMap = new Map<string, string>();
-		const idToStanding = new Map<string, DraftStanding>();
-
-		for (const modelSlug of generatorSlugs) {
-			const drafts = draftsByModel.get(modelSlug) ?? [];
-			const modelToken = getModelToken(modelSlug);
-			drafts.forEach((draft, idx) => {
-				const id = `${modelToken}_d${idx + 1}`;
-				statblockMap.set(id, draft.text);
-				idToStanding.set(id, {
-					model: modelSlug,
-					draftIndex: idx + 1,
-					text: draft.text,
-					result: draft,
-					points: 0,
-					wins: 0,
-					draws: 0,
-					losses: 0,
-				});
-			});
-		}
+		const { statblockMap, idToStanding } = buildGlobalRankInputs(
+			generatorSlugs,
+			draftsByModel,
+		);
 
 		if (!dryRun) {
 			const result = await judgeStatblocks(
