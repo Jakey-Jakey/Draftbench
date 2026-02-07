@@ -198,31 +198,31 @@ export function printDryRunConfig(): void {
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
-	console.log(`  Swiss Judges (${config.roles.swissJudges.length}):`);
+	console.log(`  Coarse Judges (Swiss) (${config.roles.swissJudges.length}):`);
 	for (const entry of config.roles.swissJudges) {
 		console.log(
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
-	console.log(`  Finale Judges (${config.roles.finaleJudges.length}):`);
+	console.log(`  Fine Judges (${config.roles.finaleJudges.length}):`);
 	for (const entry of config.roles.finaleJudges) {
 		console.log(
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
 	console.log(`\nTournament:`);
-	console.log(`  Swiss Rounds: ${SWISS_ROUNDS}`);
+	console.log(`  Coarse Ranking (Swiss rounds): ${SWISS_ROUNDS}`);
 	console.log(`  Initial Generations per Model: ${INITIAL_GENERATIONS}`);
-	console.log(`  Initial Leaderboard Enabled: ${INITIAL_LEADERBOARD.enabled}`);
+	console.log(`  First Draft Selection Enabled: ${INITIAL_LEADERBOARD.enabled}`);
 	console.log(
 		`  Rating Backend: ${config.tournament.rating.enabled ? config.tournament.rating.backend : "disabled"}`,
 	);
 	console.log(`  Scheduling Mode: ${config.tournament.scheduling.mode}`);
 	console.log(
-		`  Stop Rules: ${config.tournament.stopRules.enabled ? `enabled (min ${config.tournament.stopRules.minBatches}, max ${config.tournament.stopRules.maxBatches}, topK ${config.tournament.stopRules.topK})` : "disabled"}`,
+		`  Swiss Early Stop Rules: ${config.tournament.stopRules.enabled ? `enabled (min ${config.tournament.stopRules.minBatches}, max ${config.tournament.stopRules.maxBatches}, topK ${config.tournament.stopRules.topK})` : "disabled"}`,
 	);
 	console.log(
-		`  Finale: ${config.tournament.finale.enabled ? `enabled (max ${config.tournament.finale.maxTotalMatches} total, batch ${config.tournament.finale.maxMatchesPerBatch}, confidence ${config.tournament.finale.confidence})` : "disabled"}`,
+		`  Fine Ranking: ${config.tournament.finale.enabled ? `enabled (max ${config.tournament.finale.maxTotalMatches} total, batch ${config.tournament.finale.maxMatchesPerBatch}, confidence ${config.tournament.finale.confidence})` : "disabled"}`,
 	);
 	console.log(`  Total Contestants: ${totalContestants}`);
 	console.log(`\nOutput:`);

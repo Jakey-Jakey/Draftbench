@@ -44,7 +44,7 @@ bun x @biomejs/biome check --write
 **Configuration is TOML-based** (not JSON). Edit `config.toml` for settings.
 See `agents.md` for full documentation.
 
-### Initial Leaderboard Styles
+### First Draft Selection Styles
 
 When `initialGenerations > 1`, you can configure how the best draft per model is selected:
 
@@ -57,9 +57,9 @@ style = "per-model-pairwise"  # Default: each model's drafts compete internally
 # style = "global-rank"       # Single ranking call for all (cheapest)
 ```
 
-### Swiss Rating + Adaptive Scheduling
+### Coarse Ranking (Swiss) Rating + Adaptive Scheduling
 
-Swiss supports a formal rating backend and optional early stop rules:
+Coarse ranking (Swiss rounds) supports a formal rating backend and Swiss early stop rules:
 
 ```toml
 [tournament.rating]
@@ -69,18 +69,18 @@ backend = "elo" # or "bradley-terry"
 [tournament.scheduling]
 mode = "adaptive" # or "static"
 
-[tournament.stopRules]
-enabled = true
-minBatches = 3
-maxBatches = 7
-topK = 8
-```
-
-After Swiss, Draftbench can run an active-learning **finale** to confidently order the top-K by iteratively selecting the most informative pairwise matchups (budget-capped).
+	[tournament.stopRules]
+	enabled = true
+	minBatches = 3
+	maxBatches = 7
+	topK = 8
+	```
+	
+After coarse ranking, Draftbench can run a fine ranking stage (Top-K refinement matches) using active-learning pairwise matchups (budget-capped).
 
 ```toml
-[tournament.finale]
-enabled = true
+	[tournament.finale]
+	enabled = true
 maxMatchesPerBatch = 4          # parallel matches per iteration
 maxTotalMatches = 30            # budget cap
 targetWinProb = 0.5             # prioritize matchups with predicted win prob near this target
@@ -93,8 +93,8 @@ allowOverRepeatCap = false      # if false, respects tournament.scheduling.maxRe
 
 The pipeline saves checkpoints throughout execution:
 - reviews and revisions save incrementally per completed task
-- Swiss saves after each completed round
-- finale saves after each completed iteration (`finaleMatches` in state)
+- coarse ranking (Swiss) saves after each completed round
+- fine ranking saves after each completed iteration (`finaleMatches` in state)
 
 If interrupted, use `--resume` to continue from where it left off.
 

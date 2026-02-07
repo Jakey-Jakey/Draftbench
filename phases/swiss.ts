@@ -341,7 +341,7 @@ export async function runSwissPhase(
 	).join(", ");
 
 	console.log(
-		`Phase 5/6: Swiss Tournament (${SWISS_ROUNDS} rounds, ${SWISS_FORMAT} format, judges: ${judgeLabel})...`,
+		`Phase 5/6: Coarse Ranking (Swiss rounds) (${SWISS_ROUNDS} rounds, ${SWISS_FORMAT} format, judges: ${judgeLabel})...`,
 	);
 	if (schedulingConfig.mode === "adaptive" && !ratingConfig.enabled) {
 		console.warn(
@@ -428,7 +428,7 @@ export async function runSwissPhase(
 
 	if (swissAlreadyCompleted) {
 		console.log(
-			`  ↩︎ Loaded Swiss tournament state with ${contestants.length} contestants; skipping rounds\n`,
+			`  ↩︎ Loaded coarse ranking state (Swiss) with ${contestants.length} contestants; skipping rounds\n`,
 		);
 		// Ensure downstream phases (e.g., finale) can run in dry-run without relying on disk state.
 		state.ratingState = ratingState ? serializeRatingState(ratingState) : null;
@@ -439,7 +439,7 @@ export async function runSwissPhase(
 	let stopReason = state.swissStopReason ?? null;
 	if (hasSwissProgress) {
 		console.log(
-			`  ↩︎ Loaded Swiss progress through round ${state.swissRound}; resuming at round ${startRound}`,
+			`  ↩︎ Loaded coarse ranking progress (Swiss) through round ${state.swissRound}; resuming at round ${startRound}`,
 		);
 	}
 
@@ -975,7 +975,7 @@ export async function runSwissPhase(
 
 			if (stop.shouldStop) {
 				stopReason = stop.reason;
-				console.log(`    ⏹ Swiss stop rule triggered: ${stop.reason}`);
+				console.log(`    ⏹ Swiss early stop triggered: ${stop.reason}`);
 				if (!dryRun) {
 					await appendFile(
 						swissLogPath,
