@@ -27,16 +27,16 @@ describe("computeLeaderboard markdown", () => {
 		const md = computeLeaderboard(contestants, []);
 		expect(md).toContain("# 🏆 Tournament Leaderboard");
 		expect(md).toContain("## 🥇 Winner");
-		expect(md).toContain("## 🧠 Finale Summary");
-		expect(md).toContain("## 📊 Model Performance");
+		expect(md).toContain("## Fine Ranking Summary");
+		expect(md).toContain("## 🧭 Attribution Summary");
 		expect(md).toContain("## 🏅 Final Rankings");
-		expect(md).toContain("## 🌱 Seed Selection");
+		expect(md).toContain("## 🌱 First Draft Selection");
 	});
 
 	test("shows '-' rating/CI when ratings are not present", () => {
 		const contestants = [createContestant("a_b_c", 10)];
 		const md = computeLeaderboard(contestants, []);
-		expect(md).toContain("| # | Revision | Swiss | Rating | 95% CI |");
+		expect(md).toContain("| # | Revision | Coarse | Rating | 95% CI |");
 		expect(md).toContain("| 🥇1 |");
 		expect(md).toContain("| 10 | - | - |");
 	});
@@ -72,12 +72,11 @@ describe("computeLeaderboard markdown", () => {
 			initialResults,
 			{ matches: 7, judgments: 14, iterations: 3, converged: true },
 		);
-		expect(md).toContain("## 🌱 Seed Selection");
+		expect(md).toContain("## 🌱 First Draft Selection");
 		expect(md).toContain("Draft 2/5");
 		expect(md).toContain("4W/0D/0L");
 		expect(md).toContain("+4");
-		expect(md).toContain("### As Generator");
-		expect(md).toContain("Seed Selected");
+		expect(md).toContain("### By Generator");
 		expect(md).toContain("Matches run: 7");
 	});
 });

@@ -15,7 +15,7 @@ import {
 	loadConfig,
 	parseArgs,
 } from "./config";
-import { computeLeaderboard } from "./leaderboard";
+import { computeLeaderboard, computeRunSummary } from "./leaderboard";
 import { runFinalePhase } from "./phases/finale";
 // Phase imports
 import { runGeneratePhase } from "./phases/generate";
@@ -31,6 +31,7 @@ import {
 	getTimestamp,
 	printDryRunConfig,
 } from "./utils";
+import { computeDetailedRunSummary } from "./report/detailedSummary";
 
 // ============================================================================
 // Configuration
@@ -66,7 +67,7 @@ const STOP_RULES = config.tournament.stopRules;
  */
 async function runCrossReviewPipeline(): Promise<void> {
 	console.log(
-		"🎲 Auto-Draftify: D&D 5e Cross-Review Pipeline (Optimized Swiss)\n",
+		"🎲 Draftbench: D&D 5e Cross-Review Pipeline\n",
 	);
 
 	if (DRY_RUN) {
@@ -83,23 +84,25 @@ async function runCrossReviewPipeline(): Promise<void> {
 			`  - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
-	console.log(`\nSwiss Rounds: ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`);
 	console.log(
-		`Swiss Engine: ${RATING.enabled ? `${RATING.backend} ratings + ${SCHEDULING.mode} scheduling` : "legacy points-only"} | Stop Rules: ${
+		`\nCoarse Ranking (Swiss rounds): ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`,
+	);
+	console.log(
+		`Coarse Ranking Engine: ${RATING.enabled ? `${RATING.backend} ratings + ${SCHEDULING.mode} scheduling` : "legacy points-only"} | Swiss Early Stop Rules: ${
 			STOP_RULES.enabled
 				? `on (min ${STOP_RULES.minBatches}, max ${STOP_RULES.maxBatches}, topK ${STOP_RULES.topK})`
 				: "off"
 		}`,
 	);
 	console.log(
-		`Finale: ${
+		`Fine Ranking (Top-K refinement matches): ${
 			FINALE.enabled
 				? `active learning (topK ${TOP_K}, max ${FINALE.maxTotalMatches} matches, batch ${FINALE.maxMatchesPerBatch}, judges: ${FINALE_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`
 				: "off"
 		}`,
 	);
 	console.log(
-		`Swiss Judges: ${SWISS_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`).join(", ")} | Initial Leaderboard: ${
+		`Coarse Judges: ${SWISS_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`).join(", ")} | First Draft Selection: ${
 			INITIAL_LEADERBOARD.enabled ? "enabled" : "disabled"
 		}\n`,
 	);
@@ -180,18 +183,22 @@ async function runCrossReviewPipeline(): Promise<void> {
 	if (!DRY_RUN && !isResuming) {
 		await writeFile(
 			swissLogPath,
-			`# Swiss Tournament Log (${SWISS_FORMAT})\n\n`,
+			`# Coarse Ranking Log (Swiss rounds, ${SWISS_FORMAT})\n\n`,
 			"utf-8",
 		);
 		if (initialLeaderboardLogPath) {
 			await writeFile(
 				initialLeaderboardLogPath,
-				"# Initial Draft Leaderboard\n\n",
+				"# First Draft Leaderboard\n\n",
 				"utf-8",
 			);
 		}
 		if (FINALE.enabled) {
-			await writeFile(finaleLogPath, "# Active Learning Finale\n\n", "utf-8");
+			await writeFile(
+				finaleLogPath,
+				"# Fine Ranking Log (Top-K Refinement Matches)\n\n",
+				"utf-8",
+			);
 		}
 	}
 
@@ -234,7 +241,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 		isResuming,
 	);
 
-	// === PHASE 5: Swiss Tournament ===
+	// === PHASE 5: Coarse Ranking (Swiss Rounds) ===
 	const { contestants, matches: allSwissMatches } = await runSwissPhase(
 		runDir,
 		swissLogPath,
@@ -245,7 +252,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 		isResuming,
 	);
 
-	// === PHASE 6: Finale ===
+	// === PHASE 6: Fine Ranking (Top-K Refinement Matches) ===
 	const { finaleMatches } = await runFinalePhase(
 		runDir,
 		finaleLogPath,
@@ -263,37 +270,63 @@ async function runCrossReviewPipeline(): Promise<void> {
 		0,
 	);
 
-	const leaderboard = computeLeaderboard(
-		contestants,
-		allSwissMatches,
-		revisionsById,
-		state.initialLeaderboardResults,
-		{
-			matches: finaleMatches.length,
-			judgments: finaleJudgmentCalls,
-			iterations: state.finaleIterations ?? 0,
-			converged: state.finaleConverged ?? false,
-		},
-	);
-	const leaderboardPath = join(runDir, "leaderboard.md");
-	if (!DRY_RUN) {
-		await writeFile(leaderboardPath, leaderboard, "utf-8");
-		console.log(`  ✓ Wrote ${leaderboardPath}`);
-	} else {
-		console.log(`  ✓ Leaderboard computed (dry run - not written)`);
-	}
+	const fineSummary = {
+		matches: finaleMatches.length,
+		judgments: finaleJudgmentCalls,
+		iterations: state.finaleIterations ?? 0,
+		converged: state.finaleConverged ?? false,
+	};
+		const leaderboard = computeLeaderboard(
+			contestants,
+			allSwissMatches,
+			revisionsById,
+			state.initialLeaderboardResults,
+			fineSummary,
+		);
+		const leaderboardPath = join(runDir, "leaderboard.md");
+		if (!DRY_RUN) {
+			await writeFile(leaderboardPath, leaderboard, "utf-8");
+			console.log(`  ✓ Wrote ${leaderboardPath}`);
 
-	// Print summary stats
-	console.log(`\n${"=".repeat(60)}`);
-	console.log("📊 TOURNAMENT SUMMARY");
-	console.log("=".repeat(60));
+			const summary = computeRunSummary({
+				runDir,
+				contestants,
+				swissMatches: allSwissMatches,
+				revisionsById,
+				finaleSummary: fineSummary,
+				swissEarlyStopReason: state.swissStopReason ?? null,
+			});
+			const summaryPath = join(runDir, "summary.json");
+			await writeFile(summaryPath, JSON.stringify(summary, null, 2), "utf-8");
+			console.log(`  ✓ Wrote ${summaryPath}`);
+
+			const detailed = await computeDetailedRunSummary({
+				runDir,
+				contestants,
+				swissMatches: allSwissMatches,
+				finaleMatches,
+				finaleSummary: fineSummary,
+			});
+			const detailedPath = join(runDir, "summary.detailed.json");
+			await writeFile(detailedPath, JSON.stringify(detailed, null, 2), "utf-8");
+			console.log(`  ✓ Wrote ${detailedPath}`);
+		} else {
+			console.log(`  ✓ Leaderboard computed (dry run - not written)`);
+		}
+
+		// Print summary stats
+		console.log(`\n${"=".repeat(60)}`);
+		console.log("📊 RUN SUMMARY");
+		console.log("=".repeat(60));
 	if (DRY_RUN) {
 		console.log("🧪 DRY RUN - No API calls were made");
 	}
-	console.log(`Swiss Rounds: ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`);
-	console.log(`Swiss Matches: ${allSwissMatches.length}`);
 	console.log(
-		`Finale Matches: ${finaleMatches.length} (judgments: ${finaleJudgmentCalls})`,
+		`Coarse Ranking (Swiss rounds): ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`,
+	);
+	console.log(`Coarse Matches: ${allSwissMatches.length}`);
+	console.log(
+		`Fine Matches: ${finaleMatches.length} (judgments: ${finaleJudgmentCalls})`,
 	);
 	console.log("");
 	console.log("🏆 TOP 3 (Final Rankings):");
@@ -313,20 +346,20 @@ async function runCrossReviewPipeline(): Promise<void> {
 		return b.placements.second - a.placements.second;
 	});
 
-	for (let i = 0; i < 3; i++) {
-		const c = finalSorted[i];
-		if (!c) break;
-		const ratingStr =
-			typeof c.rating === "number" ? `, rating ${c.rating.toFixed(1)}` : "";
+		for (let i = 0; i < 3; i++) {
+			const c = finalSorted[i];
+			if (!c) break;
+			const ratingStr =
+				typeof c.rating === "number" ? `, rating ${c.rating.toFixed(1)}` : "";
+			console.log(
+				`  ${["🥇", "🥈", "🥉"][i]} ${c.id} (${c.points} coarse pts${ratingStr})`,
+			);
+		}
+		console.log("=".repeat(60));
 		console.log(
-			`  ${["🥇", "🥈", "🥉"][i]} ${c.id} (${c.points} Swiss${ratingStr})`,
+			`\n✨ Pipeline complete! ${DRY_RUN ? "(dry run)" : `Output in: ${runDir}`}`,
 		);
 	}
-	console.log("=".repeat(60));
-	console.log(
-		`\n✨ Pipeline complete! ${DRY_RUN ? "(dry run)" : `Output in: ${runDir}`}`,
-	);
-}
 
 // Run the pipeline
 runCrossReviewPipeline().catch((error) => {

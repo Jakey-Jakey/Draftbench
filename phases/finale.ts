@@ -177,7 +177,7 @@ export async function runFinalePhase(
 	const FINALE_JUDGES = getFinaleJudges();
 
 	if (!finaleConfig.enabled) {
-		console.log("Phase 6/6: Finale disabled; skipping.\n");
+		console.log("Phase 6/6: Fine ranking disabled; skipping.\n");
 		state.finaleMatches = null;
 		state.finaleIterations = 0;
 		state.finaleConverged = true;
@@ -227,7 +227,7 @@ export async function runFinalePhase(
 		});
 		syncContestantsWithRatings(contestants, standings95);
 		console.log(
-			`Phase 6/6: Finale already complete (resumed), skipping. (converged: ${converged ? "yes" : "no"})\n`,
+			`Phase 6/6: Fine ranking already complete (resumed), skipping. (converged: ${converged ? "yes" : "no"})\n`,
 		);
 		return { finaleMatches: storedMatches, iterations: iteration, converged };
 	}
@@ -236,7 +236,7 @@ export async function runFinalePhase(
 		(j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`,
 	).join(", ");
 	console.log(
-		`Phase 6/6: Active Learning Finale (topK ${stopRulesConfig.topK}, judges: ${judgeLabel})...`,
+		`Phase 6/6: Fine Ranking (Top-K refinement matches; active learning) (topK ${stopRulesConfig.topK}, judges: ${judgeLabel})...`,
 	);
 	console.log(
 		`  Budget: max ${finaleConfig.maxTotalMatches} matches, batch size ${finaleConfig.maxMatchesPerBatch}`,

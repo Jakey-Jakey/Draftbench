@@ -9,19 +9,19 @@ This pipeline benchmarks AI models on creative artifact generation end-to-end:
 1. **Generate**: Multiple models each create an artifact from the same brief
 2. **Review**: Each model reviews all generated artifacts
 3. **Revise**: All models revise each artifact based on each review
-4. **Swiss Tournament**: 7 rounds of configurable `1v1` or `1v1v1` judging to rank all revisions
-5. **Finale**: Active-learning pairwise matches among the top-K (budget-capped) for final ranking confidence
+4. **Coarse Ranking (Swiss Rounds)**: 7 rounds of configurable `1v1` or `1v1v1` judging to rank all revisions
+5. **Fine Ranking (Top-K Refinement Matches)**: Active-learning pairwise matches among the top-K (budget-capped) for final ranking confidence
 
 ## Features
 
 - **1v1v1 Format**: Each Swiss match compares 3 artifacts simultaneously for 3× data efficiency
 - **Formal Rating Backend**: Swiss can rank by `elo` or `bradley-terry` instead of raw points
 - **Adaptive Swiss Scheduling**: Prioritizes informative comparisons and avoids redundant rematches
-- **Optional Early Stop Rules**: End Swiss when top-K is stable/confident or budget/round caps are hit
-- **Active Learning Finale**: Iteratively selects the most informative pairwise matches to separate the top-K ordering
+- **Swiss Early Stop Rules**: End coarse ranking (Swiss rounds) when top-K is stable/confident or budget/round caps are hit
+- **Fine Ranking (Active Learning)**: Iteratively selects the most informative pairwise matches to separate the top-K ordering
 - **Position Randomization**: All matches randomize presentation order to eliminate position bias
 - **Multi-Judge Swiss (Optional)**: Swiss can use one or many judges with majority/tie aggregation
-- **Multi-Judge Finale**: Configurable judges vote on each finale match
+- **Multi-Judge Fine Ranking**: Configurable judges vote on each fine ranking match
 - **Anonymized Judging**: All artifacts are presented with anonymous IDs (S1, S2, S3)
 - **Resumable Runs**: Interrupted pipelines can be resumed with `--resume` with phase checkpoints (reviews/revisions saved incrementally, Swiss saved per round, finale saved per iteration)
 - **Incremental Writes**: Files are written as each result completes
@@ -198,8 +198,9 @@ runs/YYYY-MM-DDTHH-MM-SS/
 ├── swiss_judgments/         # Detailed Swiss judge outputs
 ├── finale_judgments/        # Detailed finale judge outputs
 ├── swiss_rounds.md          # Swiss tournament log
-├── finale_rounds.md         # Finale active-learning log
+├── finale_rounds.md         # Fine ranking log (active-learning, top-K refinement)
 ├── leaderboard.md           # Final rankings
+├── summary.json             # Machine-readable run summary (leaderboard + attribution)
 └── state.json               # Pipeline state (for resume)
 ```
 
@@ -213,13 +214,13 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 | Review | 9 | ~$1.00 |
 | Revise | 27 | ~$2.00 |
 | Swiss (7 rounds × 9 matches × 1 judge) | 63 | ~$5.67 |
-| Finale (variable) | up to `maxTotalMatches × judges` | varies |
+| Fine ranking (variable) | up to `maxTotalMatches × judges` | varies |
 
-*Finale cost is variable and capped by `tournament.finale.maxTotalMatches`. Costs vary based on model selection, judge counts, and reasoning effort.*
+*Fine ranking cost is variable and capped by `tournament.finale.maxTotalMatches`. Costs vary based on model selection, judge counts, and reasoning effort.*
 
 ## Scoring
 
-### Swiss Rounds (points + optional ratings)
+### Coarse Ranking (Swiss rounds; points + optional ratings)
 - 1st place: 2 points
 - 2nd place: 1 point
 - 3rd place: 0 points
@@ -229,7 +230,7 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 - When `tournament.scheduling.mode = "adaptive"`, matchups are selected by uncertainty/closeness/repeat-penalty scoring
 - When `tournament.stopRules.enabled = true`, Swiss may stop before `swissRounds` once configured criteria are met (set `minSeparation = 0` to disable the separation threshold)
 
-### Finale (Active Learning Pairwise)
+### Fine Ranking (Top-K refinement matches; active-learning pairwise)
 - Configurable judges vote on each match
 - Matches are selected to maximize information gain (prioritizing predicted ~50/50 outcomes)
 - Scores are applied in pairwise space using vote proportions (draws use `tieValue`)
@@ -238,3 +239,11 @@ Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
 ---
 
 Built with [Bun](https://bun.sh).
+
+## Origins
+
+Draftbench began as a fork of Auto-Draftify. Thanks to Theo Browne for inspiring me to try programming.
+
+```text
+https://github.com/T3-Content/auto-draftify
+```

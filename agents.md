@@ -10,11 +10,11 @@
 | Phase | Description | Default Config |
 |-------|-------------|----------------|
 | **1. Generate** | Each model creates initial drafts. | `initialGenerations: 1` |
-| **2. Initial Leaderboard** | *(Optional)* Per-model pairwise to pick best seed. | `style: per-model-pairwise` |
+| **2. First Draft Selection** | *(Optional)* Per-model pairwise to pick best seed. | `style: per-model-pairwise` |
 | **3. Review** | Cross-review: each model reviews all selected drafts (including self). | 9 reviews (3×3) |
 | **4. Revise** | All models revise each draft based on each review. | 27 revisions (3 seeds × 3 reviewers × 3 revisers) |
-| **5. Swiss Tournament** | Configurable `1v1` or `1v1v1` Swiss system ranks revisions. | 7 rounds, configurable Swiss judges |
-| **6. Finale** | Active-learning finale to confidently rank the top-K. | Variable matches (budget-capped), multi-judge voting |
+| **5. Coarse Ranking (Swiss Rounds)** | Configurable `1v1` or `1v1v1` Swiss system ranks revisions. | 7 rounds, configurable Swiss judges |
+| **6. Fine Ranking (Top-K Refinement Matches)** | Active-learning pairwise to confidently rank the top-K. | Variable matches (budget-capped), multi-judge voting |
 
 ---
 
@@ -46,7 +46,7 @@
 | File | Purpose |
 |------|---------|
 | `utils.ts` | Shared utilities: directory creation, timestamps, shuffle, dry-run helpers. |
-| `leaderboard.ts` | Leaderboard computation and Swiss/Finale type definitions. |
+| `leaderboard.ts` | Leaderboard computation and coarse/fine ranking type definitions. |
 | `rating/engine.ts` | Elo and Bradley-Terry rating backend used by Swiss standings. |
 | `rating/convert.ts` | Converts Swiss match outcomes into pairwise observations for rating updates. |
 | `scheduling/adaptive.ts` | Adaptive pair scheduler for Swiss `1v1`. |
@@ -122,12 +122,12 @@ effort = "medium"
 model = "anthropic/claude-opus-4.5"
 effort = "high"
 
-# Swiss Tournament Judges
+# Coarse Ranking Judges (Swiss)
 [[roles.swissJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-# Finale Judges (multi-judge voting)
+# Fine Ranking Judges (multi-judge voting)
 [[roles.finaleJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
@@ -210,7 +210,7 @@ swissFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
 # swissFormat = "1v1"  # Alternative: pairwise matches
 ```
 
-### Rating, Scheduling, Stop Rules, and Finale
+### Rating, Scheduling, Swiss Early Stop Rules, and Fine Ranking
 
 ```toml
 [tournament.rating]
@@ -325,7 +325,7 @@ runs/<timestamp>/
 
 - **Anonymization**: All judging uses opaque IDs (`S1`, `S2`, `S3`) to prevent model-name bias.
 - **Randomization**: Presentation order is shuffled for every match.
-- **Multi-Judge Swiss/Finale**: Both tournament stages support multiple judges to reduce single-model bias.
+- **Multi-Judge Coarse/Fine**: Both tournament stages support multiple judges to reduce single-model bias.
 - **Incremental I/O**: Results are persisted immediately to handle crashes gracefully.
 
 ---

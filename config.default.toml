@@ -49,7 +49,7 @@ effort = "high"
 model = "google/gemini-3-pro-preview"
 effort = "high"
 
-# Swiss Tournament Judges (single or multi-judge voting)
+# Coarse Ranking Judges (Swiss; single or multi-judge voting)
 [[roles.swissJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
@@ -59,7 +59,7 @@ effort = "low"
 # model = "openai/gpt-5.2"
 # effort = "low"
 
-# Finale Judges (multi-judge voting for fairness)
+# Fine Ranking Judges (multi-judge voting for fairness)
 [[roles.finaleJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
@@ -78,7 +78,7 @@ swissRounds = 7             # Number of Swiss tournament rounds
 swissFormat = "1v1v1"       # "1v1" (pairwise) or "1v1v1" (three-way)
 
 [tournament.initialLeaderboard]
-enabled = false             # Run round-robin to pick best draft per model
+enabled = false             # First draft selection (round-robin) to pick best draft per model
 # style = "per-model-pairwise"  # Options: per-model-pairwise (default), global-pairwise, per-model-rank, global-rank
 
 [tournament.rating]
@@ -98,6 +98,7 @@ exploration = 0.15          # 0-1 random exploration budget
 avoidRepeatPenalty = 0.35   # Penalty weight for repeated pairs
 maxRepeatPairs = 2          # Hard repeat cap per pair before fallback
 
+# Swiss Early Stop Rules (coarse ranking only)
 [tournament.stopRules]
 enabled = true
 minBatches = 3
@@ -109,7 +110,7 @@ stabilityBatches = 2        # Require same topK for N consecutive batches
 # budgetMaxCalls = 600       # Optional hard API-call budget for Swiss phase
 
 [tournament.finale]
-# Active-learning finale to confidently rank the top-K after Swiss.
+# Fine ranking: active-learning Top-K refinement matches after coarse ranking (Swiss rounds).
 enabled = true
 maxMatchesPerBatch = 4          # parallel matches per iteration
 maxTotalMatches = 30            # cap across the whole finale
