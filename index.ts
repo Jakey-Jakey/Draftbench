@@ -32,7 +32,6 @@ import {
 	printDryRunConfig,
 } from "./utils";
 import { computeDetailedRunSummary } from "./report/detailedSummary";
-import { sha256File } from "./report/hash";
 
 // ============================================================================
 // Configuration
@@ -301,34 +300,20 @@ async function runCrossReviewPipeline(): Promise<void> {
 		await writeFile(summaryPath, JSON.stringify(summary, null, 2), "utf-8");
 		console.log(`  ✓ Wrote ${summaryPath}`);
 
-		const detailed = await computeDetailedRunSummary({
-			runDir,
-			contestants,
-			swissMatches: allSwissMatches,
-			finaleMatches,
-			finaleSummary: fineSummary,
-			swissStopReason: state.swissStopReason ?? null,
-		});
-		const detailedPath = join(runDir, "summary.detailed.json");
-		await writeFile(detailedPath, JSON.stringify(detailed, null, 2), "utf-8");
-		console.log(`  ✓ Wrote ${detailedPath}`);
-
-		// Now that the file exists, hash it and write a final copy with the artifact entry.
-		try {
-			const hash = await sha256File(detailedPath);
-			detailed.artifacts.files.push({
-				path: "summary.detailed.json",
-				kind: "summary_detailed_json",
-				bytes: hash.bytes,
-				sha256: hash.sha256,
+			const detailed = await computeDetailedRunSummary({
+				runDir,
+				contestants,
+				swissMatches: allSwissMatches,
+				finaleMatches,
+				finaleSummary: fineSummary,
+				swissStopReason: state.swissStopReason ?? null,
 			});
+			const detailedPath = join(runDir, "summary.detailed.json");
 			await writeFile(detailedPath, JSON.stringify(detailed, null, 2), "utf-8");
-		} catch {
-			// Best-effort only.
+			console.log(`  ✓ Wrote ${detailedPath}`);
+		} else {
+			console.log(`  ✓ Leaderboard computed (dry run - not written)`);
 		}
-	} else {
-		console.log(`  ✓ Leaderboard computed (dry run - not written)`);
-	}
 
 	// Print summary stats
 	console.log(`\n${"=".repeat(60)}`);

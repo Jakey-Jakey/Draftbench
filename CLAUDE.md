@@ -69,18 +69,18 @@ backend = "elo" # or "bradley-terry"
 [tournament.scheduling]
 mode = "adaptive" # or "static"
 
-	[tournament.stopRules]
-	enabled = true
-	minBatches = 3
-	maxBatches = 7
-	topK = 8
-	```
-	
+[tournament.stopRules]
+enabled = true
+minBatches = 3
+maxBatches = 7
+topK = 8
+```
+		
 After coarse ranking, Draftbench can run a fine ranking stage (Top-K refinement matches) using active-learning pairwise matchups (budget-capped).
 
 ```toml
-	[tournament.finale]
-	enabled = true
+[tournament.finale]
+enabled = true
 maxMatchesPerBatch = 4          # parallel matches per iteration
 maxTotalMatches = 30            # budget cap
 targetWinProb = 0.5             # prioritize matchups with predicted win prob near this target

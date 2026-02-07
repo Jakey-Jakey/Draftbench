@@ -46,7 +46,7 @@ export interface DetailedSwissMatchV1 {
 	third: string;
 	tieGroup?: SwissMatch["tieGroup"];
 	sharedPoints?: Record<string, number>;
-	judgmentFile: string;
+	judgmentFile: string | null;
 	pairwiseObservations: PairwiseObservation[];
 }
 
@@ -119,11 +119,15 @@ function relPath(runDir: string, abs: string): string {
 function swissJudgmentPath(match: SwissMatch): string {
 	const [a, b, c] = match.ids;
 	if (!a || !b) return join("swiss_judgments", `round${match.round}_unknown.md`);
-	if (c === "BYE") {
+	// 1v1 stores the third slot as "N/A", and bye matches include "BYE".
+	if (b === "BYE" || c === "BYE") {
 		return join("swiss_judgments", `round${match.round}_${a}_vs_${b}.md`);
 	}
-	// 1v1 stores BYE in slot 3; 1v1v1 uses all 3
-	if (c && c !== "BYE") {
+	if (!c || c === "N/A") {
+		return join("swiss_judgments", `round${match.round}_${a}_vs_${b}.md`);
+	}
+	// 1v1v1 uses all 3.
+	if (c) {
 		return join(
 			"swiss_judgments",
 			`round${match.round}_${a}_vs_${b}_vs_${c}.md`,
@@ -372,7 +376,7 @@ export async function computeDetailedRunSummary(args: {
 		third: m.third,
 		tieGroup: m.tieGroup,
 		sharedPoints: m.sharedPoints,
-		judgmentFile: swissJudgmentPath(m),
+		judgmentFile: m.ids.includes("BYE") ? null : swissJudgmentPath(m),
 		pairwiseObservations: m.ids.includes("BYE")
 			? []
 			: pairwiseFromSwissMatch(m, config.tournament.rating.tieValue),
