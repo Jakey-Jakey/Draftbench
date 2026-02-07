@@ -34,6 +34,10 @@ function isTransientOpenRouterError(err: unknown): boolean {
 	// Fallback: best-effort string match for common transient conditions.
 	const msg = (e?.message ?? "").toLowerCase();
 	if (msg.includes("provider returned error")) return true;
+	// OpenRouter occasionally returns a malformed/empty upstream response body; the SDK surfaces this as
+	// "Invalid JSON response" even though it's usually a transient provider/network issue.
+	if (msg.includes("invalid json response")) return true;
+	if (msg.includes("json parsing failed")) return true;
 	if (msg.includes("overloaded")) return true;
 	if (msg.includes("timeout")) return true;
 	return false;
