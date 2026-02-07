@@ -53,21 +53,21 @@ model = "google/gemini-3-pro-preview"
 effort = "high"
 
 # Coarse Ranking Judges (Swiss; single or multi-judge voting)
-[[roles.swissJudges]]
+[[roles.coarseJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
 # Optional second Swiss judge (enables multi-judge Swiss voting)
-# [[roles.swissJudges]]
+# [[roles.coarseJudges]]
 # model = "openai/gpt-5.2"
 # effort = "low"
 
 # Fine Ranking Judges (multi-judge voting for fairness)
-[[roles.finaleJudges]]
+[[roles.fineJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-[[roles.finaleJudges]]
+[[roles.fineJudges]]
 model = "openai/gpt-5.2"
 effort = "medium"
 
@@ -76,12 +76,12 @@ effort = "medium"
 # -----------------------------------------------------------------------------
 
 [tournament]
-initialGenerations = 1      # Drafts per generator model
-swissRounds = 7             # Number of Swiss rounds
-swissFormat = "1v1v1"       # "1v1" or "1v1v1"
+coarseRounds = 7            # Number of Swiss rounds
+coarseFormat = "1v1v1"      # "1v1" or "1v1v1"
 
-[tournament.initialLeaderboard]
-enabled = false             # First draft selection (seed selection round-robin). TURN THIS ON IF YOU HAVE MORE THAN 1 INITIAL GENERATION.
+[tournament.firstDraftSelection]
+enabled = false             # First draft selection. TURN THIS ON IF YOU HAVE MORE THAN 1 INITIAL GENERATION.
+initialGenerations = 1      # Drafts per generator model
 # style = "per-model-pairwise"  # per-model-pairwise (default), global-pairwise, per-model-rank, global-rank
 
 [tournament.rating]
@@ -101,7 +101,7 @@ exploration = 0.15
 avoidRepeatPenalty = 0.35
 maxRepeatPairs = 2
 
-# Swiss Early Stop Rules (coarse ranking only)
+# Coarse Early Stop Rules (coarse ranking only)
 [tournament.stopRules]
 enabled = true
 minBatches = 3
@@ -112,7 +112,7 @@ confidence = 0.9
 stabilityBatches = 2
 # budgetMaxCalls = 600
 
-[tournament.finale]
+[tournament.fineRanking]
 # Fine ranking: active-learning Top-K refinement matches after coarse ranking (Swiss rounds).
 enabled = true
 maxMatchesPerBatch = 4

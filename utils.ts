@@ -198,7 +198,7 @@ export function printDryRunConfig(): void {
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
-	console.log(`  Coarse Judges (Swiss) (${config.roles.swissJudges.length}):`);
+	console.log(`  Coarse Judges (${config.roles.swissJudges.length}):`);
 	for (const entry of config.roles.swissJudges) {
 		console.log(
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
@@ -212,17 +212,17 @@ export function printDryRunConfig(): void {
 	}
 	console.log(`\nTournament:`);
 	console.log(`  Coarse Ranking (Swiss rounds): ${SWISS_ROUNDS}`);
-	console.log(`  Initial Generations per Model: ${INITIAL_GENERATIONS}`);
+	console.log(`  Drafts per Model: ${INITIAL_GENERATIONS}`);
 	console.log(`  First Draft Selection Enabled: ${INITIAL_LEADERBOARD.enabled}`);
 	console.log(
 		`  Rating Backend: ${config.tournament.rating.enabled ? config.tournament.rating.backend : "disabled"}`,
 	);
 	console.log(`  Scheduling Mode: ${config.tournament.scheduling.mode}`);
 	console.log(
-		`  Swiss Early Stop Rules: ${config.tournament.stopRules.enabled ? `enabled (min ${config.tournament.stopRules.minBatches}, max ${config.tournament.stopRules.maxBatches}, topK ${config.tournament.stopRules.topK})` : "disabled"}`,
+		`  Coarse Early Stop Rules: ${config.tournament.stopRules.enabled ? `enabled (min ${config.tournament.stopRules.minBatches}, max ${config.tournament.stopRules.maxBatches}, topK ${config.tournament.stopRules.topK})` : "disabled"}`,
 	);
 	console.log(
-		`  Fine Ranking: ${config.tournament.finale.enabled ? `enabled (max ${config.tournament.finale.maxTotalMatches} total, batch ${config.tournament.finale.maxMatchesPerBatch}, confidence ${config.tournament.finale.confidence})` : "disabled"}`,
+		`  Fine Ranking (Top-K refinement; active learning): ${config.tournament.finale.enabled ? `enabled (max ${config.tournament.finale.maxTotalMatches} total, batch ${config.tournament.finale.maxMatchesPerBatch}, confidence ${config.tournament.finale.confidence})` : "disabled"}`,
 	);
 	console.log(`  Total Contestants: ${totalContestants}`);
 	console.log(`\nOutput:`);

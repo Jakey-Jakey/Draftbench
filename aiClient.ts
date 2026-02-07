@@ -13,6 +13,72 @@ import { withConcurrencyLimit } from "./semaphore";
 // Model slug is now the identifier (OpenRouter format: "provider/model-name")
 export type ModelSlug = string;
 
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientOpenRouterError(err: unknown): boolean {
+	// The OpenRouter AI SDK throws an AI_APICallError that may include `data.code`.
+	// Some provider outages show up as HTTP 200 with an error payload (e.g. data.code=502).
+	const e = err as {
+		statusCode?: number;
+		data?: { code?: number };
+		message?: string;
+		cause?: unknown;
+	};
+
+	const code = e?.data?.code ?? e?.statusCode;
+	if (code === 429) return true; // rate limit / overload
+	if (code === 500 || code === 502 || code === 503 || code === 504) return true;
+
+	// Fallback: best-effort string match for common transient conditions.
+	const msg = (e?.message ?? "").toLowerCase();
+	if (msg.includes("provider returned error")) return true;
+	// OpenRouter occasionally returns a malformed/empty upstream response body; the SDK surfaces this as
+	// "Invalid JSON response" even though it's usually a transient provider/network issue.
+	if (msg.includes("invalid json response")) return true;
+	if (msg.includes("json parsing failed")) return true;
+	if (msg.includes("overloaded")) return true;
+	if (msg.includes("timeout")) return true;
+	return false;
+}
+
+async function generateTextWithRetries(
+	args: Parameters<typeof generateText>[0] & { _debugLabel?: string },
+): Promise<Awaited<ReturnType<typeof generateText>>> {
+	// Keep retries modest; runs are resumable and we don't want to hang forever.
+	const maxAttempts = 6;
+	const baseDelayMs = 1250;
+	const maxDelayMs = 15_000;
+	const label = args._debugLabel ?? "openrouter";
+
+	let lastErr: unknown;
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		try {
+			// Strip internal helper field.
+			// eslint-disable-next-line @typescript-eslint/no-unused-vars
+			const { _debugLabel, ...rest } = args;
+			return await generateText(rest);
+		} catch (err) {
+			lastErr = err;
+			if (!isTransientOpenRouterError(err) || attempt === maxAttempts) {
+				throw err;
+			}
+			const delay = Math.min(
+				maxDelayMs,
+				Math.round(baseDelayMs * 2 ** (attempt - 1)),
+			);
+			console.warn(
+				`  ⚠️ ${label}: transient provider error; retrying attempt ${attempt + 1}/${maxAttempts} after ${delay}ms`,
+			);
+			await sleep(delay);
+		}
+	}
+
+	// Should be unreachable due to throw on final attempt, but keep TS happy.
+	throw lastErr;
+}
+
 // Lazily initialize the OpenRouter provider to allow dry-run without a key
 let openrouter: ReturnType<typeof createOpenRouter> | null = null;
 
@@ -59,7 +125,8 @@ export async function generateStatblock(
 	return withConcurrencyLimit(async () => {
 		const config = getConfig();
 
-		const result = await generateText({
+		const result = await generateTextWithRetries({
+			_debugLabel: `generate:${modelSlug}`,
 			model: getOpenRouter()(modelSlug),
 			system: config.prompts.generate.system,
 			prompt: config.prompts.generate.user,
@@ -98,9 +165,11 @@ export async function reviewStatblock(
 
 		const prompt = interpolate(config.prompts.review.userTemplate, {
 			statblock,
+			artifact: statblock,
 		});
 
-		const result = await generateText({
+		const result = await generateTextWithRetries({
+			_debugLabel: `review:${reviewerSlug}`,
 			model: getOpenRouter()(reviewerSlug),
 			system: config.prompts.review.system,
 			prompt,
@@ -140,10 +209,12 @@ export async function reviseStatblock(
 
 		const prompt = interpolate(config.prompts.revise.userTemplate, {
 			statblock: originalStatblock,
+			artifact: originalStatblock,
 			feedback,
 		});
 
-		const result = await generateText({
+		const result = await generateTextWithRetries({
+			_debugLabel: `revise:${modelSlug}`,
 			model: getOpenRouter()(modelSlug),
 			system: config.prompts.revise.system,
 			prompt,
@@ -274,7 +345,8 @@ export async function judgeStatblocks(
 
 		const allIds = Array.from(statblocks.keys());
 
-		const result = await generateText({
+		const result = await generateTextWithRetries({
+			_debugLabel: `judge-rank:${judgeSlug}`,
 			model: getOpenRouter()(judgeSlug),
 			system: `You are an expert D&D 5e game designer judging monster statblocks. Compare ALL the statblocks provided and rank them from best to worst. Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
 
@@ -371,7 +443,8 @@ export async function pairwiseJudge(
 			textB,
 		});
 
-		const result = await generateText({
+		const result = await generateTextWithRetries({
+			_debugLabel: `judge-1v1:${judgeSlug}`,
 			model: getOpenRouter()(judgeSlug),
 			system: systemPrompt,
 			prompt: userPrompt,
@@ -465,7 +538,8 @@ export async function threeWayJudge(
 			textC,
 		});
 
-		const result = await generateText({
+		const result = await generateTextWithRetries({
+			_debugLabel: `judge-1v1v1:${judgeSlug}`,
 			model: getOpenRouter()(judgeSlug),
 			system: systemPrompt,
 			prompt: userPrompt,

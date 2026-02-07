@@ -88,13 +88,13 @@ effort = "high"
 model = "openai/gpt-5.2"
 effort = "high"
 
-[[roles.swissJudges]]
-model = "openai/gpt-5.2"
-effort = "low"
-
-[[roles.finaleJudges]]
-model = "openai/gpt-5.2"
-effort = "low"
+	[[roles.coarseJudges]]
+	model = "openai/gpt-5.2"
+	effort = "low"
+	
+	[[roles.fineJudges]]
+	model = "openai/gpt-5.2"
+	effort = "low"
 
 [tournament]
 
@@ -273,10 +273,10 @@ describe("TOML configuration", () => {
 		expect(config.roles.swissJudges[0]?.model).toContain("/");
 	});
 
-	test("supports roles.swissJudges array", () => {
-		const tempPath = `tmp-swiss-judges-${Date.now()}.toml`;
-		writeFileSync(
-			tempPath,
+		test("supports roles.swissJudges array", () => {
+			const tempPath = `tmp-swiss-judges-${Date.now()}.toml`;
+			writeFileSync(
+				tempPath,
 			`[roles]
 [[roles.swissJudges]]
 model = "openai/gpt-5.2"
@@ -292,13 +292,108 @@ effort = "low"
 			expect(config.roles.swissJudges[0]?.model).toBe("openai/gpt-5.2");
 		} finally {
 			rmSync(tempPath, { force: true });
-		}
-	});
+			}
+		});
 
-	test("legacy roles.swissJudge is rejected", () => {
-		const tempPath = `tmp-legacy-swiss-judge-${Date.now()}.toml`;
-		writeFileSync(
-			tempPath,
+		test("supports coarse/fine/firstDraftSelection/fineRanking aliases", () => {
+			const tempPath = `tmp-new-keys-${Date.now()}.toml`;
+			writeFileSync(
+				tempPath,
+				`[roles]
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+effort = "low"
+
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+effort = "low"
+
+[tournament]
+coarseRounds = 5
+coarseFormat = "1v1"
+
+[tournament.firstDraftSelection]
+enabled = true
+initialGenerations = 3
+style = "per-model-rank"
+
+[tournament.fineRanking]
+enabled = true
+maxTotalMatches = 12
+maxMatchesPerBatch = 3
+confidence = 0.9
+targetWinProb = 0.5
+minSeparation = 0
+allowOverRepeatCap = false
+`,
+			);
+			try {
+				const config = loadConfig(tempPath);
+				expect(config.roles.swissJudges[0]?.model).toBe("openai/gpt-5.2");
+				expect(config.roles.finaleJudges[0]?.model).toBe("openai/gpt-5.2");
+				expect(config.tournament.swissRounds).toBe(5);
+				expect(config.tournament.swissFormat).toBe("1v1");
+				expect(config.tournament.initialGenerations).toBe(3);
+				expect(config.tournament.initialLeaderboard.enabled).toBe(true);
+				expect(config.tournament.initialLeaderboard.style).toBe("per-model-rank");
+				expect(config.tournament.finale.enabled).toBe(true);
+				expect(config.tournament.finale.maxTotalMatches).toBe(12);
+				expect(config.tournament.finale.maxMatchesPerBatch).toBe(3);
+			} finally {
+				rmSync(tempPath, { force: true });
+			}
+		});
+
+		test("new keys override deprecated keys when both are set", () => {
+			const tempPath = `tmp-alias-precedence-${Date.now()}.toml`;
+			writeFileSync(
+				tempPath,
+				`[roles]
+[[roles.swissJudges]]
+model = "anthropic/claude-opus-4.5"
+effort = "low"
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+effort = "low"
+
+[[roles.finaleJudges]]
+model = "anthropic/claude-opus-4.5"
+effort = "low"
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+effort = "low"
+
+[tournament]
+swissRounds = 7
+coarseRounds = 5
+swissFormat = "1v1v1"
+coarseFormat = "1v1"
+
+[tournament.initialLeaderboard]
+enabled = false
+
+[tournament.firstDraftSelection]
+enabled = true
+initialGenerations = 2
+`,
+			);
+			try {
+				const config = loadConfig(tempPath);
+				expect(config.roles.swissJudges[0]?.model).toBe("openai/gpt-5.2");
+				expect(config.roles.finaleJudges[0]?.model).toBe("openai/gpt-5.2");
+				expect(config.tournament.swissRounds).toBe(5);
+				expect(config.tournament.swissFormat).toBe("1v1");
+				expect(config.tournament.initialLeaderboard.enabled).toBe(true);
+				expect(config.tournament.initialGenerations).toBe(2);
+			} finally {
+				rmSync(tempPath, { force: true });
+			}
+		});
+
+		test("legacy roles.swissJudge is rejected", () => {
+			const tempPath = `tmp-legacy-swiss-judge-${Date.now()}.toml`;
+			writeFileSync(
+				tempPath,
 			`[roles.swissJudge]
 model = "google/gemini-3-pro-preview"
 effort = "low"
@@ -383,18 +478,18 @@ describe("prompt configuration", () => {
 		expect(typeof config.prompts.generate.user).toBe("string");
 	});
 
-	test("review prompts have system and userTemplate", () => {
-		const config = loadConfig("config.example.toml");
-		expect(config.prompts.review.system).toBeDefined();
-		expect(config.prompts.review.userTemplate).toBeDefined();
-		expect(config.prompts.review.userTemplate).toContain("{statblock}");
-	});
+		test("review prompts have system and userTemplate", () => {
+			const config = loadConfig("config.example.toml");
+			expect(config.prompts.review.system).toBeDefined();
+			expect(config.prompts.review.userTemplate).toBeDefined();
+			expect(config.prompts.review.userTemplate).toMatch(/\{(artifact|statblock)\}/);
+		});
 
-	test("revise prompts have correct template variables", () => {
-		const config = loadConfig("config.example.toml");
-		expect(config.prompts.revise.userTemplate).toContain("{statblock}");
-		expect(config.prompts.revise.userTemplate).toContain("{feedback}");
-	});
+		test("revise prompts have correct template variables", () => {
+			const config = loadConfig("config.example.toml");
+			expect(config.prompts.revise.userTemplate).toMatch(/\{(artifact|statblock)\}/);
+			expect(config.prompts.revise.userTemplate).toContain("{feedback}");
+		});
 
 	test("judge prompts have correct template variables", () => {
 		const config = loadConfig("config.example.toml");

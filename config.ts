@@ -133,11 +133,11 @@ export interface PromptsConfig {
 	};
 	review: {
 		system: string;
-		userTemplate: string; // {statblock}
+		userTemplate: string; // {statblock} (alias: {artifact})
 	};
 	revise: {
 		system: string;
-		userTemplate: string; // {statblock}, {feedback}
+		userTemplate: string; // {statblock} (alias: {artifact}), {feedback}
 	};
 	judgePairwise: {
 		system: string;
@@ -579,15 +579,18 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 				"roles.swissJudge is no longer supported. Use [[roles.swissJudges]] instead.",
 			);
 		}
-		const knownRoleKeys = new Set([
-			"generators",
-			"reviewers",
-			"revisers",
-			"swissJudges",
-			"finaleJudges",
-			"playoffJudges",
-			"initialLeaderboardJudges",
-		]);
+			const knownRoleKeys = new Set([
+				"generators",
+				"reviewers",
+				"revisers",
+				"swissJudges",
+				"coarseJudges",
+				"finaleJudges",
+				"fineJudges",
+				"playoffJudges",
+				"initialLeaderboardJudges",
+				"firstDraftSelectionJudges",
+			]);
 		for (const key of Object.keys(rolesRaw)) {
 			if (!knownRoleKeys.has(key)) {
 				console.warn(`⚠️ Unknown roles key ignored: roles.${key}`);
@@ -603,25 +606,59 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		if (rolesRaw.revisers) {
 			result.roles.revisers = rolesRaw.revisers as RoleEntry[];
 		}
-		if (rolesRaw.swissJudges) {
+		if (rolesRaw.coarseJudges) {
+			if (rolesRaw.swissJudges) {
+				console.warn(
+					"⚠️ Both [[roles.coarseJudges]] and [[roles.swissJudges]] are set; using [[roles.coarseJudges]].",
+				);
+			}
+			result.roles.swissJudges = rolesRaw.coarseJudges as RoleEntry[];
+		} else if (rolesRaw.swissJudges) {
+			console.warn(
+				"⚠️ Deprecated config key [[roles.swissJudges]] detected; please rename to [[roles.coarseJudges]].",
+			);
 			result.roles.swissJudges = rolesRaw.swissJudges as RoleEntry[];
 		}
-		if (rolesRaw.finaleJudges) {
+
+		if (rolesRaw.fineJudges) {
+			if (rolesRaw.finaleJudges) {
+				console.warn(
+					"⚠️ Both [[roles.fineJudges]] and [[roles.finaleJudges]] are set; using [[roles.fineJudges]].",
+				);
+			}
+			result.roles.finaleJudges = rolesRaw.fineJudges as RoleEntry[];
+		} else if (rolesRaw.finaleJudges) {
+			console.warn(
+				"⚠️ Deprecated config key [[roles.finaleJudges]] detected; please rename to [[roles.fineJudges]].",
+			);
 			result.roles.finaleJudges = rolesRaw.finaleJudges as RoleEntry[];
 		}
+
 		if (rolesRaw.playoffJudges) {
-			if (!rolesRaw.finaleJudges) {
+			if (!rolesRaw.fineJudges && !rolesRaw.finaleJudges) {
 				console.warn(
-					"⚠️ Deprecated config key roles.playoffJudges detected; please rename to [[roles.finaleJudges]].",
+					"⚠️ Deprecated config key roles.playoffJudges detected; please rename to [[roles.fineJudges]].",
 				);
 				result.roles.finaleJudges = rolesRaw.playoffJudges as RoleEntry[];
 			} else {
 				console.warn(
-					"⚠️ Deprecated config key roles.playoffJudges ignored because [[roles.finaleJudges]] is set.",
+					"⚠️ Deprecated config key roles.playoffJudges ignored because fine judges are set.",
 				);
 			}
 		}
-		if (rolesRaw.initialLeaderboardJudges) {
+
+		if (rolesRaw.firstDraftSelectionJudges) {
+			if (rolesRaw.initialLeaderboardJudges) {
+				console.warn(
+					"⚠️ Both [[roles.firstDraftSelectionJudges]] and [[roles.initialLeaderboardJudges]] are set; using [[roles.firstDraftSelectionJudges]].",
+				);
+			}
+			result.roles.initialLeaderboardJudges =
+				rolesRaw.firstDraftSelectionJudges as RoleEntry[];
+		} else if (rolesRaw.initialLeaderboardJudges) {
+			console.warn(
+				"⚠️ Deprecated config key [[roles.initialLeaderboardJudges]] detected; please rename to [[roles.firstDraftSelectionJudges]].",
+			);
 			result.roles.initialLeaderboardJudges =
 				rolesRaw.initialLeaderboardJudges as RoleEntry[];
 		}
@@ -633,13 +670,17 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 		result.tournament = {} as TournamentConfig;
 		const knownTournamentKeys = new Set([
 			"swissRounds",
+			"coarseRounds",
 			"initialGenerations",
 			"swissFormat",
+			"coarseFormat",
 			"initialLeaderboard",
+			"firstDraftSelection",
 			"rating",
 			"scheduling",
 			"stopRules",
 			"finale",
+			"fineRanking",
 			// Deprecated keys (migration)
 			"playoffSize",
 			"disambiguation",
@@ -650,9 +691,19 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			}
 		}
 
-		if (tournamentRaw.swissRounds !== undefined) {
-			result.tournament.swissRounds = tournamentRaw.swissRounds as number;
-		}
+			if (tournamentRaw.coarseRounds !== undefined) {
+				if (tournamentRaw.swissRounds !== undefined) {
+					console.warn(
+						"⚠️ Both tournament.coarseRounds and tournament.swissRounds are set; using tournament.coarseRounds.",
+					);
+				}
+				result.tournament.swissRounds = tournamentRaw.coarseRounds as number;
+			} else if (tournamentRaw.swissRounds !== undefined) {
+				console.warn(
+					"⚠️ Deprecated config key tournament.swissRounds detected; please rename to tournament.coarseRounds.",
+				);
+				result.tournament.swissRounds = tournamentRaw.swissRounds as number;
+			}
 		const deprecatedPlayoffSize =
 			tournamentRaw.playoffSize !== undefined
 				? (tournamentRaw.playoffSize as number)
@@ -662,22 +713,66 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 				"⚠️ Deprecated config key tournament.playoffSize detected; please remove it and use tournament.stopRules.topK instead.",
 			);
 		}
-		if (tournamentRaw.initialGenerations !== undefined) {
-			result.tournament.initialGenerations =
-				tournamentRaw.initialGenerations as number;
-		}
-		if (tournamentRaw.swissFormat !== undefined) {
-			result.tournament.swissFormat = tournamentRaw.swissFormat as
-				| "1v1"
-				| "1v1v1";
-		}
-		if (tournamentRaw.initialLeaderboard) {
-			const ilRaw = tournamentRaw.initialLeaderboard as Record<string, unknown>;
-			result.tournament.initialLeaderboard = {
-				enabled: ilRaw.enabled as boolean,
-				style: ilRaw.style as InitialLeaderboardStyle | undefined,
-			};
-		}
+			if (tournamentRaw.initialGenerations !== undefined) {
+				console.warn(
+					"⚠️ Deprecated config key tournament.initialGenerations detected; please move this to tournament.firstDraftSelection.initialGenerations.",
+				);
+				result.tournament.initialGenerations =
+					tournamentRaw.initialGenerations as number;
+			}
+
+			if (tournamentRaw.coarseFormat !== undefined) {
+				if (tournamentRaw.swissFormat !== undefined) {
+					console.warn(
+						"⚠️ Both tournament.coarseFormat and tournament.swissFormat are set; using tournament.coarseFormat.",
+					);
+				}
+				result.tournament.swissFormat = tournamentRaw.coarseFormat as
+					| "1v1"
+					| "1v1v1";
+			} else if (tournamentRaw.swissFormat !== undefined) {
+				console.warn(
+					"⚠️ Deprecated config key tournament.swissFormat detected; please rename to tournament.coarseFormat.",
+				);
+				result.tournament.swissFormat = tournamentRaw.swissFormat as
+					| "1v1"
+					| "1v1v1";
+			}
+
+			const firstDraftSelectionRaw = tournamentRaw.firstDraftSelection
+				? (tournamentRaw.firstDraftSelection as Record<string, unknown>)
+				: null;
+			const initialLeaderboardRaw = tournamentRaw.initialLeaderboard
+				? (tournamentRaw.initialLeaderboard as Record<string, unknown>)
+				: null;
+			if (firstDraftSelectionRaw) {
+				if (initialLeaderboardRaw) {
+					console.warn(
+						"⚠️ Both [tournament.firstDraftSelection] and [tournament.initialLeaderboard] are set; using [tournament.firstDraftSelection].",
+					);
+				}
+					result.tournament.initialLeaderboard = {
+						enabled: firstDraftSelectionRaw.enabled as boolean,
+						style: firstDraftSelectionRaw.style as InitialLeaderboardStyle | undefined,
+					};
+					if (firstDraftSelectionRaw.initialGenerations !== undefined) {
+						if (tournamentRaw.initialGenerations !== undefined) {
+							console.warn(
+								"⚠️ Both tournament.initialGenerations and tournament.firstDraftSelection.initialGenerations are set; using tournament.firstDraftSelection.initialGenerations.",
+							);
+						}
+						result.tournament.initialGenerations =
+							firstDraftSelectionRaw.initialGenerations as number;
+					}
+				} else if (initialLeaderboardRaw) {
+				console.warn(
+					"⚠️ Deprecated config section [tournament.initialLeaderboard] detected; please rename to [tournament.firstDraftSelection].",
+				);
+				result.tournament.initialLeaderboard = {
+					enabled: initialLeaderboardRaw.enabled as boolean,
+					style: initialLeaderboardRaw.style as InitialLeaderboardStyle | undefined,
+				};
+			}
 		if (tournamentRaw.rating) {
 			const ratingRaw = tournamentRaw.rating as Record<string, unknown>;
 			const knownRatingKeys = new Set([
@@ -816,52 +911,68 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			}
 		}
 
-		if (tournamentRaw.finale) {
-			const finaleRaw = tournamentRaw.finale as Record<string, unknown>;
-			const knownFinaleKeys = new Set([
-				"enabled",
-				"maxMatchesPerBatch",
-				"maxTotalMatches",
-				"targetWinProb",
-				"confidence",
-				"minSeparation",
-				"allowOverRepeatCap",
-			]);
-			for (const key of Object.keys(finaleRaw)) {
-				if (!knownFinaleKeys.has(key)) {
+			const fineRankingRaw = tournamentRaw.fineRanking
+				? (tournamentRaw.fineRanking as Record<string, unknown>)
+				: null;
+			const finaleRaw = tournamentRaw.finale
+				? (tournamentRaw.finale as Record<string, unknown>)
+				: null;
+			if (fineRankingRaw || finaleRaw) {
+				if (fineRankingRaw && finaleRaw) {
 					console.warn(
-						`⚠️ Unknown tournament.finale key ignored: tournament.finale.${key}`,
+						"⚠️ Both [tournament.fineRanking] and [tournament.finale] are set; using [tournament.fineRanking].",
 					);
 				}
+				const rawObj = fineRankingRaw ?? finaleRaw ?? {};
+				if (!fineRankingRaw && finaleRaw) {
+					console.warn(
+						"⚠️ Deprecated config section [tournament.finale] detected; please rename to [tournament.fineRanking].",
+					);
+				}
+				const knownFinaleKeys = new Set([
+					"enabled",
+					"maxMatchesPerBatch",
+					"maxTotalMatches",
+					"targetWinProb",
+					"confidence",
+					"minSeparation",
+					"allowOverRepeatCap",
+				]);
+				for (const key of Object.keys(rawObj)) {
+					if (!knownFinaleKeys.has(key)) {
+						console.warn(
+							`⚠️ Unknown tournament.fineRanking key ignored: tournament.fineRanking.${key}`,
+						);
+					}
+				}
+				result.tournament.finale = {} as TournamentConfig["finale"];
+				if (rawObj.enabled !== undefined) {
+					result.tournament.finale.enabled = rawObj.enabled as boolean;
+				}
+				if (rawObj.maxMatchesPerBatch !== undefined) {
+					result.tournament.finale.maxMatchesPerBatch =
+						rawObj.maxMatchesPerBatch as number;
+				}
+				if (rawObj.maxTotalMatches !== undefined) {
+					result.tournament.finale.maxTotalMatches =
+						rawObj.maxTotalMatches as number;
+				}
+				if (rawObj.targetWinProb !== undefined) {
+					result.tournament.finale.targetWinProb =
+						rawObj.targetWinProb as number;
+				}
+				if (rawObj.confidence !== undefined) {
+					result.tournament.finale.confidence = rawObj.confidence as number;
+				}
+				if (rawObj.minSeparation !== undefined) {
+					result.tournament.finale.minSeparation =
+						rawObj.minSeparation as number;
+				}
+				if (rawObj.allowOverRepeatCap !== undefined) {
+					result.tournament.finale.allowOverRepeatCap =
+						rawObj.allowOverRepeatCap as boolean;
+				}
 			}
-			result.tournament.finale = {} as TournamentConfig["finale"];
-			if (finaleRaw.enabled !== undefined) {
-				result.tournament.finale.enabled = finaleRaw.enabled as boolean;
-			}
-			if (finaleRaw.maxMatchesPerBatch !== undefined) {
-				result.tournament.finale.maxMatchesPerBatch =
-					finaleRaw.maxMatchesPerBatch as number;
-			}
-			if (finaleRaw.maxTotalMatches !== undefined) {
-				result.tournament.finale.maxTotalMatches =
-					finaleRaw.maxTotalMatches as number;
-			}
-			if (finaleRaw.targetWinProb !== undefined) {
-				result.tournament.finale.targetWinProb =
-					finaleRaw.targetWinProb as number;
-			}
-			if (finaleRaw.confidence !== undefined) {
-				result.tournament.finale.confidence = finaleRaw.confidence as number;
-			}
-			if (finaleRaw.minSeparation !== undefined) {
-				result.tournament.finale.minSeparation =
-					finaleRaw.minSeparation as number;
-			}
-			if (finaleRaw.allowOverRepeatCap !== undefined) {
-				result.tournament.finale.allowOverRepeatCap =
-					finaleRaw.allowOverRepeatCap as boolean;
-			}
-		}
 
 		// Migration: tournament.playoffSize -> tournament.stopRules.topK (only if topK not explicitly set)
 		if (
@@ -875,11 +986,11 @@ function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			result.tournament.stopRules.topK = deprecatedPlayoffSize;
 		}
 
-		// Migration: tournament.disambiguation -> tournament.finale (best-effort mapping).
-		if (tournamentRaw.disambiguation && !result.tournament.finale) {
-			console.warn(
-				"⚠️ Deprecated config section tournament.disambiguation detected; please rename it to tournament.finale.",
-			);
+			// Migration: tournament.disambiguation -> tournament.finale (best-effort mapping).
+			if (tournamentRaw.disambiguation && !result.tournament.finale) {
+				console.warn(
+					"⚠️ Deprecated config section tournament.disambiguation detected; please rename it to tournament.fineRanking.",
+				);
 			const disRaw = tournamentRaw.disambiguation as Record<string, unknown>;
 			result.tournament.finale = {} as TournamentConfig["finale"];
 			if (disRaw.enabled !== undefined) {
@@ -1131,10 +1242,10 @@ export function loadConfig(
 	for (const warning of [...normalizeWarnings, ...validateWarnings]) {
 		console.warn(`⚠️ ${warning}`);
 	}
-	const estimate = estimateApiCalls(mergedConfig);
-	console.log(
-		`📊 Estimated API calls: total ${estimate.total} (gen ${estimate.generation}, seed ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, swiss ${estimate.swiss}, finale ${estimate.finale})`,
-	);
+		const estimate = estimateApiCalls(mergedConfig);
+		console.log(
+			`📊 Estimated API calls: total ${estimate.total} (gen ${estimate.generation}, firstDraftSelection ${estimate.initialLeaderboard}, review ${estimate.review}, revise ${estimate.revise}, coarse ${estimate.swiss}, fine ${estimate.finale})`,
+		);
 	loadedConfig = mergedConfig;
 	loadedPaths = {
 		configPath: effectiveConfigPath,
@@ -1300,33 +1411,39 @@ function validateConfig(config: PipelineConfig): string[] {
 	if (!config.roles.revisers || config.roles.revisers.length === 0) {
 		throw new Error("roles.revisers must have at least one entry");
 	}
-	if (!config.roles.swissJudges || config.roles.swissJudges.length === 0) {
-		throw new Error("roles.swissJudges must have at least one entry");
-	}
-	if (
-		config.tournament.finale.enabled &&
-		(!config.roles.finaleJudges || config.roles.finaleJudges.length === 0)
-	) {
-		throw new Error(
-			"roles.finaleJudges must have at least one entry when tournament.finale.enabled is true",
-		);
-	}
+		if (!config.roles.swissJudges || config.roles.swissJudges.length === 0) {
+			throw new Error(
+				"roles.coarseJudges (aka roles.swissJudges) must have at least one entry",
+			);
+		}
+		if (
+			config.tournament.finale.enabled &&
+			(!config.roles.finaleJudges || config.roles.finaleJudges.length === 0)
+		) {
+			throw new Error(
+				"roles.fineJudges (aka roles.finaleJudges) must have at least one entry when tournament.fineRanking.enabled (aka tournament.finale.enabled) is true",
+			);
+		}
 	if (
 		!Number.isInteger(config.tournament.swissRounds) ||
 		config.tournament.swissRounds < 1
-	) {
-		throw new Error("tournament.swissRounds must be an integer >= 1");
-	}
-	if (
-		!Number.isInteger(config.tournament.initialGenerations) ||
-		config.tournament.initialGenerations < 1
-	) {
-		throw new Error("tournament.initialGenerations must be an integer >= 1");
-	}
+		) {
+			throw new Error(
+				"tournament.coarseRounds (aka tournament.swissRounds) must be an integer >= 1",
+			);
+		}
+		if (
+			!Number.isInteger(config.tournament.initialGenerations) ||
+			config.tournament.initialGenerations < 1
+		) {
+			throw new Error(
+				"tournament.firstDraftSelection.initialGenerations (aka tournament.initialGenerations) must be an integer >= 1",
+			);
+		}
 
-	// Initial leaderboard: pairwise styles require at least one judge.
-	// getInitialLeaderboardJudges() falls back to finaleJudges when initialLeaderboardJudges is unset.
-	if (config.tournament.initialLeaderboard.enabled) {
+		// Initial leaderboard: pairwise styles require at least one judge.
+		// getInitialLeaderboardJudges() falls back to fineJudges when firstDraftSelectionJudges is unset.
+		if (config.tournament.initialLeaderboard.enabled) {
 		const gens = config.tournament.initialGenerations;
 		const effectiveStyle =
 			gens <= 1
@@ -1340,21 +1457,23 @@ function validateConfig(config: PipelineConfig): string[] {
 				config.roles.initialLeaderboardJudges ??
 				config.roles.finaleJudges ??
 				[];
-			if (judges.length === 0) {
-				throw new Error(
-					"Initial leaderboard pairwise styles require at least one judge in roles.initialLeaderboardJudges (or roles.finaleJudges fallback).",
-				);
+				if (judges.length === 0) {
+					throw new Error(
+						"First Draft Selection pairwise styles require at least one judge in roles.firstDraftSelectionJudges (or roles.fineJudges fallback).",
+					);
+				}
 			}
 		}
-	}
 
 	if (
 		config.tournament.swissFormat &&
 		config.tournament.swissFormat !== "1v1" &&
 		config.tournament.swissFormat !== "1v1v1"
-	) {
-		throw new Error('tournament.swissFormat must be either "1v1" or "1v1v1"');
-	}
+		) {
+			throw new Error(
+				'tournament.coarseFormat (aka tournament.swissFormat) must be either "1v1" or "1v1v1"',
+			);
+		}
 	if (
 		config.tournament.rating.backend !== "elo" &&
 		config.tournament.rating.backend !== "bradley-terry"
@@ -1494,54 +1613,66 @@ function validateConfig(config: PipelineConfig): string[] {
 		);
 	}
 
-	if (typeof config.tournament.finale.enabled !== "boolean") {
-		throw new Error("tournament.finale.enabled must be a boolean");
-	}
+		if (typeof config.tournament.finale.enabled !== "boolean") {
+			throw new Error(
+				"tournament.fineRanking.enabled (aka tournament.finale.enabled) must be a boolean",
+			);
+		}
 	if (
 		!Number.isInteger(config.tournament.finale.maxMatchesPerBatch) ||
 		config.tournament.finale.maxMatchesPerBatch < 0
-	) {
-		throw new Error(
-			"tournament.finale.maxMatchesPerBatch must be an integer >= 0",
-		);
-	}
+		) {
+			throw new Error(
+				"tournament.fineRanking.maxMatchesPerBatch (aka tournament.finale.maxMatchesPerBatch) must be an integer >= 0",
+			);
+		}
 	if (
 		!Number.isInteger(config.tournament.finale.maxTotalMatches) ||
 		config.tournament.finale.maxTotalMatches < 0
-	) {
-		throw new Error(
-			"tournament.finale.maxTotalMatches must be an integer >= 0",
-		);
-	}
-	if (!Number.isFinite(config.tournament.finale.targetWinProb)) {
-		throw new Error("tournament.finale.targetWinProb must be a number");
-	}
+		) {
+			throw new Error(
+				"tournament.fineRanking.maxTotalMatches (aka tournament.finale.maxTotalMatches) must be an integer >= 0",
+			);
+		}
+		if (!Number.isFinite(config.tournament.finale.targetWinProb)) {
+			throw new Error(
+				"tournament.fineRanking.targetWinProb (aka tournament.finale.targetWinProb) must be a number",
+			);
+		}
 	if (
 		config.tournament.finale.targetWinProb < 0 ||
 		config.tournament.finale.targetWinProb > 1
-	) {
-		throw new Error("tournament.finale.targetWinProb must be between 0 and 1");
-	}
-	if (!Number.isFinite(config.tournament.finale.confidence)) {
-		throw new Error("tournament.finale.confidence must be a number");
-	}
+		) {
+			throw new Error(
+				"tournament.fineRanking.targetWinProb (aka tournament.finale.targetWinProb) must be between 0 and 1",
+			);
+		}
+		if (!Number.isFinite(config.tournament.finale.confidence)) {
+			throw new Error(
+				"tournament.fineRanking.confidence (aka tournament.finale.confidence) must be a number",
+			);
+		}
 	if (
 		config.tournament.finale.confidence <= 0 ||
 		config.tournament.finale.confidence >= 1
-	) {
-		throw new Error(
-			"tournament.finale.confidence must be a number in the open interval (0, 1)",
-		);
-	}
+		) {
+			throw new Error(
+				"tournament.fineRanking.confidence (aka tournament.finale.confidence) must be a number in the open interval (0, 1)",
+			);
+		}
 	if (
 		!Number.isFinite(config.tournament.finale.minSeparation) ||
 		config.tournament.finale.minSeparation < 0
-	) {
-		throw new Error("tournament.finale.minSeparation must be a number >= 0");
-	}
-	if (typeof config.tournament.finale.allowOverRepeatCap !== "boolean") {
-		throw new Error("tournament.finale.allowOverRepeatCap must be a boolean");
-	}
+		) {
+			throw new Error(
+				"tournament.fineRanking.minSeparation (aka tournament.finale.minSeparation) must be a number >= 0",
+			);
+		}
+		if (typeof config.tournament.finale.allowOverRepeatCap !== "boolean") {
+			throw new Error(
+				"tournament.fineRanking.allowOverRepeatCap (aka tournament.finale.allowOverRepeatCap) must be a boolean",
+			);
+		}
 
 	// Validate that all role entries have valid model slugs
 	const allEntries = [
@@ -1574,12 +1705,12 @@ function validateConfig(config: PipelineConfig): string[] {
 			`Only ${estimatedContestants} contestant expected from current role counts; results may be degenerate.`,
 		);
 	}
-	if (config.tournament.stopRules.maxBatches > config.tournament.swissRounds) {
-		warnings.push(
-			`tournament.stopRules.maxBatches (${config.tournament.stopRules.maxBatches}) exceeds swissRounds (${config.tournament.swissRounds}); clamping to ${config.tournament.swissRounds}.`,
-		);
-		config.tournament.stopRules.maxBatches = config.tournament.swissRounds;
-	}
+		if (config.tournament.stopRules.maxBatches > config.tournament.swissRounds) {
+			warnings.push(
+				`tournament.stopRules.maxBatches (${config.tournament.stopRules.maxBatches}) exceeds tournament.coarseRounds (${config.tournament.swissRounds}); clamping to ${config.tournament.swissRounds}.`,
+			);
+			config.tournament.stopRules.maxBatches = config.tournament.swissRounds;
+		}
 	if (
 		config.tournament.stopRules.minBatches >
 		config.tournament.stopRules.maxBatches
@@ -1607,22 +1738,22 @@ function validateConfig(config: PipelineConfig): string[] {
 		config.tournament.stopRules.enabled = false;
 	}
 
-	if (config.tournament.finale.enabled && !config.tournament.rating.enabled) {
-		warnings.push(
-			"tournament.finale.enabled requires tournament.rating.enabled; disabling finale.",
-		);
-		config.tournament.finale.enabled = false;
-	}
-	if (
-		config.tournament.finale.maxTotalMatches <
-		config.tournament.finale.maxMatchesPerBatch
-	) {
-		warnings.push(
-			`tournament.finale.maxTotalMatches (${config.tournament.finale.maxTotalMatches}) is less than maxMatchesPerBatch (${config.tournament.finale.maxMatchesPerBatch}); clamping maxMatchesPerBatch to ${config.tournament.finale.maxTotalMatches}.`,
-		);
-		config.tournament.finale.maxMatchesPerBatch =
-			config.tournament.finale.maxTotalMatches;
-	}
+		if (config.tournament.finale.enabled && !config.tournament.rating.enabled) {
+			warnings.push(
+				"tournament.fineRanking.enabled (aka tournament.finale.enabled) requires tournament.rating.enabled; disabling fine ranking.",
+			);
+			config.tournament.finale.enabled = false;
+		}
+		if (
+			config.tournament.finale.maxTotalMatches <
+			config.tournament.finale.maxMatchesPerBatch
+		) {
+			warnings.push(
+				`tournament.fineRanking.maxTotalMatches (${config.tournament.finale.maxTotalMatches}) is less than maxMatchesPerBatch (${config.tournament.finale.maxMatchesPerBatch}); clamping maxMatchesPerBatch to ${config.tournament.finale.maxTotalMatches}.`,
+			);
+			config.tournament.finale.maxMatchesPerBatch =
+				config.tournament.finale.maxTotalMatches;
+		}
 
 	const estimate = estimateApiCalls(config);
 	if (estimate.total >= HIGH_CALL_VOLUME_THRESHOLD) {
