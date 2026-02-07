@@ -164,28 +164,59 @@ async function runCrossReviewPipeline(): Promise<void> {
 				DRY_RUN,
 			)
 		: null;
-	const swissJudgmentsDir = await ensureRunsDirectory(
-		join(relRunPath, "swiss_judgments"),
-		DRY_RUN,
-	);
+
+	// ----------------------------
+	// Output layout (legacy vs structured)
+	// ----------------------------
+	// New runs default to structured coarse/fine output directories.
+	// Resumed runs keep their existing layout so we don't split logs mid-run.
+	const legacySwissLogPath = join(runDir, "swiss_rounds.md");
+	const legacyFinaleLogPath = join(runDir, "finale_rounds.md");
+	const hasLegacyLayout =
+		isResuming &&
+		(existsSync(legacySwissLogPath) ||
+			existsSync(join(runDir, "swiss_judgments")) ||
+			existsSync(legacyFinaleLogPath) ||
+			existsSync(join(runDir, "finale_judgments")));
+	const layoutMode: "legacy" | "structured" = hasLegacyLayout
+		? "legacy"
+		: "structured";
+
+	const swissJudgmentsDir =
+		layoutMode === "legacy"
+			? await ensureRunsDirectory(join(relRunPath, "swiss_judgments"), DRY_RUN)
+			: await ensureRunsDirectory(join(relRunPath, "coarse", "judgments"), DRY_RUN);
+	const swissRoundsRoot =
+		layoutMode === "legacy"
+			? legacySwissLogPath
+			: await ensureRunsDirectory(join(relRunPath, "coarse", "rounds"), DRY_RUN);
+	const swissStandingsDir =
+		layoutMode === "legacy"
+			? null
+			: await ensureRunsDirectory(join(relRunPath, "coarse", "standings"), DRY_RUN);
+
 	const finaleJudgmentsDir = FINALE.enabled
-		? await ensureRunsDirectory(join(relRunPath, "finale_judgments"), DRY_RUN)
+		? layoutMode === "legacy"
+			? await ensureRunsDirectory(join(relRunPath, "finale_judgments"), DRY_RUN)
+			: await ensureRunsDirectory(join(relRunPath, "fine", "judgments"), DRY_RUN)
+		: null;
+	const finaleIterationsRoot = FINALE.enabled
+		? layoutMode === "legacy"
+			? legacyFinaleLogPath
+			: await ensureRunsDirectory(join(relRunPath, "fine", "iterations"), DRY_RUN)
+		: null;
+	const finaleStandingsDir = FINALE.enabled
+		? layoutMode === "legacy"
+			? null
+			: await ensureRunsDirectory(join(relRunPath, "fine", "standings"), DRY_RUN)
 		: null;
 
-	// Log paths
-	const swissLogPath = join(runDir, "swiss_rounds.md");
 	const initialLeaderboardLogPath = initialLeaderboardDir
 		? join(initialLeaderboardDir, "leaderboard.md")
 		: null;
-	const finaleLogPath = join(runDir, "finale_rounds.md");
 
 	// Initialize logs (only for new runs)
 	if (!DRY_RUN && !isResuming) {
-		await writeFile(
-			swissLogPath,
-			`# Coarse Ranking Log (Swiss rounds, ${SWISS_FORMAT})\n\n`,
-			"utf-8",
-		);
 		if (initialLeaderboardLogPath) {
 			await writeFile(
 				initialLeaderboardLogPath,
@@ -193,13 +224,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 				"utf-8",
 			);
 		}
-		if (FINALE.enabled) {
-			await writeFile(
-				finaleLogPath,
-				"# Fine Ranking Log (Top-K Refinement Matches)\n\n",
-				"utf-8",
-			);
-		}
+		// Coarse/fine logs are written per-round/per-iteration by the phase runners.
 	}
 
 	// === PHASE 1: Generate ===
@@ -244,8 +269,12 @@ async function runCrossReviewPipeline(): Promise<void> {
 	// === PHASE 5: Coarse Ranking (Swiss Rounds) ===
 	const { contestants, matches: allSwissMatches } = await runSwissPhase(
 		runDir,
-		swissLogPath,
-		swissJudgmentsDir,
+		{
+			mode: layoutMode,
+			roundsRoot: swissRoundsRoot,
+			standingsDir: swissStandingsDir,
+			judgmentsDir: swissJudgmentsDir,
+		},
 		state,
 		revisionsById,
 		DRY_RUN,
@@ -255,8 +284,18 @@ async function runCrossReviewPipeline(): Promise<void> {
 	// === PHASE 6: Fine Ranking (Top-K Refinement Matches) ===
 	const { finaleMatches } = await runFinalePhase(
 		runDir,
-		finaleLogPath,
-		finaleJudgmentsDir ?? join(runDir, "finale_judgments"),
+		{
+			mode: layoutMode,
+			iterationsRoot:
+				finaleIterationsRoot ??
+				(layoutMode === "legacy" ? legacyFinaleLogPath : join(runDir, "fine", "iterations")),
+			standingsDir: finaleStandingsDir,
+			judgmentsDir:
+				finaleJudgmentsDir ??
+				(layoutMode === "legacy"
+					? join(runDir, "finale_judgments")
+					: join(runDir, "fine", "judgments")),
+		},
 		state,
 		contestants,
 		revisionsById,
@@ -270,12 +309,12 @@ async function runCrossReviewPipeline(): Promise<void> {
 		0,
 	);
 
-	const fineSummary = {
-		matches: finaleMatches.length,
-		judgments: finaleJudgmentCalls,
-		iterations: state.finaleIterations ?? 0,
-		converged: state.finaleConverged ?? false,
-	};
+		const fineSummary = {
+			matches: finaleMatches.length,
+			judgments: finaleJudgmentCalls,
+			iterations: state.finaleIterations ?? 0,
+			converged: state.finaleConverged ?? false,
+		};
 		const leaderboard = computeLeaderboard(
 			contestants,
 			allSwissMatches,
@@ -328,8 +367,8 @@ async function runCrossReviewPipeline(): Promise<void> {
 	console.log(
 		`Fine Matches: ${finaleMatches.length} (judgments: ${finaleJudgmentCalls})`,
 	);
-	console.log("");
-	console.log("🏆 TOP 3 (Final Rankings):");
+		console.log("");
+		console.log("🏆 TOP 3 (Final Rankings):");
 
 	const finalSorted = [...contestants].sort((a, b) => {
 		const ratingA = typeof a.rating === "number" ? a.rating : null;

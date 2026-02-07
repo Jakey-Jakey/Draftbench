@@ -2,6 +2,12 @@
 
 An AI-powered artifact benchmark that asks multiple models to create, review, and refine creative artifacts—essays, short stories, game statblocks, and more—before ranking the results with Swiss tournament judging.
 
+## Attribution
+
+This project began as a fork of `auto-draftify` (Theo Browne): `https://github.com/T3-Content/auto-draftify`.
+
+Thanks to Theo Browne for inspiring me to try programming.
+
 ## Overview
 
 This pipeline benchmarks AI models on creative artifact generation end-to-end:
@@ -195,10 +201,14 @@ runs/YYYY-MM-DDTHH-MM-SS/
 │   └── <generator-token>_<reviewer-token>_<reviser-token>.md
 ├── initial_leaderboard/     # Optional initial draft selection output
 │   └── leaderboard.md
-├── swiss_judgments/         # Detailed Swiss judge outputs
-├── finale_judgments/        # Detailed finale judge outputs
-├── swiss_rounds.md          # Swiss tournament log
-├── finale_rounds.md         # Fine ranking log (active-learning, top-K refinement)
+├── coarse/
+│   ├── rounds/              # round-by-round coarse log (one file per round)
+│   ├── standings/           # per-round rating snapshots (md + json)
+│   └── judgments/           # per-match coarse judge outputs
+├── fine/
+│   ├── iterations/          # iteration-by-iteration fine log (one file per iteration)
+│   ├── standings/           # per-iteration rating snapshots (md + json)
+│   └── judgments/           # per-match fine judge outputs
 ├── leaderboard.md           # Final rankings
 ├── summary.json             # Machine-readable run summary (leaderboard + attribution)
 └── state.json               # Pipeline state (for resume)

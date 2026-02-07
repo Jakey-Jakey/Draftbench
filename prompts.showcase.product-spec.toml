@@ -8,8 +8,8 @@
 #   bun run index.ts --prompts prompts.showcase.product-spec.toml
 #
 # Template variables:
-#   review: {statblock}
-#   revise: {statblock}, {feedback}
+#   review: {artifact} (alias: {statblock})
+#   revise: {artifact} (alias: {statblock}), {feedback}
 #   judgePairwise: {idA}, {idB}, {textA}, {textB}
 #   judgeThreeWay: {idA}, {idB}, {idC}, {textA}, {textB}, {textC}
 
@@ -44,7 +44,7 @@ Find unclear requirements, missing edge cases, hidden complexity, and bad defaul
 userTemplate = """
 Review this product spec and provide actionable feedback:
 
-{statblock}
+{artifact}
 """
 
 [revise]
@@ -55,7 +55,7 @@ Prefer explicit defaults and measurable acceptance criteria.
 
 userTemplate = """
 Original spec:
-{statblock}
+{artifact}
 
 Review feedback:
 {feedback}

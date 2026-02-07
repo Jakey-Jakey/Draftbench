@@ -165,6 +165,7 @@ export async function reviewStatblock(
 
 		const prompt = interpolate(config.prompts.review.userTemplate, {
 			statblock,
+			artifact: statblock,
 		});
 
 		const result = await generateTextWithRetries({
@@ -208,6 +209,7 @@ export async function reviseStatblock(
 
 		const prompt = interpolate(config.prompts.revise.userTemplate, {
 			statblock: originalStatblock,
+			artifact: originalStatblock,
 			feedback,
 		});
 

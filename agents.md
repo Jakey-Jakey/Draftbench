@@ -297,11 +297,15 @@ runs/<timestamp>/
 │   └── <reviewer-token>_reviews_<reviewed-token>.md
 ├── revisions/
 │   └── <generator-token>_<reviewer-token>_<reviser-token>.md
-├── swiss_judgments/              # Detailed per-match reasoning
-├── finale_judgments/
 ├── initial_leaderboard/          # (If enabled)
-├── swiss_rounds.md               # Round-by-round log
-├── finale_rounds.md              # Active-learning finale log
+├── coarse/
+│   ├── rounds/                   # round-by-round coarse log (one file per round)
+│   ├── standings/                # per-round rating snapshots (md + json)
+│   └── judgments/                # per-match coarse judge outputs
+├── fine/
+│   ├── iterations/               # iteration-by-iteration fine log (one file per iteration)
+│   ├── standings/                # per-iteration rating snapshots (md + json)
+│   └── judgments/                # per-match fine judge outputs
 ├── leaderboard.md                # Final rankings & stats
 └── state.json                    # Resume checkpoint state
 ```

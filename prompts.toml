@@ -6,8 +6,8 @@
 #
 # Template variables available per phase:
 #   generate: (none - uses static prompts)
-#   review: {statblock}
-#   revise: {statblock}, {feedback}
+#   review: {artifact} (alias: {statblock})
+#   revise: {artifact} (alias: {statblock}), {feedback}
 #   judgePairwise: {idA}, {idB}, {textA}, {textB}
 #   judgeThreeWay: {idA}, {idB}, {idC}, {textA}, {textB}, {textC}
 
@@ -36,7 +36,7 @@ You are an expert D&D 5e game designer and balance consultant. Review the monste
 userTemplate = """
 Please review the following D&D 5e monster statblock and provide feedback:
 
-{statblock}
+{artifact}
 """
 
 # -----------------------------------------------------------------------------
@@ -50,7 +50,7 @@ You are an expert TTRPG designer specializing in D&D 5th Edition. Revise the pro
 
 userTemplate = """
 Original statblock:
-{statblock}
+{artifact}
 
 Review feedback:
 {feedback}

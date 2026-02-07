@@ -133,11 +133,11 @@ export interface PromptsConfig {
 	};
 	review: {
 		system: string;
-		userTemplate: string; // {statblock}
+		userTemplate: string; // {artifact} (alias: {statblock})
 	};
 	revise: {
 		system: string;
-		userTemplate: string; // {statblock}, {feedback}
+		userTemplate: string; // {artifact} (alias: {statblock}), {feedback}
 	};
 	judgePairwise: {
 		system: string;

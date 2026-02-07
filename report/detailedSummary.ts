@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { PipelineConfig } from "../config";
@@ -32,6 +33,12 @@ export interface DetailedFileEntryV1 {
 		| "summary_detailed_json"
 		| "swiss_log"
 		| "finale_log"
+		| "coarse_round_md"
+		| "fine_iteration_md"
+		| "coarse_standings_md"
+		| "coarse_standings_json"
+		| "fine_standings_md"
+		| "fine_standings_json"
 		| "revision_md"
 		| "initial_leaderboard_md";
 	bytes: number;
@@ -116,23 +123,28 @@ function relPath(runDir: string, abs: string): string {
 	return rel && !rel.startsWith("..") ? rel : abs;
 }
 
-function swissJudgmentPath(match: SwissMatch): string {
+function swissJudgmentPath(match: SwissMatch, baseDir: string): string {
 	const [a, b, c] = match.ids;
-	if (!a || !b) return join("swiss_judgments", `round${match.round}_unknown.md`);
+	if (!a || !b) return join(baseDir, `round${match.round}_unknown.md`);
 	// 1v1 stores the third slot as "N/A", and bye matches include "BYE".
 	if (b === "BYE" || c === "BYE") {
-		return join("swiss_judgments", `round${match.round}_${a}_vs_${b}.md`);
+		return join(baseDir, `round${match.round}_${a}_vs_${b}.md`);
 	}
 	if (!c || c === "N/A") {
-		return join("swiss_judgments", `round${match.round}_${a}_vs_${b}.md`);
+		return join(baseDir, `round${match.round}_${a}_vs_${b}.md`);
 	}
 	// 1v1v1 uses all 3.
-	return join("swiss_judgments", `round${match.round}_${a}_vs_${b}_vs_${c}.md`);
+	return join(baseDir, `round${match.round}_${a}_vs_${b}_vs_${c}.md`);
 }
 
-function finaleJudgmentPath(iteration: number, aId: string, bId: string): string {
+function finaleJudgmentPath(
+	iteration: number,
+	aId: string,
+	bId: string,
+	baseDir: string,
+): string {
 	const safeKey = `${aId}__vs__${bId}`.replaceAll("/", "_");
-	return join("finale_judgments", `iter_${iteration}_${safeKey}.md`);
+	return join(baseDir, `iter_${iteration}_${safeKey}.md`);
 }
 
 function computeBoundarySnapshot(args: {
@@ -239,6 +251,8 @@ export async function computeDetailedRunSummary(args: {
 	const config = getConfig();
 	const includeHashes = args.includeHashes !== false;
 	const runDir = args.runDir;
+	const hasStructuredLayout =
+		existsSync(join(runDir, "coarse")) || existsSync(join(runDir, "fine"));
 
 	// -----------------------------
 	// Artifacts (hashes + sizes)
@@ -259,12 +273,66 @@ export async function computeDetailedRunSummary(args: {
 			}
 		};
 
-		await add(join(runDir, "state.json"), "state");
-		await add(join(runDir, "leaderboard.md"), "leaderboard_md");
-		await add(join(runDir, "summary.json"), "summary_json");
-		// summary.detailed.json is written after this function returns; caller can add it if desired.
-		await add(join(runDir, "swiss_rounds.md"), "swiss_log");
-		await add(join(runDir, "finale_rounds.md"), "finale_log");
+			await add(join(runDir, "state.json"), "state");
+			await add(join(runDir, "leaderboard.md"), "leaderboard_md");
+			await add(join(runDir, "summary.json"), "summary_json");
+			// summary.detailed.json is written after this function returns; caller can add it if desired.
+			if (!hasStructuredLayout) {
+				await add(join(runDir, "swiss_rounds.md"), "swiss_log");
+				await add(join(runDir, "finale_rounds.md"), "finale_log");
+			} else {
+				try {
+					const coarseRoundsDir = join(runDir, "coarse", "rounds");
+					const entries = await readdir(coarseRoundsDir);
+					for (const name of entries) {
+						if (!name.endsWith(".md")) continue;
+						await add(join(coarseRoundsDir, name), "coarse_round_md");
+					}
+				} catch {
+					// ignore
+				}
+				try {
+					const fineIterationsDir = join(runDir, "fine", "iterations");
+					const entries = await readdir(fineIterationsDir);
+					for (const name of entries) {
+						if (!name.endsWith(".md")) continue;
+						await add(join(fineIterationsDir, name), "fine_iteration_md");
+					}
+				} catch {
+					// ignore
+				}
+				try {
+					const coarseStandingsDir = join(runDir, "coarse", "standings");
+					const entries = await readdir(coarseStandingsDir);
+					for (const name of entries) {
+						if (name.endsWith(".md")) {
+							await add(join(coarseStandingsDir, name), "coarse_standings_md");
+						}
+						if (name.endsWith(".json")) {
+							await add(
+								join(coarseStandingsDir, name),
+								"coarse_standings_json",
+							);
+						}
+					}
+				} catch {
+					// ignore
+				}
+				try {
+					const fineStandingsDir = join(runDir, "fine", "standings");
+					const entries = await readdir(fineStandingsDir);
+					for (const name of entries) {
+						if (name.endsWith(".md")) {
+							await add(join(fineStandingsDir, name), "fine_standings_md");
+						}
+						if (name.endsWith(".json")) {
+							await add(join(fineStandingsDir, name), "fine_standings_json");
+						}
+					}
+				} catch {
+					// ignore
+				}
+			}
 
 		// Hash all revisions (the most important content artifacts).
 		try {
@@ -358,21 +426,26 @@ export async function computeDetailedRunSummary(args: {
 			}),
 			stopRuleEvaluation: stop,
 		});
-	}
+		}
 
-	const swissMatchesDetailed: DetailedSwissMatchV1[] = swissMatchesSorted.map((m) => ({
-		round: m.round,
-		ids: m.ids,
-		first: m.first,
+		const swissJudgmentsBase = hasStructuredLayout
+			? join("coarse", "judgments")
+			: "swiss_judgments";
+		const swissMatchesDetailed: DetailedSwissMatchV1[] = swissMatchesSorted.map((m) => ({
+			round: m.round,
+			ids: m.ids,
+			first: m.first,
 		second: m.second,
 		third: m.third,
-		tieGroup: m.tieGroup,
-		sharedPoints: m.sharedPoints,
-		judgmentFile: m.ids.includes("BYE") ? null : swissJudgmentPath(m),
-		pairwiseObservations: m.ids.includes("BYE")
-			? []
-			: pairwiseFromSwissMatch(m, config.tournament.rating.tieValue),
-	}));
+			tieGroup: m.tieGroup,
+			sharedPoints: m.sharedPoints,
+			judgmentFile: m.ids.includes("BYE")
+				? null
+				: swissJudgmentPath(m, swissJudgmentsBase),
+			pairwiseObservations: m.ids.includes("BYE")
+				? []
+				: pairwiseFromSwissMatch(m, config.tournament.rating.tieValue),
+		}));
 
 	// -----------------------------
 	// Fine ranking: per-iteration uncertainty + match details
@@ -443,18 +516,26 @@ export async function computeDetailedRunSummary(args: {
 			config.tournament.finale.confidence,
 		);
 
-		const detailedMatches: DetailedFinaleMatchV1[] = [];
-		for (const m of matches) {
-			const key = pairKey(m.aId, m.bId);
-			const repeats = repeatCounts.get(key) ?? 0;
-			const predicted = estimateWinProbability(ratingStateFine, m.aId, m.bId);
-			const detailed: DetailedFinaleMatchV1 = {
-				...m,
-				judgmentFile: finaleJudgmentPath(m.iteration, m.aId, m.bId),
-				repeatCountBefore: repeats,
-				predictedWinProbBefore: predicted,
-				revisionPathA: join("revisions", `${m.aId}.md`),
-				revisionPathB: join("revisions", `${m.bId}.md`),
+			const detailedMatches: DetailedFinaleMatchV1[] = [];
+			const fineJudgmentsBase = hasStructuredLayout
+				? join("fine", "judgments")
+				: "finale_judgments";
+			for (const m of matches) {
+				const key = pairKey(m.aId, m.bId);
+				const repeats = repeatCounts.get(key) ?? 0;
+				const predicted = estimateWinProbability(ratingStateFine, m.aId, m.bId);
+				const detailed: DetailedFinaleMatchV1 = {
+					...m,
+					judgmentFile: finaleJudgmentPath(
+						m.iteration,
+						m.aId,
+						m.bId,
+						fineJudgmentsBase,
+					),
+					repeatCountBefore: repeats,
+					predictedWinProbBefore: predicted,
+					revisionPathA: join("revisions", `${m.aId}.md`),
+					revisionPathB: join("revisions", `${m.bId}.md`),
 			};
 			detailedMatches.push(detailed);
 

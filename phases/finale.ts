@@ -31,6 +31,19 @@ import type { RevisionEntry } from "./revise";
 // Finale Phase (Active Learning)
 // ============================================================================
 
+export interface FinaleOutputConfig {
+	mode: "legacy" | "structured";
+	/**
+	 * Legacy: absolute path to `finale_rounds.md`.
+	 * Structured: directory for `iter{n}.md` files.
+	 */
+	iterationsRoot: string;
+	/** Structured-only directory for per-iteration standings snapshots (md + json). */
+	standingsDir: string | null;
+	/** Directory where per-match judgment Markdown files are written. */
+	judgmentsDir: string;
+}
+
 export interface FinalePhaseResult {
 	finaleMatches: StoredFinaleMatch[];
 	iterations: number;
@@ -150,8 +163,7 @@ function syncContestantsWithRatings(
  * Orchestrates the active-learning finale by running targeted pairwise matches among the top-K contestants until adjacent confidence intervals separate or the match budget is exhausted.
  *
  * @param runDir - Path to the current run directory where pipeline state is stored
- * @param finaleLogPath - File path for the finale iteration and result log
- * @param finaleJudgmentsDir - Directory where per-match judgment markdown files are written
+ * @param output - Output layout config (legacy vs structured fine ranking directories)
  * @param state - PipelineState object to read and persist finale progress and rating state
  * @param contestants - Mutable list of SwissContestant entries to synchronize final ratings into for leaderboard display
  * @param revisionsById - Map from contestant/revision ID to RevisionEntry used to obtain texts for pairwise judging
@@ -161,8 +173,7 @@ function syncContestantsWithRatings(
  */
 export async function runFinalePhase(
 	runDir: string,
-	finaleLogPath: string,
-	finaleJudgmentsDir: string,
+	output: FinaleOutputConfig,
 	state: PipelineState,
 	contestants: SwissContestant[],
 	revisionsById: Map<string, RevisionEntry>,
@@ -213,8 +224,8 @@ export async function runFinalePhase(
 		"Missing ratingState in pipeline state; Swiss phase should have initialized it.",
 	);
 	const ratingState = deserializeRatingState(ratingStateStored);
+	const isStructured = output.mode === "structured";
 
-	const fileLock = new Semaphore(1);
 	const stateLock = new Semaphore(1);
 
 	if (isPhaseCompleted(state, "finale")) {
@@ -251,18 +262,19 @@ export async function runFinalePhase(
 		});
 		const orderedIds = standings.map((s) => s.id);
 		const topK = Math.max(1, Math.min(stopRulesConfig.topK, orderedIds.length));
-		const scope = orderedIds.slice(0, topK);
+			const scope = orderedIds.slice(0, topK);
 
-		const sep = allAdjacentSeparatedWithMinGap({
-			standings,
-			scope,
-			confidence: finaleConfig.confidence,
-			minSeparation: finaleConfig.minSeparation,
-		});
-		if (sep.separated) {
-			converged = true;
-			break;
-		}
+			const sep = allAdjacentSeparatedWithMinGap({
+				standings,
+				scope,
+				confidence: finaleConfig.confidence,
+				minSeparation: finaleConfig.minSeparation,
+			});
+			const unseparatedBefore = sep.unseparated.length;
+			if (sep.separated) {
+				converged = true;
+				break;
+			}
 
 		const repeatCounts = countRepeatPairs(ratingState.history);
 		const maxRepeatPairs = finaleConfig.allowOverRepeatCap
@@ -292,23 +304,21 @@ export async function runFinalePhase(
 			break;
 		}
 
-		console.log(
-			`  Iteration ${iteration}: running ${planned.pairs.length} matchup(s) (${sep.unseparated.length} adjacent pair(s) still uncertain)`,
-		);
-		if (!dryRun) {
-			await fileLock.acquire();
-			try {
-				await appendFile(
-					finaleLogPath,
-					`## Iteration ${iteration}\n\n- Planned matches: ${planned.pairs
-						.map(([a, b]) => `${a} vs ${b}`)
-						.join(", ")}\n\n`,
-					"utf-8",
-				);
-			} finally {
-				fileLock.release();
+			console.log(
+				`  Iteration ${iteration}: running ${planned.pairs.length} matchup(s) (${sep.unseparated.length} adjacent pair(s) still uncertain)`,
+			);
+			const plannedPairsLabel = planned.pairs.map(([a, b]) => `${a} vs ${b}`).join(", ");
+			let iterationLogMd = "";
+			if (!dryRun) {
+				iterationLogMd += isStructured
+					? `# Fine Ranking - Iteration ${iteration}\n\n## Planned matches\n\n${planned.pairs
+							.map(([a, b]) => `- ${a} vs ${b}\n`)
+							.join("")}\n`
+					: `## Iteration ${iteration}\n\n- Planned matches: ${plannedPairsLabel}\n\n`;
 			}
-		}
+			if (!dryRun && isStructured) {
+				iterationLogMd += "## Results\n\n";
+			}
 
 		const matchPromises = planned.pairs.map(async ([idA, idB], index) => {
 			const revisionA = revisionsById.get(idA);
@@ -380,11 +390,11 @@ export async function runFinalePhase(
 			};
 
 			const safeKey = `${idA}__vs__${idB}`.replaceAll("/", "_");
-			if (!dryRun) {
-				const judgmentFile = join(
-					finaleJudgmentsDir,
-					`iter_${iteration}_${safeKey}.md`,
-				);
+				if (!dryRun) {
+					const judgmentFile = join(
+						output.judgmentsDir,
+						`iter_${iteration}_${safeKey}.md`,
+					);
 				let md = `# Finale Match (Iteration ${iteration})\n\n`;
 				md += `- A: ${idA}\n`;
 				md += `- B: ${idB}\n\n`;
@@ -402,42 +412,134 @@ export async function runFinalePhase(
 			return match;
 		});
 
-		const results = await Promise.all(matchPromises);
+			const results = await Promise.all(matchPromises);
 
-		for (const match of results) {
-			storedMatches.push(match);
+			for (const match of results) {
+				storedMatches.push(match);
 
-			const observation: PairwiseObservation = {
-				aId: match.aId,
-				bId: match.bId,
-				scoreA: match.scoreA,
+				const ratingBeforeA = ratingState.records.get(match.aId)?.rating ?? null;
+				const ratingBeforeB = ratingState.records.get(match.bId)?.rating ?? null;
+
+				const observation: PairwiseObservation = {
+					aId: match.aId,
+					bId: match.bId,
+					scoreA: match.scoreA,
 				scoreB: match.scoreB,
 				round: (state.swissRound ?? 0) + iteration,
 				sourceMatchId: `finale:i${iteration}:${pairKey(match.aId, match.bId)}:${
 					storedMatches.length
 				}`,
-			};
-			applyPairwiseBatch(ratingState, [observation]);
+				};
+				applyPairwiseBatch(ratingState, [observation]);
 
-			if (!dryRun) {
-				await fileLock.acquire();
-				try {
+				const ratingAfterA = ratingState.records.get(match.aId)?.rating ?? null;
+				const ratingAfterB = ratingState.records.get(match.bId)?.rating ?? null;
+				const winner =
+					match.votesA === match.votesB
+						? "DRAW"
+						: match.votesA > match.votesB
+							? match.aId
+							: match.bId;
+
+				const deltaA =
+					ratingBeforeA !== null && ratingAfterA !== null
+						? ratingAfterA - ratingBeforeA
+						: null;
+				const deltaB =
+					ratingBeforeB !== null && ratingAfterB !== null
+						? ratingAfterB - ratingBeforeB
+						: null;
+
+				console.log(
+					`    ✓ ${match.aId} vs ${match.bId}: ${winner} (${match.votesA}-${match.votesB})` +
+						(deltaA !== null && deltaB !== null
+							? ` | Δ ${match.aId}: ${deltaA >= 0 ? "+" : ""}${deltaA.toFixed(1)}, ${match.bId}: ${deltaB >= 0 ? "+" : ""}${deltaB.toFixed(1)}`
+							: ""),
+				);
+
+				if (!dryRun) {
 					const line =
 						match.votesA === match.votesB
 							? `- ${match.aId} vs ${match.bId}: **DRAW** (${match.votesA}-${match.votesB})\n`
 							: `- **${match.votesA > match.votesB ? match.aId : match.bId}** beat ${
 									match.votesA > match.votesB ? match.bId : match.aId
 								} (${match.votesA}-${match.votesB})\n`;
-					await appendFile(finaleLogPath, line, "utf-8");
-				} finally {
-					fileLock.release();
+					iterationLogMd += line;
 				}
 			}
-		}
 
-		// Persist state after each iteration.
-		await stateLock.acquire();
-		try {
+			const standingsAfter = getRatingStandingsWithOptions(ratingState, {
+				bootstrapCi: false,
+				confidence: finaleConfig.confidence,
+			});
+			const orderedAfter = standingsAfter.map((s) => s.id);
+			const scopeAfter = orderedAfter.slice(0, topK);
+			const sepAfter = allAdjacentSeparatedWithMinGap({
+				standings: standingsAfter,
+				scope: scopeAfter,
+				confidence: finaleConfig.confidence,
+				minSeparation: finaleConfig.minSeparation,
+			});
+			const unseparatedAfter = sepAfter.unseparated.length;
+			console.log(
+				`    🔎 Adjacent uncertain in top ${topK}: ${unseparatedBefore} -> ${unseparatedAfter}`,
+			);
+
+			if (!dryRun) {
+				if (isStructured) {
+					iterationLogMd += `\n## Convergence\n\n- Adjacent uncertain (top ${topK}): ${unseparatedBefore} -> ${unseparatedAfter}\n`;
+				} else {
+					iterationLogMd += `\n- Adjacent uncertain (top ${topK}): ${unseparatedBefore} -> ${unseparatedAfter}\n`;
+				}
+
+				if (isStructured && output.standingsDir) {
+					const top = standingsAfter.slice(0, Math.min(topK, standingsAfter.length));
+					const mdLines: string[] = [];
+					mdLines.push(`# Fine Standings - Iteration ${iteration}\n`);
+					mdLines.push(`| # | id | rating | unc |\n|---:|---|---:|---:|\n`);
+					for (let i = 0; i < top.length; i++) {
+						const entry = top[i];
+						if (!entry) continue;
+						mdLines.push(
+							`| ${i + 1} | ${entry.id} | ${entry.rating.toFixed(1)} | ${entry.uncertainty.toFixed(1)} |\n`,
+						);
+					}
+					await writeFile(
+						join(output.standingsDir, `iter${iteration}.md`),
+						mdLines.join(""),
+						"utf-8",
+					);
+					await writeFile(
+						join(output.standingsDir, `iter${iteration}.json`),
+						JSON.stringify(
+							{
+								iteration,
+								topK,
+								standings: standingsAfter.map((s) => ({
+									id: s.id,
+									rating: s.rating,
+									uncertainty: s.uncertainty,
+								})),
+								unseparatedAdjacentPairs: sepAfter.unseparated,
+							},
+							null,
+							2,
+						),
+						"utf-8",
+					);
+				}
+
+				if (isStructured) {
+					const iterPath = join(output.iterationsRoot, `iter${iteration}.md`);
+					await writeFile(iterPath, iterationLogMd, "utf-8");
+				} else {
+					await appendFile(output.iterationsRoot, `${iterationLogMd}\n`, "utf-8");
+				}
+			}
+
+			// Persist state after each iteration.
+			await stateLock.acquire();
+			try {
 			state.finaleMatches = storedMatches;
 			state.finaleIterations = iteration;
 			state.finaleConverged = false;

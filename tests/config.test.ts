@@ -383,18 +383,18 @@ describe("prompt configuration", () => {
 		expect(typeof config.prompts.generate.user).toBe("string");
 	});
 
-	test("review prompts have system and userTemplate", () => {
-		const config = loadConfig("config.example.toml");
-		expect(config.prompts.review.system).toBeDefined();
-		expect(config.prompts.review.userTemplate).toBeDefined();
-		expect(config.prompts.review.userTemplate).toContain("{statblock}");
-	});
+		test("review prompts have system and userTemplate", () => {
+			const config = loadConfig("config.example.toml");
+			expect(config.prompts.review.system).toBeDefined();
+			expect(config.prompts.review.userTemplate).toBeDefined();
+			expect(config.prompts.review.userTemplate).toMatch(/\{(artifact|statblock)\}/);
+		});
 
-	test("revise prompts have correct template variables", () => {
-		const config = loadConfig("config.example.toml");
-		expect(config.prompts.revise.userTemplate).toContain("{statblock}");
-		expect(config.prompts.revise.userTemplate).toContain("{feedback}");
-	});
+		test("revise prompts have correct template variables", () => {
+			const config = loadConfig("config.example.toml");
+			expect(config.prompts.revise.userTemplate).toMatch(/\{(artifact|statblock)\}/);
+			expect(config.prompts.revise.userTemplate).toContain("{feedback}");
+		});
 
 	test("judge prompts have correct template variables", () => {
 		const config = loadConfig("config.example.toml");

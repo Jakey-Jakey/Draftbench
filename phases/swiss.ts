@@ -302,8 +302,21 @@ function countSwissJudgeCalls(
 }
 
 // ============================================================================
-// Swiss Phase
-// ============================================================================
+	// Swiss Phase
+	// ============================================================================
+
+export interface SwissOutputConfig {
+	mode: "legacy" | "structured";
+	/**
+	 * Legacy: absolute path to `swiss_rounds.md`.
+	 * Structured: directory for `round{n}.md` files.
+	 */
+	roundsRoot: string;
+	/** Structured-only directory for per-round standings snapshots (md + json). */
+	standingsDir: string | null;
+	/** Directory for per-match judgment Markdown files. */
+	judgmentsDir: string;
+}
 
 /**
  * Execute the Swiss tournament phase (supports 1v1 or 1v1v1 formats), run judges, update contestants and ratings, and persist interim/final state.
@@ -311,8 +324,7 @@ function countSwissJudgeCalls(
  * Runs up to the configured number of Swiss rounds (or until stop rules trigger), schedules matches (static or adaptive), invokes judges (or simulates outcomes in dry-run), applies match results to contestant standings and rating state, writes judgment artifacts and logs, and saves pipeline state after each round and at completion.
  *
  * @param runDir - Filesystem directory used for saving pipeline state and artifacts
- * @param swissLogPath - Path to the Swiss log file that receives per-round entries
- * @param swissJudgmentsDir - Directory where per-match judgment Markdown files are written
+ * @param output - Output layout config (legacy vs structured coarse ranking directories)
  * @param state - Current pipeline state that will be read and updated (persisted between rounds)
  * @param revisionsById - Map of contestant revision data; revision text for each scheduled contestant must be present
  * @param dryRun - If true, simulate judgments and avoid external API side effects or final persistence
@@ -322,8 +334,7 @@ function countSwissJudgeCalls(
  */
 export async function runSwissPhase(
 	runDir: string,
-	swissLogPath: string,
-	swissJudgmentsDir: string,
+	output: SwissOutputConfig,
 	state: PipelineState,
 	revisionsById: Map<string, RevisionEntry>,
 	dryRun: boolean,
@@ -343,24 +354,37 @@ export async function runSwissPhase(
 	console.log(
 		`Phase 5/6: Coarse Ranking (Swiss rounds) (${SWISS_ROUNDS} rounds, ${SWISS_FORMAT} format, judges: ${judgeLabel})...`,
 	);
-	if (schedulingConfig.mode === "adaptive" && !ratingConfig.enabled) {
-		console.warn(
-			"  ⚠️ Adaptive scheduling requested without rating backend; falling back to static Swiss pairing.",
-		);
-	}
-	if (stopRulesConfig.enabled && !ratingConfig.enabled) {
-		console.warn(
-			"  ⚠️ Stop rules enabled without rating backend; stop rules will be ignored.",
-		);
-	}
+		if (schedulingConfig.mode === "adaptive" && !ratingConfig.enabled) {
+			console.warn(
+				"  ⚠️ Adaptive scheduling requested without rating backend; falling back to static Swiss pairing.",
+			);
+		}
+		if (stopRulesConfig.enabled && !ratingConfig.enabled) {
+			console.warn(
+				"  ⚠️ Stop rules enabled without rating backend; stop rules will be ignored.",
+			);
+		}
 
-	const fileLock = new Semaphore(1);
+		const isStructured = output.mode === "structured";
 
-	const hasSwissProgress =
-		isResuming &&
-		(state.swissRound ?? 0) > 0 &&
-		state.contestants &&
-		state.swissMatches.length > 0;
+		const writeRoundLog = async (round: number, bodyMd: string) => {
+			if (dryRun) return;
+			if (isStructured) {
+				const roundPath = join(output.roundsRoot, `round${round}.md`);
+				const md = `# Coarse Ranking (Swiss rounds) - Round ${round}\n\n${bodyMd}`;
+				await writeFile(roundPath, md, "utf-8");
+				return;
+			}
+
+			// Legacy mode appends to a single `swiss_rounds.md`.
+			await appendFile(output.roundsRoot, `## Round ${round}\n\n${bodyMd}\n`, "utf-8");
+		};
+
+		const hasSwissProgress =
+			isResuming &&
+			(state.swissRound ?? 0) > 0 &&
+			state.contestants &&
+			state.swissMatches.length > 0;
 	const swissAlreadyCompleted =
 		hasSwissProgress &&
 		isPhaseCompleted(state, "swiss") &&
@@ -446,9 +470,12 @@ export async function runSwissPhase(
 	// Run Swiss rounds
 	for (let round = startRound; round <= SWISS_ROUNDS; round++) {
 		console.log(`  Round ${round}/${SWISS_ROUNDS}...`);
-		if (!dryRun) {
-			await appendFile(swissLogPath, `## Round ${round}\n\n`, "utf-8");
-		}
+		const ratingsBeforeRound = ratingState
+			? new Map(
+					Array.from(ratingState.records.values()).map((r) => [r.id, r.rating]),
+				)
+			: null;
+		let roundLogBody = "";
 
 		if (SWISS_FORMAT === "1v1") {
 			// === 1v1 PAIRWISE FORMAT ===
@@ -481,33 +508,33 @@ export async function runSwissPhase(
 				pairs = scheduled.pairs;
 				bye = scheduled.bye;
 				if (bye) byeIds.add(bye);
-			}
-			const pairPromises = pairs.map(
-				async ([idA, idB]): Promise<SwissMatch> => {
-					const textA = revisionsById.get(idA)?.result.text;
-					const textB = revisionsById.get(idB)?.result.text;
-					if (!textA || !textB) {
-						throw new Error(
-							`Missing revision text for Swiss 1v1 match: ${!textA ? idA : idB}`,
+				}
+				const pairPromises = pairs.map(
+					async ([idA, idB]): Promise<{ match: SwissMatch; logEntry: string }> => {
+						const textA = revisionsById.get(idA)?.result.text;
+						const textB = revisionsById.get(idB)?.result.text;
+						if (!textA || !textB) {
+							throw new Error(
+								`Missing revision text for Swiss 1v1 match: ${!textA ? idA : idB}`,
+							);
+						}
+						const entries: [string, string][] = [
+							[idA, textA],
+							[idB, textB],
+						];
+						// Shuffle presentation order
+						const shuffled = shuffleArray(entries);
+						const e1 = requireDefined(
+							shuffled[0],
+							"Missing shuffled entry 1 for Swiss pair",
 						);
-					}
-					const entries: [string, string][] = [
-						[idA, textA],
-						[idB, textB],
-					];
-					// Shuffle presentation order
-					const shuffled = shuffleArray(entries);
-					const e1 = requireDefined(
-						shuffled[0],
-						"Missing shuffled entry 1 for Swiss pair",
-					);
-					const e2 = requireDefined(
-						shuffled[1],
-						"Missing shuffled entry 2 for Swiss pair",
-					);
-
-					let match: SwissMatch;
-					let logEntry = "";
+						const e2 = requireDefined(
+							shuffled[1],
+							"Missing shuffled entry 2 for Swiss pair",
+						);
+	
+						let match: SwissMatch;
+						let logEntry = "";
 
 					if (dryRun) {
 						// Mock
@@ -598,20 +625,12 @@ export async function runSwissPhase(
 							logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
 						}
 
-						// Log to file
-						await fileLock.acquire();
-						try {
-							await appendFile(swissLogPath, logEntry, "utf-8");
-						} finally {
-							fileLock.release();
-						}
-
-						// Save judgment artifact
-						const judgmentFile = join(
-							swissJudgmentsDir,
-							`round${round}_${idA}_vs_${idB}.md`,
-						);
-						let judgmentMd = `# Swiss Round ${round} Judgment (1v1)\n\n`;
+							// Save judgment artifact
+							const judgmentFile = join(
+								output.judgmentsDir,
+								`round${round}_${idA}_vs_${idB}.md`,
+							);
+							let judgmentMd = `# Swiss Round ${round} Judgment (1v1)\n\n`;
 						judgmentMd += `## Judges\n`;
 						for (const judge of SWISS_JUDGES) {
 							judgmentMd += `- ${getShortModelName(judge.model)} (${judge.effort ?? "low"})\n`;
@@ -623,28 +642,32 @@ export async function runSwissPhase(
 						} else {
 							judgmentMd += `Winner: ${match.first}\n\n`;
 						}
-						judgmentMd += "## Votes\n";
-						judgmentMd += logEntry.replace(/^- /, "");
-						await writeFile(judgmentFile, judgmentMd, "utf-8");
+							judgmentMd += "## Votes\n";
+							judgmentMd += logEntry.replace(/^- /, "");
+							await writeFile(judgmentFile, judgmentMd, "utf-8");
+						}
+
+						return { match, logEntry };
+					},
+				);
+
+				const roundResults = await Promise.all(pairPromises);
+
+				for (const { match, logEntry } of roundResults) {
+					const idA = match.ids[0];
+					const idB = match.ids[1];
+					if (!idA || !idB || idB === "BYE") {
+						allSwissMatches.push(match);
+						continue;
 					}
 
-					return match;
-				},
-			);
+					if (!dryRun && logEntry) {
+						roundLogBody += logEntry;
+					}
 
-			const roundMatches = await Promise.all(pairPromises);
-
-			for (const match of roundMatches) {
-				const idA = match.ids[0];
-				const idB = match.ids[1];
-				if (!idA || !idB || idB === "BYE") {
-					allSwissMatches.push(match);
-					continue;
-				}
-
-				const contenderA = contestants.find((c) => c.id === idA);
-				const contenderB = contestants.find((c) => c.id === idB);
-				if (contenderA && contenderB) {
+					const contenderA = contestants.find((c) => c.id === idA);
+					const contenderB = contestants.find((c) => c.id === idB);
+					if (contenderA && contenderB) {
 					const sharedPoints = getSharedPoints(match);
 					contenderA.points += sharedPoints[idA] ?? 0;
 					contenderB.points += sharedPoints[idB] ?? 0;
@@ -671,10 +694,10 @@ export async function runSwissPhase(
 						);
 					}
 				}
-				allSwissMatches.push(match);
-			}
+					allSwissMatches.push(match);
+				}
 
-			for (const byeId of byeIds) {
+				for (const byeId of byeIds) {
 				const byeContestant = contestants.find((c) => c.id === byeId);
 				if (byeContestant) {
 					byeContestant.points += 1;
@@ -688,23 +711,18 @@ export async function runSwissPhase(
 					second: "BYE",
 					third: "N/A",
 					reasoning: "Bye (no opponent available this round).",
-				};
+					};
 
-				if (!dryRun) {
-					await appendFile(
-						swissLogPath,
-						`- **Winner: ${byeId}** (bye)\n  - *${byeMatch.reasoning}*\n`,
-						"utf-8",
-					);
+					if (!dryRun) {
+						roundLogBody += `- **Winner: ${byeId}** (bye)\n  - *${byeMatch.reasoning}*\n`;
+					}
+
+					console.log(`    ✓ ${byeId} receives a bye (1 point awarded)`);
+					allSwissMatches.push(byeMatch);
 				}
-
-				console.log(`    ✓ ${byeId} receives a bye (1 point awarded)`);
-				allSwissMatches.push(byeMatch);
-			}
-			if (!dryRun) await appendFile(swissLogPath, "\n", "utf-8");
-			const matchCount = pairs.length + byeIds.size;
-			console.log(`    ✓ Round ${round} complete (${matchCount} matches)`);
-		} else {
+				const matchCount = pairs.length + byeIds.size;
+				console.log(`    ✓ Round ${round} complete (${matchCount} matches)`);
+			} else {
 			// === 1v1v1 TRIPLE FORMAT (Original) ===
 			const { triples } = generateSwissTriples(contestants, round);
 
@@ -748,11 +766,11 @@ export async function runSwissPhase(
 				}
 			} else {
 				// Real API calls
-				const triplePromises = triples.map(
-					async ([idA, idB, idC]): Promise<SwissMatch> => {
-						const textA = revisionsById.get(idA)?.result.text;
-						const textB = revisionsById.get(idB)?.result.text;
-						const textC = revisionsById.get(idC)?.result.text;
+					const triplePromises = triples.map(
+						async ([idA, idB, idC]): Promise<{ match: SwissMatch; logEntry: string }> => {
+							const textA = revisionsById.get(idA)?.result.text;
+							const textB = revisionsById.get(idB)?.result.text;
+							const textC = revisionsById.get(idC)?.result.text;
 						if (!textA || !textB || !textC) {
 							const missingId = !textA ? idA : !textB ? idB : idC;
 							throw new Error(
@@ -872,29 +890,22 @@ export async function runSwissPhase(
 								logEntry;
 						}
 
-						const match: SwissMatch = {
-							round,
-							ids: [idA, idB, idC],
-							first: first[0],
+							const match: SwissMatch = {
+								round,
+								ids: [idA, idB, idC],
+								first: first[0],
 							second: second[0],
 							third: third[0],
 							reasoning: "Aggregated multi-judge Swiss vote.",
 							tieGroup,
-							sharedPoints,
-						};
+								sharedPoints,
+							};
 
-						await fileLock.acquire();
-						try {
-							await appendFile(swissLogPath, logEntry, "utf-8");
-						} finally {
-							fileLock.release();
-						}
-
-						const judgmentFile = join(
-							swissJudgmentsDir,
-							`round${round}_${idA}_vs_${idB}_vs_${idC}.md`,
-						);
-						let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
+							const judgmentFile = join(
+								output.judgmentsDir,
+								`round${round}_${idA}_vs_${idB}_vs_${idC}.md`,
+							);
+							let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
 						judgmentMd += "## Judges\n";
 						for (const judge of SWISS_JUDGES) {
 							judgmentMd += `- ${getShortModelName(judge.model)} (${judge.effort ?? "low"})\n`;
@@ -909,35 +920,36 @@ export async function runSwissPhase(
 						judgmentMd += `- ${match.second}: ${match.sharedPoints?.[match.second] ?? 0} pts\n`;
 						judgmentMd += `- ${match.third}: ${match.sharedPoints?.[match.third] ?? 0} pts\n`;
 						judgmentMd += `- Tie Group: ${match.tieGroup ?? "none"}\n\n`;
-						judgmentMd += "## Votes\n";
-						judgmentMd += logEntry.replace(/^- /, "");
-						await writeFile(judgmentFile, judgmentMd, "utf-8");
+							judgmentMd += "## Votes\n";
+							judgmentMd += logEntry.replace(/^- /, "");
+							await writeFile(judgmentFile, judgmentMd, "utf-8");
 
-						return match;
-					},
-				);
+							return { match, logEntry };
+						},
+					);
 
-				const roundResults = await Promise.all(triplePromises);
+					const roundResults = await Promise.all(triplePromises);
 
-				for (const match of roundResults) {
-					applyThreeWaySwissMatch(contestants, match);
+					for (const { match, logEntry } of roundResults) {
+						if (!dryRun && logEntry) {
+							roundLogBody += logEntry;
+						}
+						applyThreeWaySwissMatch(contestants, match);
 
-					allSwissMatches.push(match);
-					if ((match.tieGroup ?? "none") === "none") {
+						allSwissMatches.push(match);
+						if ((match.tieGroup ?? "none") === "none") {
 						console.log(
 							`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`,
 						);
 					} else {
 						console.log(
 							`    = Tie result: ${match.first} | ${match.second} | ${match.third} (${match.tieGroup})`,
-						);
+							);
+						}
 					}
 				}
-
-				await appendFile(swissLogPath, "\n", "utf-8");
+				console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
 			}
-			console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
-		}
 
 		lastCompletedRound = round;
 		const roundPairwise = allSwissMatches
@@ -947,23 +959,76 @@ export async function runSwissPhase(
 			pairwiseHistory.push(...roundPairwise);
 		}
 
-		if (ratingState && roundPairwise.length > 0) {
-			applyPairwiseBatch(ratingState, roundPairwise);
-			const orderedIds = syncContestantsWithRatings(contestants, ratingState);
-			if (stopRulesConfig.enabled) {
+			if (ratingState && roundPairwise.length > 0) {
+				applyPairwiseBatch(ratingState, roundPairwise);
+				const orderedIds = syncContestantsWithRatings(contestants, ratingState);
+				if (stopRulesConfig.enabled) {
 				const topK = Math.max(
 					1,
 					Math.min(stopRulesConfig.topK, orderedIds.length),
 				);
-				topKHistory.push(orderedIds.slice(0, topK));
+					topKHistory.push(orderedIds.slice(0, topK));
+				}
 			}
-		}
 
-		if (ratingState && stopRulesConfig.enabled) {
-			const stop = evaluateStopRules(
-				{
-					round,
-					totalCalls: countSwissJudgeCalls(
+			if (!dryRun && ratingState && ratingsBeforeRound) {
+				const standings = getRatingStandings(ratingState);
+				const top = standings.slice(0, Math.min(8, standings.length));
+				if (top.length > 0) {
+					console.log("    📈 Rating moves (top 8):");
+					for (let i = 0; i < top.length; i++) {
+						const entry = top[i];
+						if (!entry) continue;
+						const before = ratingsBeforeRound.get(entry.id) ?? entry.rating;
+						const delta = entry.rating - before;
+						console.log(
+							`      ${i + 1}. ${entry.id}: ${entry.rating.toFixed(1)} (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})`,
+						);
+					}
+				}
+
+				if (isStructured && output.standingsDir) {
+					const mdLines: string[] = [];
+					mdLines.push(`# Coarse Standings - Round ${round}\n`);
+					mdLines.push(`| # | id | rating | Δ | unc |\n|---:|---|---:|---:|---:|\n`);
+					for (let i = 0; i < top.length; i++) {
+						const entry = top[i];
+						if (!entry) continue;
+						const before = ratingsBeforeRound.get(entry.id) ?? entry.rating;
+						const delta = entry.rating - before;
+						mdLines.push(
+							`| ${i + 1} | ${entry.id} | ${entry.rating.toFixed(1)} | ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} | ${entry.uncertainty.toFixed(1)} |\n`,
+						);
+					}
+					await writeFile(
+						join(output.standingsDir, `round${round}.md`),
+						mdLines.join(""),
+						"utf-8",
+					);
+					await writeFile(
+						join(output.standingsDir, `round${round}.json`),
+						JSON.stringify(
+							{
+								round,
+								standings: standings.map((s) => ({
+									id: s.id,
+									rating: s.rating,
+									uncertainty: s.uncertainty,
+								})),
+							},
+							null,
+							2,
+						),
+						"utf-8",
+					);
+				}
+			}
+
+			if (ratingState && stopRulesConfig.enabled) {
+					const stop = evaluateStopRules(
+						{
+							round,
+						totalCalls: countSwissJudgeCalls(
 						allSwissMatches,
 						SWISS_JUDGES.length,
 					),
@@ -973,36 +1038,39 @@ export async function runSwissPhase(
 				stopRulesConfig,
 			);
 
-			if (stop.shouldStop) {
-				stopReason = stop.reason;
-				console.log(`    ⏹ Swiss early stop triggered: ${stop.reason}`);
-				if (!dryRun) {
-					await appendFile(
-						swissLogPath,
-						`\n> Swiss stopped early at round ${round}: ${stop.reason}\n\n`,
-						"utf-8",
-					);
-				}
-				if (!dryRun) {
-					// Persist intermediate stop state; the final save (with phase-complete marker)
-					// happens after the Swiss loop.
-					state.swissRound = round;
+				if (stop.shouldStop) {
+					stopReason = stop.reason;
+					console.log(`    ⏹ Swiss early stop triggered: ${stop.reason}`);
+					if (!dryRun) {
+						roundLogBody += `\n> Swiss stopped early at round ${round}: ${stop.reason}\n`;
+					}
+					if (!dryRun) {
+						await writeRoundLog(round, roundLogBody);
+					}
+					if (!dryRun) {
+						// Persist intermediate stop state; the final save (with phase-complete marker)
+						// happens after the Swiss loop.
+						state.swissRound = round;
 					state.swissMatches = allSwissMatches as StoredSwissMatch[];
 					state.contestants = serializeContestants(contestants);
 					state.ratingState = serializeRatingState(ratingState);
 					state.pairwiseHistory = pairwiseHistory;
 					state.topKHistory = topKHistory;
 					state.swissStopReason = stopReason;
-					saveState(runDir, state);
+						saveState(runDir, state);
+					}
+					break;
 				}
-				break;
 			}
-		}
 
-		if (!dryRun) {
-			state.swissRound = round;
-			state.swissMatches = allSwissMatches as StoredSwissMatch[];
-			state.contestants = serializeContestants(contestants);
+			if (!dryRun) {
+				await writeRoundLog(round, roundLogBody);
+			}
+
+			if (!dryRun) {
+				state.swissRound = round;
+				state.swissMatches = allSwissMatches as StoredSwissMatch[];
+				state.contestants = serializeContestants(contestants);
 			state.ratingState = ratingState
 				? serializeRatingState(ratingState)
 				: null;
