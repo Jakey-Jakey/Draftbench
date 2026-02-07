@@ -127,13 +127,7 @@ function swissJudgmentPath(match: SwissMatch): string {
 		return join("swiss_judgments", `round${match.round}_${a}_vs_${b}.md`);
 	}
 	// 1v1v1 uses all 3.
-	if (c) {
-		return join(
-			"swiss_judgments",
-			`round${match.round}_${a}_vs_${b}_vs_${c}.md`,
-		);
-	}
-	return join("swiss_judgments", `round${match.round}_${a}_vs_${b}.md`);
+	return join("swiss_judgments", `round${match.round}_${a}_vs_${b}_vs_${c}.md`);
 }
 
 function finaleJudgmentPath(iteration: number, aId: string, bId: string): string {
@@ -240,11 +234,9 @@ export async function computeDetailedRunSummary(args: {
 	swissMatches: SwissMatch[];
 	finaleMatches: StoredFinaleMatch[];
 	finaleSummary: FinaleSummary;
-	swissStopReason: string | null;
 	includeHashes?: boolean;
 }): Promise<DetailedRunSummaryV1> {
 	const config = getConfig();
-	void args.swissStopReason; // currently derived via stop-rule evaluation; kept for future parity
 	const includeHashes = args.includeHashes !== false;
 	const runDir = args.runDir;
 

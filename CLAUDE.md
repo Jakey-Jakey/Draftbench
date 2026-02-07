@@ -75,7 +75,7 @@ minBatches = 3
 maxBatches = 7
 topK = 8
 ```
-		
+
 After coarse ranking, Draftbench can run a fine ranking stage (Top-K refinement matches) using active-learning pairwise matchups (budget-capped).
 
 ```toml

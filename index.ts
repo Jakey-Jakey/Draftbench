@@ -276,29 +276,29 @@ async function runCrossReviewPipeline(): Promise<void> {
 		iterations: state.finaleIterations ?? 0,
 		converged: state.finaleConverged ?? false,
 	};
-	const leaderboard = computeLeaderboard(
-		contestants,
-		allSwissMatches,
-		revisionsById,
-		state.initialLeaderboardResults,
-		fineSummary,
-	);
-	const leaderboardPath = join(runDir, "leaderboard.md");
-	if (!DRY_RUN) {
-		await writeFile(leaderboardPath, leaderboard, "utf-8");
-		console.log(`  ✓ Wrote ${leaderboardPath}`);
-
-		const summary = computeRunSummary({
-			runDir,
+		const leaderboard = computeLeaderboard(
 			contestants,
-			swissMatches: allSwissMatches,
+			allSwissMatches,
 			revisionsById,
-			finaleSummary: fineSummary,
-			swissEarlyStopReason: state.swissStopReason ?? null,
-		});
-		const summaryPath = join(runDir, "summary.json");
-		await writeFile(summaryPath, JSON.stringify(summary, null, 2), "utf-8");
-		console.log(`  ✓ Wrote ${summaryPath}`);
+			state.initialLeaderboardResults,
+			fineSummary,
+		);
+		const leaderboardPath = join(runDir, "leaderboard.md");
+		if (!DRY_RUN) {
+			await writeFile(leaderboardPath, leaderboard, "utf-8");
+			console.log(`  ✓ Wrote ${leaderboardPath}`);
+
+			const summary = computeRunSummary({
+				runDir,
+				contestants,
+				swissMatches: allSwissMatches,
+				revisionsById,
+				finaleSummary: fineSummary,
+				swissEarlyStopReason: state.swissStopReason ?? null,
+			});
+			const summaryPath = join(runDir, "summary.json");
+			await writeFile(summaryPath, JSON.stringify(summary, null, 2), "utf-8");
+			console.log(`  ✓ Wrote ${summaryPath}`);
 
 			const detailed = await computeDetailedRunSummary({
 				runDir,
@@ -306,7 +306,6 @@ async function runCrossReviewPipeline(): Promise<void> {
 				swissMatches: allSwissMatches,
 				finaleMatches,
 				finaleSummary: fineSummary,
-				swissStopReason: state.swissStopReason ?? null,
 			});
 			const detailedPath = join(runDir, "summary.detailed.json");
 			await writeFile(detailedPath, JSON.stringify(detailed, null, 2), "utf-8");
@@ -315,10 +314,10 @@ async function runCrossReviewPipeline(): Promise<void> {
 			console.log(`  ✓ Leaderboard computed (dry run - not written)`);
 		}
 
-	// Print summary stats
-	console.log(`\n${"=".repeat(60)}`);
-	console.log("📊 RUN SUMMARY");
-	console.log("=".repeat(60));
+		// Print summary stats
+		console.log(`\n${"=".repeat(60)}`);
+		console.log("📊 RUN SUMMARY");
+		console.log("=".repeat(60));
 	if (DRY_RUN) {
 		console.log("🧪 DRY RUN - No API calls were made");
 	}
@@ -347,20 +346,20 @@ async function runCrossReviewPipeline(): Promise<void> {
 		return b.placements.second - a.placements.second;
 	});
 
-	for (let i = 0; i < 3; i++) {
-		const c = finalSorted[i];
-		if (!c) break;
-		const ratingStr =
-			typeof c.rating === "number" ? `, rating ${c.rating.toFixed(1)}` : "";
+		for (let i = 0; i < 3; i++) {
+			const c = finalSorted[i];
+			if (!c) break;
+			const ratingStr =
+				typeof c.rating === "number" ? `, rating ${c.rating.toFixed(1)}` : "";
 			console.log(
 				`  ${["🥇", "🥈", "🥉"][i]} ${c.id} (${c.points} coarse pts${ratingStr})`,
 			);
 		}
-	console.log("=".repeat(60));
-	console.log(
-		`\n✨ Pipeline complete! ${DRY_RUN ? "(dry run)" : `Output in: ${runDir}`}`,
-	);
-}
+		console.log("=".repeat(60));
+		console.log(
+			`\n✨ Pipeline complete! ${DRY_RUN ? "(dry run)" : `Output in: ${runDir}`}`,
+		);
+	}
 
 // Run the pipeline
 runCrossReviewPipeline().catch((error) => {
