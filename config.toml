@@ -50,17 +50,17 @@ effort = "high"
 model = "google/gemini-3-pro-preview"
 effort = "high"
 
-# Swiss Tournament Judges (single or multi-judge voting)
-[[roles.swissJudges]]
+# Coarse Ranking Judges (Swiss; single or multi-judge voting)
+[[roles.coarseJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-# Finale Judges (multi-judge voting)
-[[roles.finaleJudges]]
+# Fine Ranking Judges (multi-judge voting)
+[[roles.fineJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
-[[roles.finaleJudges]]
+[[roles.fineJudges]]
 model = "openai/gpt-5.2"
 effort = "medium"
 
@@ -69,12 +69,12 @@ effort = "medium"
 # -----------------------------------------------------------------------------
 
 [tournament]
-initialGenerations = 5
-swissRounds = 7
-swissFormat = "1v1v1"
+coarseRounds = 7
+coarseFormat = "1v1v1"
 
-[tournament.initialLeaderboard]
+[tournament.firstDraftSelection]
 enabled = true
+initialGenerations = 5
 
 [tournament.rating]
 enabled = true
@@ -102,7 +102,7 @@ minSeparation = 65          # Set to 0 to disable separation check
 confidence = 0.9
 stabilityBatches = 2
 
-[tournament.finale]
+[tournament.fineRanking]
 enabled = true
 maxMatchesPerBatch = 4
 maxTotalMatches = 30

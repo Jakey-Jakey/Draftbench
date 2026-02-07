@@ -9,8 +9,8 @@
 
 | Phase | Description | Default Config |
 |-------|-------------|----------------|
-| **1. Generate** | Each model creates initial drafts. | `initialGenerations: 1` |
-| **2. First Draft Selection** | *(Optional)* Per-model pairwise to pick best seed. | `style: per-model-pairwise` |
+| **1. Generate** | Each model creates initial drafts. | `firstDraftSelection.initialGenerations: 1` |
+| **2. First Draft Selection** | *(Optional)* Per-model pairwise to pick best draft per model. | `style: per-model-pairwise` |
 | **3. Review** | Cross-review: each model reviews all selected drafts (including self). | 9 reviews (3×3) |
 | **4. Revise** | All models revise each draft based on each review. | 27 revisions (3 seeds × 3 reviewers × 3 revisers) |
 | **5. Coarse Ranking (Swiss Rounds)** | Configurable `1v1` or `1v1v1` Swiss system ranks revisions. | 7 rounds, configurable Swiss judges |
@@ -39,7 +39,7 @@
 | `phases/review.ts` | Phase 3: Cross-review statblocks (including self-review). |
 | `phases/revise.ts` | Phase 4: Revise statblocks based on reviews. |
 | `phases/swiss.ts` | Phase 5: Swiss tournament (`1v1` or `1v1v1`) with resume checkpoints per round. |
-| `phases/finale.ts` | Phase 6: Active-learning finale with resume checkpoints per iteration. |
+| `phases/finale.ts` | Phase 6: Fine ranking (active learning) with resume checkpoints per iteration. |
 
 ### Utilities
 
@@ -50,7 +50,7 @@
 | `rating/engine.ts` | Elo and Bradley-Terry rating backend used by Swiss standings. |
 | `rating/convert.ts` | Converts Swiss match outcomes into pairwise observations for rating updates. |
 | `scheduling/adaptive.ts` | Adaptive pair scheduler for Swiss `1v1`. |
-| `scheduling/activeRanking.ts` | Active-learning planner for selecting informative finale matchups. |
+| `scheduling/activeRanking.ts` | Active-learning planner for selecting informative fine ranking matchups. |
 | `scheduling/stopRules.ts` | Confidence/stability stop-rule evaluator for early Swiss termination. |
 
 ### Configuration Files
@@ -61,7 +61,7 @@
 | `config.default.toml` | Reference: all defaults with full documentation. |
 | `config.example.toml` | Example config with comments. |
 | `config.1v1-swiss.toml` | Preset: Swiss 1v1 format (pairwise matches). |
-| `config.draft-leaderboard.toml` | Preset: 3 generations + initial leaderboard enabled. |
+| `config.draft-leaderboard.toml` | Preset: 3 generations + First Draft Selection enabled. |
 | `prompts.toml` | Customizable prompts. Load with `--prompts` flag. |
 
 ### Tests
@@ -122,28 +122,28 @@ effort = "medium"
 model = "anthropic/claude-opus-4.5"
 effort = "high"
 
-# Coarse Ranking Judges (Swiss)
-[[roles.swissJudges]]
-model = "anthropic/claude-opus-4.5"
-effort = "low"
-
-# Fine Ranking Judges (multi-judge voting)
-[[roles.finaleJudges]]
-model = "anthropic/claude-opus-4.5"
-effort = "low"
-
-[[roles.finaleJudges]]
-model = "openai/gpt-5.2"
-effort = "medium"
-
-[tournament]
-initialGenerations = 1
-swissRounds = 7
-swissFormat = "1v1v1"  # "1v1" or "1v1v1"
-
-[tournament.initialLeaderboard]
-enabled = false
-style = "per-model-pairwise"  # See styles below
+	# Coarse Ranking Judges (Swiss)
+	[[roles.coarseJudges]]
+	model = "anthropic/claude-opus-4.5"
+	effort = "low"
+	
+	# Fine Ranking Judges (multi-judge voting)
+	[[roles.fineJudges]]
+	model = "anthropic/claude-opus-4.5"
+	effort = "low"
+	
+	[[roles.fineJudges]]
+	model = "openai/gpt-5.2"
+	effort = "medium"
+	
+	[tournament]
+	coarseRounds = 7
+	coarseFormat = "1v1v1"  # "1v1" or "1v1v1"
+	
+	[tournament.firstDraftSelection]
+	enabled = false
+	style = "per-model-pairwise"  # See styles below
+	initialGenerations = 1
 
 [tournament.rating]
 enabled = true
@@ -161,11 +161,11 @@ minSeparation = 65 # Set to 0 to disable separation check
 confidence = 0.9
 stabilityBatches = 2
 
-[tournament.finale]
-enabled = true
-maxMatchesPerBatch = 4
-maxTotalMatches = 30
-targetWinProb = 0.5
+	[tournament.fineRanking]
+	enabled = true
+	maxMatchesPerBatch = 4
+	maxTotalMatches = 30
+	targetWinProb = 0.5
 confidence = 0.9
 minSeparation = 0
 allowOverRepeatCap = false
@@ -185,9 +185,9 @@ runsDirectory = "runs"
 | `effort` | string | `"high"` | Reasoning effort: `"xhigh"`, `"high"`, `"medium"`, `"low"`, `"minimal"`, `"none"`. Optional. |
 | `temperature` | number | *none* | Optional temperature override |
 
-### Initial Leaderboard Styles
+### First Draft Selection Styles
 
-When `initialGenerations > 1` and `initialLeaderboard.enabled = true`, choose how the best draft per model is selected:
+When `tournament.firstDraftSelection.initialGenerations > 1` and `tournament.firstDraftSelection.enabled = true`, choose how the best draft per model is selected:
 
 | Style | Description | API Calls (3 models × 5 drafts) |
 |-------|-------------|--------------------------------|
@@ -197,20 +197,21 @@ When `initialGenerations > 1` and `initialLeaderboard.enabled = true`, choose ho
 | `global-rank` | Single ranking call for all drafts | 1 |
 
 ```toml
-[tournament.initialLeaderboard]
+[tournament.firstDraftSelection]
 enabled = true
 style = "per-model-pairwise"  # Recommended for balance of cost and quality
+initialGenerations = 3
 ```
 
 ### Swiss Match Format
 
 ```toml
 [tournament]
-swissFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
-# swissFormat = "1v1"  # Alternative: pairwise matches
+coarseFormat = "1v1v1"  # Default: three-way ranking (2/1/0 points)
+# coarseFormat = "1v1"  # Alternative: pairwise matches
 ```
 
-### Rating, Scheduling, Swiss Early Stop Rules, and Fine Ranking
+### Rating, Scheduling, Coarse Early Stop Rules, and Fine Ranking
 
 ```toml
 [tournament.rating]
@@ -229,20 +230,20 @@ minBatches = 3
 maxBatches = 7
 topK = 8
 
-[tournament.finale]
-enabled = true
-maxMatchesPerBatch = 4
-maxTotalMatches = 30
-targetWinProb = 0.5
+	[tournament.fineRanking]
+	enabled = true
+	maxMatchesPerBatch = 4
+	maxTotalMatches = 30
+	targetWinProb = 0.5
 confidence = 0.9
 minSeparation = 0
 allowOverRepeatCap = false
 ```
 
-- `rating.enabled`: when true, Swiss standings use rating estimates instead of raw Swiss points.
+- `rating.enabled`: when true, coarse standings use rating estimates instead of raw points.
 - `scheduling.mode = "adaptive"`: prioritizes uncertain/close matchups and penalizes repeats (for `1v1` Swiss).
-- `stopRules.enabled`: allows Swiss to stop early once top-K is stable and sufficiently separated/confident.
-- `finale.enabled`: after Swiss, runs targeted pairwise matches among the top-K to separate adjacent confidence intervals (budget-capped).
+- `stopRules.enabled`: allows coarse ranking to stop early once top-K is stable and sufficiently separated/confident.
+- `fineRanking.enabled`: after coarse ranking, runs targeted pairwise matches among the top-K to separate adjacent confidence intervals (budget-capped).
 
 ---
 

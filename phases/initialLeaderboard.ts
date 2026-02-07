@@ -209,7 +209,7 @@ async function runPerModelPairwise(
 }
 
 /**
- * Runs ranking-based selection for a single model using the Swiss judge.
+ * Runs ranking-based selection for a single model using the coarse-ranking judge.
  */
 async function runPerModelRank(
 	modelSlug: ModelSlug,
@@ -277,7 +277,7 @@ async function runPerModelRank(
 }
 
 /**
- * Run the optional initial leaderboard to select the best draft for each generator model.
+ * Run the optional First Draft Selection stage to select the best draft for each generator model.
  *
  * Supports selection styles: "per-model-pairwise", "global-pairwise", "per-model-rank", and "global-rank".
  * Results are persisted to `state` as models complete so the phase can be resumed incrementally.
@@ -309,7 +309,7 @@ export async function runInitialLeaderboardPhase(
 		INITIAL_GENERATIONS,
 	);
 
-	console.log("Phase 2/6: Ranking initial drafts for seeding...");
+	console.log("Phase 2/6: First Draft Selection...");
 
 	const selectedByModel = new Map<ModelSlug, GenerateResult>();
 
@@ -325,11 +325,11 @@ export async function runInitialLeaderboardPhase(
 		>) {
 			selectedByModel.set(model, draft as GenerateResult);
 		}
-		console.log(
-			"  ↩︎ Loaded initial leaderboard winners from state (skipping ranking)\n",
-		);
-		return { selectedByModel };
-	}
+			console.log(
+				"  ↩︎ Loaded first-draft selection results from state (skipping selection)\n",
+			);
+			return { selectedByModel };
+		}
 
 	// Handle disabled leaderboard or single generation
 	if (!INITIAL_LEADERBOARD.enabled || INITIAL_GENERATIONS <= 1) {
@@ -343,7 +343,7 @@ export async function runInitialLeaderboardPhase(
 		const reason =
 			INITIAL_GENERATIONS <= 1
 				? "Only 1 draft per model"
-				: "Initial leaderboard disabled";
+				: "First Draft Selection disabled";
 		console.log(`  ✓ ${reason} - using first drafts\n`);
 
 		if (!dryRun) {
@@ -464,7 +464,7 @@ export async function runInitialLeaderboardPhase(
 	} else if (style === "per-model-rank") {
 		const swissJudge = requireDefined(
 			getSwissJudges()[0],
-			"No Swiss judge configured for initial leaderboard ranking styles",
+			"No coarse judge configured for First Draft Selection ranking styles",
 		);
 
 		// Run each model's ranking in parallel, returning results
@@ -653,7 +653,7 @@ export async function runInitialLeaderboardPhase(
 	} else if (style === "global-rank") {
 		const swissJudge = requireDefined(
 			getSwissJudges()[0],
-			"No Swiss judge configured for initial leaderboard ranking styles",
+			"No coarse judge configured for First Draft Selection ranking styles",
 		);
 
 		// Single ranking call for all drafts

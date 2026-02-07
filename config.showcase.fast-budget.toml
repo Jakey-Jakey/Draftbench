@@ -8,8 +8,11 @@
 # Copy your [roles] block into this file if you want to use your own models.
 
 [tournament]
-swissFormat = "1v1"
-swissRounds = 7
+coarseFormat = "1v1"
+coarseRounds = 7
+
+[tournament.firstDraftSelection]
+enabled = false
 initialGenerations = 1
 
 [tournament.rating]
@@ -33,7 +36,7 @@ confidence = 0.9
 stabilityBatches = 2
 budgetMaxCalls = 250
 
-[tournament.finale]
+[tournament.fineRanking]
 enabled = true
 maxMatchesPerBatch = 3
 maxTotalMatches = 12

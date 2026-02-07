@@ -1022,63 +1022,61 @@ export async function runSwissPhase(
 						"utf-8",
 					);
 				}
-			}
+				}
 
-			if (ratingState && stopRulesConfig.enabled) {
+				if (ratingState && stopRulesConfig.enabled) {
 					const stop = evaluateStopRules(
 						{
 							round,
-						totalCalls: countSwissJudgeCalls(
-						allSwissMatches,
-						SWISS_JUDGES.length,
-					),
-					standings: getRatingStandings(ratingState),
-					topKHistory,
-				},
-				stopRulesConfig,
-			);
+							totalCalls: countSwissJudgeCalls(
+								allSwissMatches,
+								SWISS_JUDGES.length,
+							),
+							standings: getRatingStandings(ratingState),
+							topKHistory,
+						},
+						stopRulesConfig,
+					);
 
-				if (stop.shouldStop) {
-					stopReason = stop.reason;
-					console.log(`    ⏹ Swiss early stop triggered: ${stop.reason}`);
-					if (!dryRun) {
-						roundLogBody += `\n> Swiss stopped early at round ${round}: ${stop.reason}\n`;
-					}
-					if (!dryRun) {
-						await writeRoundLog(round, roundLogBody);
-					}
-					if (!dryRun) {
+					if (stop.shouldStop) {
+						stopReason = stop.reason;
+						console.log(`    ⏹ Coarse early stop triggered: ${stop.reason}`);
+						if (!dryRun) {
+							roundLogBody += `\n> Coarse ranking stopped early at round ${round}: ${stop.reason}\n`;
+						}
+						if (!dryRun) {
+							await writeRoundLog(round, roundLogBody);
+						}
+						if (!dryRun) {
 						// Persist intermediate stop state; the final save (with phase-complete marker)
-						// happens after the Swiss loop.
-						state.swissRound = round;
-					state.swissMatches = allSwissMatches as StoredSwissMatch[];
-					state.contestants = serializeContestants(contestants);
-					state.ratingState = serializeRatingState(ratingState);
-					state.pairwiseHistory = pairwiseHistory;
-					state.topKHistory = topKHistory;
-					state.swissStopReason = stopReason;
-						saveState(runDir, state);
+							// happens after the Swiss loop.
+							state.swissRound = round;
+							state.swissMatches = allSwissMatches as StoredSwissMatch[];
+							state.contestants = serializeContestants(contestants);
+							state.ratingState = serializeRatingState(ratingState);
+							state.pairwiseHistory = pairwiseHistory;
+							state.topKHistory = topKHistory;
+							state.swissStopReason = stopReason;
+							saveState(runDir, state);
+						}
+						break;
 					}
-					break;
 				}
-			}
 
 			if (!dryRun) {
 				await writeRoundLog(round, roundLogBody);
 			}
 
 			if (!dryRun) {
-				state.swissRound = round;
-				state.swissMatches = allSwissMatches as StoredSwissMatch[];
-				state.contestants = serializeContestants(contestants);
-			state.ratingState = ratingState
-				? serializeRatingState(ratingState)
-				: null;
-			state.pairwiseHistory = pairwiseHistory;
-			state.topKHistory = topKHistory;
-			state.swissStopReason = stopReason;
-			saveState(runDir, state);
-		}
+					state.swissRound = round;
+					state.swissMatches = allSwissMatches as StoredSwissMatch[];
+					state.contestants = serializeContestants(contestants);
+					state.ratingState = ratingState ? serializeRatingState(ratingState) : null;
+					state.pairwiseHistory = pairwiseHistory;
+					state.topKHistory = topKHistory;
+					state.swissStopReason = stopReason;
+					saveState(runDir, state);
+				}
 	}
 
 	console.log("");

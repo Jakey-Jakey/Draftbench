@@ -60,12 +60,17 @@ const STOP_RULES = config.tournament.stopRules;
 // Main Pipeline
 // ============================================================================
 
-/**
- * Orchestrates a full Cross-Review pipeline that runs generation, selection, review, revision, an optimized Swiss tournament, an optional active-learning finale, and produces a final leaderboard.
- *
- * This function initializes or resumes a run directory (with optional dry-run mode), creates required subdirectories and logs, executes the pipeline phases in order (generate → initial leaderboard → review → revise → Swiss → finale), computes the final leaderboard from tournament results, and writes the leaderboard file when not in dry-run mode.
- */
-async function runCrossReviewPipeline(): Promise<void> {
+	/**
+	 * Orchestrates a full Cross-Review pipeline that runs generation, first-draft selection, review,
+	 * revision, a coarse-ranking tournament (Swiss), an optional fine-ranking (active learning),
+	 * and produces a final leaderboard.
+	 *
+	 * This function initializes or resumes a run directory (with optional dry-run mode), creates required
+	 * subdirectories and logs, executes the pipeline phases in order (generate -> first draft selection
+	 * -> review -> revise -> coarse ranking -> fine ranking), computes the final leaderboard from
+	 * tournament results, and writes the leaderboard file when not in dry-run mode.
+	 */
+	async function runCrossReviewPipeline(): Promise<void> {
 	console.log(
 		"🎲 Draftbench: D&D 5e Cross-Review Pipeline\n",
 	);
@@ -87,20 +92,20 @@ async function runCrossReviewPipeline(): Promise<void> {
 	console.log(
 		`\nCoarse Ranking (Swiss rounds): ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`,
 	);
-	console.log(
-		`Coarse Ranking Engine: ${RATING.enabled ? `${RATING.backend} ratings + ${SCHEDULING.mode} scheduling` : "legacy points-only"} | Swiss Early Stop Rules: ${
-			STOP_RULES.enabled
-				? `on (min ${STOP_RULES.minBatches}, max ${STOP_RULES.maxBatches}, topK ${STOP_RULES.topK})`
-				: "off"
-		}`,
-	);
-	console.log(
-		`Fine Ranking (Top-K refinement matches): ${
-			FINALE.enabled
-				? `active learning (topK ${TOP_K}, max ${FINALE.maxTotalMatches} matches, batch ${FINALE.maxMatchesPerBatch}, judges: ${FINALE_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`
-				: "off"
-		}`,
-	);
+		console.log(
+			`Coarse Ranking Engine: ${RATING.enabled ? `${RATING.backend} ratings + ${SCHEDULING.mode} scheduling` : "legacy points-only"} | Coarse Early Stop Rules: ${
+				STOP_RULES.enabled
+					? `on (min ${STOP_RULES.minBatches}, max ${STOP_RULES.maxBatches}, topK ${STOP_RULES.topK})`
+					: "off"
+			}`,
+		);
+		console.log(
+			`Fine Ranking (Top-K refinement; active learning): ${
+				FINALE.enabled
+					? `active learning (topK ${TOP_K}, max ${FINALE.maxTotalMatches} matches, batch ${FINALE.maxMatchesPerBatch}, judges: ${FINALE_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`
+					: "off"
+			}`,
+		);
 	console.log(
 		`Coarse Judges: ${SWISS_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`).join(", ")} | First Draft Selection: ${
 			INITIAL_LEADERBOARD.enabled ? "enabled" : "disabled"
@@ -304,10 +309,10 @@ async function runCrossReviewPipeline(): Promise<void> {
 	);
 
 	// === FINAL: Leaderboard ===
-	const finaleJudgmentCalls = finaleMatches.reduce(
-		(acc, m) => acc + (m.judges?.length ?? 0),
-		0,
-	);
+		const finaleJudgmentCalls = finaleMatches.reduce(
+			(acc, m) => acc + (m.judges?.length ?? 0),
+			0,
+		);
 
 		const fineSummary = {
 			matches: finaleMatches.length,
@@ -357,33 +362,33 @@ async function runCrossReviewPipeline(): Promise<void> {
 		console.log(`\n${"=".repeat(60)}`);
 		console.log("📊 RUN SUMMARY");
 		console.log("=".repeat(60));
-	if (DRY_RUN) {
-		console.log("🧪 DRY RUN - No API calls were made");
-	}
-	console.log(
-		`Coarse Ranking (Swiss rounds): ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`,
-	);
-	console.log(`Coarse Matches: ${allSwissMatches.length}`);
-	console.log(
-		`Fine Matches: ${finaleMatches.length} (judgments: ${finaleJudgmentCalls})`,
-	);
+		if (DRY_RUN) {
+			console.log("🧪 DRY RUN - No API calls were made");
+		}
+		console.log(
+			`Coarse Ranking (Swiss rounds): ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`,
+		);
+		console.log(`Coarse Matches: ${allSwissMatches.length}`);
+		console.log(
+			`Fine Matches: ${finaleMatches.length} (judgments: ${finaleJudgmentCalls})`,
+		);
 		console.log("");
 		console.log("🏆 TOP 3 (Final Rankings):");
 
-	const finalSorted = [...contestants].sort((a, b) => {
-		const ratingA = typeof a.rating === "number" ? a.rating : null;
-		const ratingB = typeof b.rating === "number" ? b.rating : null;
-		if (ratingA !== null && ratingB !== null && ratingB !== ratingA) {
-			return ratingB - ratingA;
-		}
-		if (b.points !== a.points) return b.points - a.points;
-		const winsA = a.wins ?? 0;
-		const winsB = b.wins ?? 0;
-		if (winsB !== winsA) return winsB - winsA;
-		if (b.placements.first !== a.placements.first)
-			return b.placements.first - a.placements.first;
-		return b.placements.second - a.placements.second;
-	});
+		const finalSorted = [...contestants].sort((a, b) => {
+			const ratingA = typeof a.rating === "number" ? a.rating : null;
+			const ratingB = typeof b.rating === "number" ? b.rating : null;
+			if (ratingA !== null && ratingB !== null && ratingB !== ratingA) {
+				return ratingB - ratingA;
+			}
+			if (b.points !== a.points) return b.points - a.points;
+			const winsA = a.wins ?? 0;
+			const winsB = b.wins ?? 0;
+			if (winsB !== winsA) return winsB - winsA;
+			if (b.placements.first !== a.placements.first)
+				return b.placements.first - a.placements.first;
+			return b.placements.second - a.placements.second;
+		});
 
 		for (let i = 0; i < 3; i++) {
 			const c = finalSorted[i];
@@ -400,8 +405,8 @@ async function runCrossReviewPipeline(): Promise<void> {
 		);
 	}
 
-// Run the pipeline
-runCrossReviewPipeline().catch((error) => {
+	// Run the pipeline
+	runCrossReviewPipeline().catch((error) => {
 	console.error("Error running pipeline:", error);
 	process.exit(1);
 });

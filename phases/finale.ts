@@ -199,7 +199,7 @@ export async function runFinalePhase(
 
 	if (!ratingConfig.enabled) {
 		console.warn(
-			"  ⚠️ Finale is enabled but rating backend is disabled; skipping finale.",
+			"  ⚠️ Fine ranking is enabled but rating backend is disabled; skipping fine ranking.",
 		);
 		state.finaleMatches = null;
 		state.finaleIterations = 0;
@@ -210,7 +210,9 @@ export async function runFinalePhase(
 	}
 
 	if (FINALE_JUDGES.length === 0) {
-		throw new Error("Finale enabled but roles.finaleJudges is empty");
+		throw new Error(
+			"Fine ranking enabled but roles.fineJudges (aka roles.finaleJudges) is empty",
+		);
 	}
 
 	const storedMatches: StoredFinaleMatch[] = state.finaleMatches
@@ -256,12 +258,12 @@ export async function runFinalePhase(
 	while (storedMatches.length < finaleConfig.maxTotalMatches) {
 		iteration += 1;
 
-		const standings = getRatingStandingsWithOptions(ratingState, {
-			bootstrapCi: false,
-			confidence: finaleConfig.confidence,
-		});
-		const orderedIds = standings.map((s) => s.id);
-		const topK = Math.max(1, Math.min(stopRulesConfig.topK, orderedIds.length));
+			const standings = getRatingStandingsWithOptions(ratingState, {
+				bootstrapCi: false,
+				confidence: finaleConfig.confidence,
+			});
+			const orderedIds = standings.map((s) => s.id);
+			const topK = Math.max(1, Math.min(stopRulesConfig.topK, orderedIds.length));
 			const scope = orderedIds.slice(0, topK);
 
 			const sep = allAdjacentSeparatedWithMinGap({
@@ -296,18 +298,20 @@ export async function runFinalePhase(
 			finaleConfig.confidence,
 		);
 
-		if (planned.pairs.length === 0) {
-			console.warn(
-				`  ⚠️ Finale could not plan any eligible pairs (repeat caps?) with ${sep.unseparated.length} unseparated adjacent pair(s) remaining.`,
-			);
-			converged = false;
-			break;
-		}
+			if (planned.pairs.length === 0) {
+				console.warn(
+					`  ⚠️ Fine ranking could not plan any eligible pairs (repeat caps?) with ${sep.unseparated.length} unseparated adjacent pair(s) remaining.`,
+				);
+				converged = false;
+				break;
+			}
 
 			console.log(
 				`  Iteration ${iteration}: running ${planned.pairs.length} matchup(s) (${sep.unseparated.length} adjacent pair(s) still uncertain)`,
 			);
-			const plannedPairsLabel = planned.pairs.map(([a, b]) => `${a} vs ${b}`).join(", ");
+			const plannedPairsLabel = planned.pairs
+				.map(([a, b]) => `${a} vs ${b}`)
+				.join(", ");
 			let iterationLogMd = "";
 			if (!dryRun) {
 				iterationLogMd += isStructured

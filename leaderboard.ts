@@ -283,9 +283,9 @@ export function getLeaderboard(
 /**
  * Builds a complete tournament leaderboard and performance report as a Markdown string.
  *
- * Generates a Markdown document that includes: tournament header, winner showcase, finale summary,
+ * Generates a Markdown document that includes: tournament header, winner showcase, fine ranking summary,
  * per-role model performance tables (generator/reviewer/reviser), final rankings with optional
- * ratings and confidence intervals, and a seed selection table when initial leaderboard results are provided.
+ * ratings and confidence intervals, and a first-draft selection table when results are provided.
  *
  * @param contestants - Array of Swiss-format contestants to rank and summarize.
  * @param swissMatches - Swiss-format match records (used for context; ordering is computed from contestants).
@@ -365,7 +365,7 @@ export function computeLeaderboard(
 
 	let md = "# 🏆 Tournament Leaderboard\n\n";
 
-	md += `> **Coarse Ranking (Swiss rounds): ${config.tournament.swissRounds} (${SWISS_FORMAT})** → **Fine Ranking (Top-${TOP_K} refinement matches)**\n>\n`;
+	md += `> **Coarse Ranking (Swiss rounds): ${config.tournament.swissRounds} (${SWISS_FORMAT})** → **Fine Ranking (Top-${TOP_K} refinement; active learning)**\n>\n`;
 	md += `> Coarse: ${SWISS_JUDGES.map((j) => `${getShortNickname(getShortModelName(j.model))} (${j.effort ?? "low"})`).join(" + ")}`;
 	md += ` | Fine: ${FINALE_JUDGES.map((j) => `${getShortNickname(getShortModelName(j.model))} (${j.effort ?? "high"})`).join(" + ")}\n\n`;
 
@@ -377,7 +377,7 @@ export function computeLeaderboard(
 			if (winner) {
 				md += "## 🥇 Winner\n\n";
 				md += `**${formatRevisionNickname(winner.id)}**\n\n`;
-				md += `- **Coarse (Swiss):** ${winner.points} pts`;
+					md += `- **Coarse:** ${winner.points} pts`;
 				if (!is1v1) {
 					md += ` (${winner.placements.first} firsts, ${winner.placements.second} seconds)`;
 				}
@@ -513,7 +513,7 @@ export function computeLeaderboard(
 	md += "## 🌱 First Draft Selection\n\n";
 	if (initialLeaderboardResults && initialLeaderboardResults.length > 0) {
 		md +=
-			"Each model's initial drafts were ranked to select the best seed for the tournament.\n\n";
+				"Each model's initial drafts were compared to select the best draft per model.\n\n";
 		md += "| Model | Selected | Record | Margin |\n";
 		md += "|-------|----------|--------|--------|\n";
 		for (const result of initialLeaderboardResults) {
@@ -530,7 +530,7 @@ export function computeLeaderboard(
 		}
 	} else {
 		md +=
-			"*Initial leaderboard was not enabled or only 1 draft per model was generated.*\n";
+			"*First Draft Selection was not enabled or only 1 draft per model was generated.*\n";
 	}
 
 	return md;

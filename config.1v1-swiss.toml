@@ -5,8 +5,8 @@
 # this file if you want to use your own models.
 
 [tournament]
-swissFormat = "1v1"
-swissRounds = 5
+coarseFormat = "1v1"
+coarseRounds = 5
 
 [tournament.scheduling]
 mode = "adaptive"
@@ -15,7 +15,7 @@ mode = "adaptive"
 enabled = true
 maxBatches = 5
 
-[tournament.finale]
+[tournament.fineRanking]
 enabled = true
 maxMatchesPerBatch = 4
 maxTotalMatches = 20

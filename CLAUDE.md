@@ -49,8 +49,9 @@ See `agents.md` for full documentation.
 When `initialGenerations > 1`, you can configure how the best draft per model is selected:
 
 ```toml
-[tournament.initialLeaderboard]
+[tournament.firstDraftSelection]
 enabled = true
+initialGenerations = 3
 style = "per-model-pairwise"  # Default: each model's drafts compete internally
 # style = "global-pairwise"   # All drafts compete (expensive!)
 # style = "per-model-rank"    # Single ranking call per model (cheap)
@@ -79,7 +80,7 @@ topK = 8
 After coarse ranking, Draftbench can run a fine ranking stage (Top-K refinement matches) using active-learning pairwise matchups (budget-capped).
 
 ```toml
-[tournament.finale]
+[tournament.fineRanking]
 enabled = true
 maxMatchesPerBatch = 4          # parallel matches per iteration
 maxTotalMatches = 30            # budget cap
