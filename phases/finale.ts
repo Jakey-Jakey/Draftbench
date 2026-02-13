@@ -18,7 +18,6 @@ import {
 import type { PairwiseObservation } from "../rating/types";
 import { planActiveRankingBatch } from "../scheduling/activeRanking";
 import { countRepeatPairs, pairKey } from "../scheduling/pairs";
-import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -242,8 +241,6 @@ export async function runFinalePhase(
 	);
 	const ratingState = deserializeRatingState(ratingStateStored);
 	const isStructured = output.mode === "structured";
-
-	const stateLock = new Semaphore(1);
 
 	if (isPhaseCompleted(state, "finale")) {
 		// On resume, Swiss phase loads contestants from state, but the stored ratingState
@@ -568,17 +565,12 @@ export async function runFinalePhase(
 		}
 
 		// Persist state after each iteration.
-		await stateLock.acquire();
-		try {
-			state.finaleMatches = storedMatches;
-			state.finaleIterations = iteration;
-			state.finaleConverged = false;
-			state.ratingState = serializeRatingState(ratingState);
-			state.pairwiseHistory = ratingState.history;
+		state.finaleMatches = storedMatches;
+		state.finaleIterations = iteration;
+		state.finaleConverged = false;
+		state.ratingState = serializeRatingState(ratingState);
+		state.pairwiseHistory = ratingState.history;
 			if (!dryRun) saveState(runDir, state);
-		} finally {
-			stateLock.release();
-		}
 	}
 
 	// If we stopped due to budget, we may have achieved separation on the final batch.
