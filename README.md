@@ -62,7 +62,7 @@ The pipeline uses TOML configuration with this priority:
 
 1. `--config <path>` CLI flag (highest priority)
 2. `config.toml` in project root
-3. Built-in defaults in `config.ts`
+3. Built-in defaults in `config/defaults.ts`
 
 Reference files:
 - [`config.default.toml`](./config.default.toml) — All defaults with documentation
@@ -184,6 +184,9 @@ bun run index.ts --resume runs/<timestamp>
 ```bash
 # Run tests
 bun test
+
+# Run integration tests
+bun run test:integration
 
 # Lint
 bun run lint

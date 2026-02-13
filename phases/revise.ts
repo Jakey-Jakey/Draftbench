@@ -7,7 +7,7 @@ import {
 	type ReviseResult,
 	reviseStatblock,
 } from "../aiClient";
-import { getRoleEntries, type ReasoningEffort } from "../config";
+import type { PipelineConfig, ReasoningEffort, RoleEntry } from "../config";
 import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
@@ -60,12 +60,16 @@ export async function runRevisePhase(
 	runDir: string,
 	revisionsDir: string,
 	state: PipelineState,
+	reviserConfig: {
+		revisers: RoleEntry[];
+		prompts: PipelineConfig["prompts"];
+	},
 	selectedByModel: Map<ModelSlug, GenerateResult>,
 	reviews: ReviewResult[],
 	dryRun: boolean,
 	isResuming: boolean,
 ): Promise<RevisePhaseResult> {
-	const revisers = getRoleEntries("revisers");
+	const revisers = reviserConfig.revisers;
 
 	console.log("Phase 4/6: Revising statblocks...");
 
@@ -183,6 +187,7 @@ export async function runRevisePhase(
 					feedback,
 					task.reviserEffort,
 					task.reviserTemperature,
+					reviserConfig.prompts,
 				);
 
 				// Write immediately

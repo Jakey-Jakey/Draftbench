@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { PipelineConfig } from "../config";
-import { getConfig } from "../config";
+import { DEFAULT_CONFIG } from "../config/defaults";
 import { pairwiseFromSwissMatch } from "../rating/convert";
 import {
 	applyPairwiseBatch,
@@ -247,8 +247,9 @@ export async function computeDetailedRunSummary(args: {
 	finaleMatches: StoredFinaleMatch[];
 	finaleSummary: FinaleSummary;
 	includeHashes?: boolean;
+	config?: PipelineConfig;
 }): Promise<DetailedRunSummaryV1> {
-	const config = getConfig();
+	const config = args.config ?? DEFAULT_CONFIG;
 	const includeHashes = args.includeHashes !== false;
 	const runDir = args.runDir;
 	const hasStructuredLayout =

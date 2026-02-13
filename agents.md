@@ -25,7 +25,8 @@
 | File | Purpose |
 |------|---------|
 | `index.ts` | **Entry point**. Thin orchestrator that imports and runs phases. |
-| `config.ts` | Type definitions, defaults, config loading/merging, CLI parsing. |
+| `config.ts` | Backward-compatible facade that re-exports from `config/index.ts`. |
+| `config/` | Split config modules: `types.ts`, `defaults.ts`, `loader.ts`, `validator.ts`, `context.ts`, `args.ts`, `index.ts`. |
 | `aiClient.ts` | OpenRouter integration. API calls, prompt interpolation, JSON response parsing. |
 | `state.ts` | Pipeline state management for resume functionality. |
 | `schemas.ts` | Zod schemas for LLM response validation. |
@@ -82,7 +83,7 @@
 **Priority Order** (highest first):
 1. `--config <path>` CLI argument
 2. `config.toml` (project root)
-3. Internal defaults in `config.ts`
+3. Internal defaults in `config/defaults.ts`
 
 ### Role-Centric Configuration
 
@@ -285,6 +286,7 @@ bun run lint
 
 # Testing
 bun test
+bun run test:integration
 ```
 
 ---

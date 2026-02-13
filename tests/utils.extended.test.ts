@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { interpolate } from "../config";
+import { interpolate, loadConfig, resetConfig } from "../config";
 import {
 	createMockReview,
 	createMockStatblock,
@@ -222,7 +222,8 @@ Line 3: {other}`;
 
 describe("printDryRunConfig", () => {
 	test("does not throw", () => {
-		// Just verify it doesn't crash
-		expect(() => printDryRunConfig()).not.toThrow();
+		resetConfig();
+		const config = loadConfig("config.example.toml");
+		expect(() => printDryRunConfig(config)).not.toThrow();
 	});
 });

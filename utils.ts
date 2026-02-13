@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { getConfig, getRoleEntries } from "./config";
+import type { PipelineConfig } from "./config";
 
 // ============================================================================
 // Directory & File Utilities
@@ -12,11 +12,10 @@ import { getConfig, getRoleEntries } from "./config";
  * @param dryRun If true, skip actual directory creation
  */
 export async function ensureRunsDirectory(
+	runsDir: string,
 	subdir?: string,
 	dryRun = false,
 ): Promise<string> {
-	const config = getConfig();
-	const runsDir = config.output.runsDirectory;
 	const dir = subdir ? join(runsDir, subdir) : runsDir;
 	if (!dryRun) {
 		await mkdir(dir, { recursive: true });
@@ -164,36 +163,35 @@ export function createMockReview(reviewer?: string, reviewed?: string): string {
 /**
  * Logs configuration details for dry run.
  */
-export function printDryRunConfig(): void {
-	const config = getConfig();
+export function printDryRunConfig(config: PipelineConfig): void {
 	const SWISS_ROUNDS = config.tournament.swissRounds;
 	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
 	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
 	const RUNS_DIR = config.output.runsDirectory;
 
 	// Calculate total contestants dynamically
-	const generatorCount = getRoleEntries("generators").length;
-	const reviewerCount = getRoleEntries("reviewers").length;
-	const reviserCount = getRoleEntries("revisers").length;
+	const generatorCount = config.roles.generators.length;
+	const reviewerCount = config.roles.reviewers.length;
+	const reviserCount = config.roles.revisers.length;
 	// One draft per generator proceeds into review/revise regardless of initial seed style.
 	const totalContestants = generatorCount * reviewerCount * reviserCount;
 
 	console.log("\n📋 DRY RUN - Configuration Details:\n");
 	console.log("Roles:");
 	console.log(`  Generators (${generatorCount}):`);
-	for (const entry of getRoleEntries("generators")) {
+	for (const entry of config.roles.generators) {
 		console.log(
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
 	console.log(`  Reviewers (${reviewerCount}):`);
-	for (const entry of getRoleEntries("reviewers")) {
+	for (const entry of config.roles.reviewers) {
 		console.log(
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);
 	}
 	console.log(`  Revisers (${reviserCount}):`);
-	for (const entry of getRoleEntries("revisers")) {
+	for (const entry of config.roles.revisers) {
 		console.log(
 			`    - ${getShortModelName(entry.model)} (effort: ${entry.effort ?? "high"})`,
 		);

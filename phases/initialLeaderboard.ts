@@ -6,12 +6,10 @@ import {
 	pairwiseJudge,
 } from "../aiClient";
 import {
-	getConfig,
-	getInitialLeaderboardJudges,
-	getModelsForRole,
-	getSwissJudges,
 	type InitialLeaderboardStyle,
 	type RoleEntry,
+	type InitialLeaderboardConfig,
+	type PipelineConfig,
 } from "../config";
 import {
 	isPhaseCompleted,
@@ -40,6 +38,15 @@ interface DraftStanding {
 export interface InitialLeaderboardResult {
 	/** Best draft selected for each model */
 	selectedByModel: Map<ModelSlug, GenerateResult>;
+}
+
+export interface InitialLeaderboardPhaseConfig {
+	generatorSlugs: ModelSlug[];
+	initialLeaderboard: InitialLeaderboardConfig;
+	initialGenerations: number;
+	leaderboardJudges: RoleEntry[];
+	swissJudges: RoleEntry[];
+	prompts: PipelineConfig["prompts"];
 }
 
 /**
@@ -112,6 +119,7 @@ async function runPerModelPairwise(
 	modelSlug: ModelSlug,
 	drafts: GenerateResult[],
 	leaderboardJudges: RoleEntry[],
+	prompts: PipelineConfig["prompts"],
 	dryRun: boolean,
 	initialLeaderboardLogPath: string | null,
 ): Promise<{ winner: DraftStanding; standings: DraftStanding[] }> {
@@ -176,6 +184,8 @@ async function runPerModelPairwise(
 							second.text,
 							judge.model,
 							judge.effort,
+							judge.temperature,
+							prompts,
 						),
 					),
 				);
@@ -333,16 +343,16 @@ async function runPerModelRank(
 export async function runInitialLeaderboardPhase(
 	runDir: string,
 	state: PipelineState,
+	phaseConfig: InitialLeaderboardPhaseConfig,
 	draftsByModel: Map<ModelSlug, GenerateResult[]>,
 	initialLeaderboardLogPath: string | null,
 	dryRun: boolean,
 	isResuming: boolean,
 ): Promise<InitialLeaderboardResult> {
-	const config = getConfig();
-	const generatorSlugs = getModelsForRole("generators");
-	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
-	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
-	const leaderboardJudges = getInitialLeaderboardJudges();
+	const generatorSlugs = phaseConfig.generatorSlugs;
+	const INITIAL_LEADERBOARD = phaseConfig.initialLeaderboard;
+	const INITIAL_GENERATIONS = phaseConfig.initialGenerations;
+	const leaderboardJudges = phaseConfig.leaderboardJudges;
 
 	const style = getEffectiveStyle(
 		INITIAL_LEADERBOARD.style,
@@ -461,6 +471,7 @@ export async function runInitialLeaderboardPhase(
 					modelSlug,
 					drafts,
 					leaderboardJudges,
+					phaseConfig.prompts,
 					dryRun,
 					initialLeaderboardLogPath,
 				);
@@ -503,7 +514,7 @@ export async function runInitialLeaderboardPhase(
 		}
 	} else if (style === "per-model-rank") {
 		const swissJudge = requireDefined(
-			getSwissJudges()[0],
+			phaseConfig.swissJudges[0],
 			"No coarse judge configured for First Draft Selection ranking styles",
 		);
 
@@ -612,6 +623,8 @@ export async function runInitialLeaderboardPhase(
 								second.text,
 								judge.model,
 								judge.effort,
+								judge.temperature,
+								phaseConfig.prompts,
 							),
 						),
 					);
@@ -692,7 +705,7 @@ export async function runInitialLeaderboardPhase(
 		}
 	} else if (style === "global-rank") {
 		const swissJudge = requireDefined(
-			getSwissJudges()[0],
+			phaseConfig.swissJudges[0],
 			"No coarse judge configured for First Draft Selection ranking styles",
 		);
 

@@ -1,7 +1,13 @@
 import { appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pairwiseJudge, threeWayJudge } from "../aiClient";
-import { getConfig, getSwissJudges } from "../config";
+import type {
+	PipelineConfig,
+	RatingConfig,
+	RoleEntry,
+	SchedulingConfig,
+	StopRulesConfig,
+} from "../config";
 import type { SwissContestant, SwissMatch } from "../leaderboard";
 import { pairwiseFromSwissMatch } from "../rating/convert";
 import {
@@ -318,6 +324,16 @@ export interface SwissOutputConfig {
 	judgmentsDir: string;
 }
 
+export interface SwissPhaseConfig {
+	swissRounds: number;
+	swissJudges: RoleEntry[];
+	swissFormat: "1v1" | "1v1v1";
+	rating: RatingConfig;
+	scheduling: SchedulingConfig;
+	stopRules: StopRulesConfig;
+	prompts: PipelineConfig["prompts"];
+}
+
 /**
  * Execute the Swiss tournament phase (supports 1v1 or 1v1v1 formats), run judges, update contestants and ratings, and persist interim/final state.
  *
@@ -336,17 +352,17 @@ export async function runSwissPhase(
 	runDir: string,
 	output: SwissOutputConfig,
 	state: PipelineState,
+	swissConfig: SwissPhaseConfig,
 	revisionsById: Map<string, RevisionEntry>,
 	dryRun: boolean,
 	isResuming: boolean,
 ): Promise<SwissPhaseResult> {
-	const config = getConfig();
-	const SWISS_ROUNDS = config.tournament.swissRounds;
-	const SWISS_JUDGES = getSwissJudges();
-	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
-	const ratingConfig = config.tournament.rating;
-	const schedulingConfig = config.tournament.scheduling;
-	const stopRulesConfig = config.tournament.stopRules;
+	const SWISS_ROUNDS = swissConfig.swissRounds;
+	const SWISS_JUDGES = swissConfig.swissJudges;
+	const SWISS_FORMAT = swissConfig.swissFormat;
+	const ratingConfig = swissConfig.rating;
+	const schedulingConfig = swissConfig.scheduling;
+	const stopRulesConfig = swissConfig.stopRules;
 	const judgeLabel = SWISS_JUDGES.map(
 		(j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`,
 	).join(", ");
@@ -564,6 +580,8 @@ export async function runSwissPhase(
 									e2[1],
 									judge.model,
 									judge.effort ?? "low",
+									judge.temperature,
+									swissConfig.prompts,
 								),
 							),
 						);
@@ -807,6 +825,8 @@ export async function runSwissPhase(
 									e3[1],
 									judge.model,
 									judge.effort ?? "low",
+									judge.temperature,
+									swissConfig.prompts,
 								),
 							),
 						);
