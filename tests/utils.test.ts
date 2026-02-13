@@ -128,14 +128,14 @@ describe("ensureRunsDirectory", () => {
 	test("returns directory path", async () => {
 		const { ensureRunsDirectory } = require("../utils");
 		// Don't actually create in dry-run mode
-		const dir = await ensureRunsDirectory(undefined, true);
+		const dir = await ensureRunsDirectory("runs", undefined, true);
 		expect(typeof dir).toBe("string");
 		expect(dir).toContain("runs");
 	});
 
 	test("returns subdirectory path when specified", async () => {
 		const { ensureRunsDirectory } = require("../utils");
-		const dir = await ensureRunsDirectory("test-subdir", true);
+		const dir = await ensureRunsDirectory("runs", "test-subdir", true);
 		expect(dir).toContain("runs");
 		expect(dir).toContain("test-subdir");
 	});
@@ -145,7 +145,7 @@ describe("ensureRunsDirectory", () => {
 		const { existsSync } = require("node:fs");
 
 		const testDir = `test-dry-run-${Date.now()}`;
-		const dir = await ensureRunsDirectory(testDir, true);
+		const dir = await ensureRunsDirectory("runs", testDir, true);
 
 		// Should return path but not create
 		expect(existsSync(dir)).toBe(false);
@@ -205,10 +205,10 @@ describe("printDryRunConfig", () => {
 		const { loadConfig, resetConfig } = require("../config");
 
 		resetConfig();
-		loadConfig("config.example.toml");
+		const config = loadConfig("config.example.toml");
 
 		// Should not throw
-		expect(() => printDryRunConfig()).not.toThrow();
+		expect(() => printDryRunConfig(config)).not.toThrow();
 	});
 });
 

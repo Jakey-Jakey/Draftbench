@@ -1,7 +1,8 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
 
-import { getConfig, interpolate, type ReasoningEffort } from "./config";
+import { DEFAULT_CONFIG } from "./config/defaults";
+import { interpolate, type PipelineConfig, type ReasoningEffort } from "./config";
 import {
 	JudgeStatblocksResponseSchema,
 	PairwiseJudgeResponseSchema,
@@ -121,15 +122,14 @@ export async function generateStatblock(
 	modelSlug: ModelSlug,
 	effort: ReasoningEffort = "high",
 	temperature?: number,
+	prompts: PipelineConfig["prompts"] = DEFAULT_CONFIG.prompts,
 ): Promise<GenerateResult> {
 	return withConcurrencyLimit(async () => {
-		const config = getConfig();
-
 		const result = await generateTextWithRetries({
 			_debugLabel: `generate:${modelSlug}`,
 			model: getOpenRouter()(modelSlug),
-			system: config.prompts.generate.system,
-			prompt: config.prompts.generate.user,
+			system: prompts.generate.system,
+			prompt: prompts.generate.user,
 			temperature,
 			providerOptions: {
 				openrouter: {
@@ -159,11 +159,10 @@ export async function reviewStatblock(
 	statblock: string,
 	effort: ReasoningEffort = "medium",
 	temperature?: number,
+	prompts: PipelineConfig["prompts"] = DEFAULT_CONFIG.prompts,
 ): Promise<ReviewResult> {
 	return withConcurrencyLimit(async () => {
-		const config = getConfig();
-
-		const prompt = interpolate(config.prompts.review.userTemplate, {
+		const prompt = interpolate(prompts.review.userTemplate, {
 			statblock,
 			artifact: statblock,
 		});
@@ -171,7 +170,7 @@ export async function reviewStatblock(
 		const result = await generateTextWithRetries({
 			_debugLabel: `review:${reviewerSlug}`,
 			model: getOpenRouter()(reviewerSlug),
-			system: config.prompts.review.system,
+			system: prompts.review.system,
 			prompt,
 			temperature,
 			providerOptions: {
@@ -203,11 +202,10 @@ export async function reviseStatblock(
 	feedback: string,
 	effort: ReasoningEffort = "high",
 	temperature?: number,
+	prompts: PipelineConfig["prompts"] = DEFAULT_CONFIG.prompts,
 ): Promise<ReviseResult> {
 	return withConcurrencyLimit(async () => {
-		const config = getConfig();
-
-		const prompt = interpolate(config.prompts.revise.userTemplate, {
+		const prompt = interpolate(prompts.revise.userTemplate, {
 			statblock: originalStatblock,
 			artifact: originalStatblock,
 			feedback,
@@ -216,7 +214,7 @@ export async function reviseStatblock(
 		const result = await generateTextWithRetries({
 			_debugLabel: `revise:${modelSlug}`,
 			model: getOpenRouter()(modelSlug),
-			system: config.prompts.revise.system,
+			system: prompts.revise.system,
 			prompt,
 			temperature,
 			providerOptions: {
@@ -428,15 +426,14 @@ export async function pairwiseJudge(
 	judgeSlug: ModelSlug,
 	effort: ReasoningEffort = "low",
 	temperature?: number,
+	prompts: PipelineConfig["prompts"] = DEFAULT_CONFIG.prompts,
 ): Promise<PairwiseResult> {
 	return withConcurrencyLimit(async () => {
-		const config = getConfig();
-
-		const systemPrompt = interpolate(config.prompts.judgePairwise.system, {
+		const systemPrompt = interpolate(prompts.judgePairwise.system, {
 			idA,
 			idB,
 		});
-		const userPrompt = interpolate(config.prompts.judgePairwise.userTemplate, {
+		const userPrompt = interpolate(prompts.judgePairwise.userTemplate, {
 			idA,
 			idB,
 			textA,
@@ -520,16 +517,15 @@ export async function threeWayJudge(
 	judgeSlug: ModelSlug,
 	effort: ReasoningEffort = "low",
 	temperature?: number,
+	prompts: PipelineConfig["prompts"] = DEFAULT_CONFIG.prompts,
 ): Promise<ThreeWayResult> {
 	return withConcurrencyLimit(async () => {
-		const config = getConfig();
-
-		const systemPrompt = interpolate(config.prompts.judgeThreeWay.system, {
+		const systemPrompt = interpolate(prompts.judgeThreeWay.system, {
 			idA,
 			idB,
 			idC,
 		});
-		const userPrompt = interpolate(config.prompts.judgeThreeWay.userTemplate, {
+		const userPrompt = interpolate(prompts.judgeThreeWay.userTemplate, {
 			idA,
 			idB,
 			idC,

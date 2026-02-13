@@ -6,7 +6,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
 	getFinaleJudges,
@@ -77,7 +77,7 @@ const STOP_RULES = config.tournament.stopRules;
 
 	if (DRY_RUN) {
 		console.log("🧪 DRY RUN MODE - No API calls will be made\n");
-		printDryRunConfig();
+		printDryRunConfig(config);
 	}
 
 	console.log("📝 Creating: Monster Statblock\n");
@@ -138,8 +138,11 @@ const STOP_RULES = config.tournament.stopRules;
 		console.log(`   Phases completed: [${state.phasesCompleted.join(", ")}]\n`);
 	} else {
 		const timestamp = getTimestamp();
-		runDir = await ensureRunsDirectory(timestamp, DRY_RUN);
+		runDir = await ensureRunsDirectory(RUNS_DIR, timestamp, DRY_RUN);
 		state = createInitialState();
+	}
+	if (DRY_RUN) {
+		await mkdir(runDir, { recursive: true });
 	}
 
 	// Helper for subdirectory paths
@@ -156,15 +159,18 @@ const STOP_RULES = config.tournament.stopRules;
 
 	// Ensure subdirectories exist
 	const revisionsDir = await ensureRunsDirectory(
+		RUNS_DIR,
 		join(relRunPath, "revisions"),
 		DRY_RUN,
 	);
 	const reviewsDir = await ensureRunsDirectory(
+		RUNS_DIR,
 		join(relRunPath, "reviews"),
 		DRY_RUN,
 	);
 	const initialLeaderboardDir = INITIAL_LEADERBOARD.enabled
 		? await ensureRunsDirectory(
+				RUNS_DIR,
 				join(relRunPath, "initial_leaderboard"),
 				DRY_RUN,
 			)
@@ -189,31 +195,31 @@ const STOP_RULES = config.tournament.stopRules;
 
 	const swissJudgmentsDir =
 		layoutMode === "legacy"
-			? await ensureRunsDirectory(join(relRunPath, "swiss_judgments"), DRY_RUN)
-			: await ensureRunsDirectory(join(relRunPath, "coarse", "judgments"), DRY_RUN);
+			? await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "swiss_judgments"), DRY_RUN)
+			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "coarse", "judgments"), DRY_RUN);
 	const swissRoundsRoot =
 		layoutMode === "legacy"
 			? legacySwissLogPath
-			: await ensureRunsDirectory(join(relRunPath, "coarse", "rounds"), DRY_RUN);
+			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "coarse", "rounds"), DRY_RUN);
 	const swissStandingsDir =
 		layoutMode === "legacy"
 			? null
-			: await ensureRunsDirectory(join(relRunPath, "coarse", "standings"), DRY_RUN);
+			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "coarse", "standings"), DRY_RUN);
 
 	const finaleJudgmentsDir = FINALE.enabled
 		? layoutMode === "legacy"
-			? await ensureRunsDirectory(join(relRunPath, "finale_judgments"), DRY_RUN)
-			: await ensureRunsDirectory(join(relRunPath, "fine", "judgments"), DRY_RUN)
+			? await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "finale_judgments"), DRY_RUN)
+			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "fine", "judgments"), DRY_RUN)
 		: null;
 	const finaleIterationsRoot = FINALE.enabled
 		? layoutMode === "legacy"
 			? legacyFinaleLogPath
-			: await ensureRunsDirectory(join(relRunPath, "fine", "iterations"), DRY_RUN)
+			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "fine", "iterations"), DRY_RUN)
 		: null;
 	const finaleStandingsDir = FINALE.enabled
 		? layoutMode === "legacy"
 			? null
-			: await ensureRunsDirectory(join(relRunPath, "fine", "standings"), DRY_RUN)
+			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "fine", "standings"), DRY_RUN)
 		: null;
 
 	const initialLeaderboardLogPath = initialLeaderboardDir
@@ -236,6 +242,11 @@ const STOP_RULES = config.tournament.stopRules;
 	const { draftsByModel } = await runGeneratePhase(
 		runDir,
 		state,
+		{
+			generators: getRoleEntries("generators"),
+			initialGenerations: config.tournament.initialGenerations,
+			prompts: config.prompts,
+		},
 		DRY_RUN,
 		isResuming,
 	);
@@ -244,6 +255,15 @@ const STOP_RULES = config.tournament.stopRules;
 	const { selectedByModel } = await runInitialLeaderboardPhase(
 		runDir,
 		state,
+		{
+			generatorSlugs: getRoleEntries("generators").map((entry) => entry.model),
+			initialLeaderboard: config.tournament.initialLeaderboard,
+			initialGenerations: config.tournament.initialGenerations,
+			leaderboardJudges:
+				config.roles.initialLeaderboardJudges ?? config.roles.finaleJudges,
+			swissJudges: config.roles.swissJudges,
+			prompts: config.prompts,
+		},
 		draftsByModel,
 		initialLeaderboardLogPath,
 		DRY_RUN,
@@ -255,6 +275,10 @@ const STOP_RULES = config.tournament.stopRules;
 		runDir,
 		reviewsDir,
 		state,
+		{
+			reviewers: getRoleEntries("reviewers"),
+			prompts: config.prompts,
+		},
 		selectedByModel,
 		DRY_RUN,
 		isResuming,
@@ -265,6 +289,10 @@ const STOP_RULES = config.tournament.stopRules;
 		runDir,
 		revisionsDir,
 		state,
+		{
+			revisers: getRoleEntries("revisers"),
+			prompts: config.prompts,
+		},
 		selectedByModel,
 		reviews,
 		DRY_RUN,
@@ -281,6 +309,15 @@ const STOP_RULES = config.tournament.stopRules;
 			judgmentsDir: swissJudgmentsDir,
 		},
 		state,
+		{
+			swissRounds: SWISS_ROUNDS,
+			swissJudges: SWISS_JUDGES,
+			swissFormat: SWISS_FORMAT,
+			rating: RATING,
+			scheduling: SCHEDULING,
+			stopRules: STOP_RULES,
+			prompts: config.prompts,
+		},
 		revisionsById,
 		DRY_RUN,
 		isResuming,
@@ -296,6 +333,14 @@ const STOP_RULES = config.tournament.stopRules;
 				judgmentsDir: finaleJudgmentsDir ?? null,
 			},
 			state,
+			{
+				finale: FINALE,
+				stopRules: STOP_RULES,
+				rating: RATING,
+				scheduling: SCHEDULING,
+				finaleJudges: FINALE_JUDGES,
+				prompts: config.prompts,
+			},
 			contestants,
 			revisionsById,
 		DRY_RUN,
@@ -320,11 +365,18 @@ const STOP_RULES = config.tournament.stopRules;
 			revisionsById,
 			state.initialLeaderboardResults,
 			fineSummary,
+			{
+				tournament: config.tournament,
+				swissJudges: SWISS_JUDGES,
+				finaleJudges: FINALE_JUDGES,
+			},
 		);
+		const leaderboardOutput = DRY_RUN
+			? `> ⚠️ DRY RUN ARTIFACT: This file contains mock/simulated data only.\n\n${leaderboard}`
+			: leaderboard;
 		const leaderboardPath = join(runDir, "leaderboard.md");
-		if (!DRY_RUN) {
-			await writeFile(leaderboardPath, leaderboard, "utf-8");
-			console.log(`  ✓ Wrote ${leaderboardPath}`);
+		await writeFile(leaderboardPath, leaderboardOutput, "utf-8");
+		console.log(`  ✓ Wrote ${leaderboardPath}`);
 
 			const summary = computeRunSummary({
 				runDir,
@@ -333,23 +385,37 @@ const STOP_RULES = config.tournament.stopRules;
 				revisionsById,
 				finaleSummary: fineSummary,
 				swissEarlyStopReason: state.swissStopReason ?? null,
+				configContext: {
+					tournament: config.tournament,
+					swissJudges: SWISS_JUDGES,
+					finaleJudges: FINALE_JUDGES,
+				},
 			});
-			const summaryPath = join(runDir, "summary.json");
-			await writeFile(summaryPath, JSON.stringify(summary, null, 2), "utf-8");
-			console.log(`  ✓ Wrote ${summaryPath}`);
+		const summaryPath = join(runDir, "summary.json");
+		await writeFile(summaryPath, JSON.stringify(summary, null, 2), "utf-8");
+		console.log(`  ✓ Wrote ${summaryPath}`);
+		if (DRY_RUN) {
+			const dryRunMarkerPath = join(runDir, "DRY_RUN.md");
+			await writeFile(
+				dryRunMarkerPath,
+				"# DRY RUN\n\nThis run directory contains mock/simulated outputs only.\n",
+				"utf-8",
+			);
+			console.log(`  ✓ Wrote ${dryRunMarkerPath}`);
+		}
 
+		if (!DRY_RUN) {
 			const detailed = await computeDetailedRunSummary({
 				runDir,
 				contestants,
 				swissMatches: allSwissMatches,
 				finaleMatches,
 				finaleSummary: fineSummary,
+				config,
 			});
 			const detailedPath = join(runDir, "summary.detailed.json");
 			await writeFile(detailedPath, JSON.stringify(detailed, null, 2), "utf-8");
 			console.log(`  ✓ Wrote ${detailedPath}`);
-		} else {
-			console.log(`  ✓ Leaderboard computed (dry run - not written)`);
 		}
 
 		// Print summary stats

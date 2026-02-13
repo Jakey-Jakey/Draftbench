@@ -1,4 +1,5 @@
-import { getConfig, getFinaleJudges, getSwissJudges } from "./config";
+import type { PipelineConfig, RoleEntry } from "./config";
+import { DEFAULT_CONFIG } from "./config/defaults";
 import type { StoredInitialLeaderboardResult } from "./state";
 import { getShortModelName } from "./utils";
 
@@ -116,6 +117,18 @@ interface RevisionMetadata {
 	};
 }
 
+export interface LeaderboardConfigContext {
+	tournament: PipelineConfig["tournament"];
+	swissJudges: RoleEntry[];
+	finaleJudges: RoleEntry[];
+}
+
+const DEFAULT_LEADERBOARD_CONTEXT: LeaderboardConfigContext = {
+	tournament: DEFAULT_CONFIG.tournament,
+	swissJudges: DEFAULT_CONFIG.roles.swissJudges,
+	finaleJudges: DEFAULT_CONFIG.roles.finaleJudges,
+};
+
 // ============================================================================
 // Nickname Helper
 /**
@@ -232,9 +245,9 @@ export function getLeaderboard(
 	contestants: SwissContestant[],
 	_swissMatches: SwissMatch[],
 	revisionsById?: Map<string, RevisionMetadata>,
+	configContext: LeaderboardConfigContext = DEFAULT_LEADERBOARD_CONTEXT,
 ): LeaderboardEntry[] {
-	const config = getConfig();
-	const ratingEnabled = config.tournament.rating.enabled;
+	const ratingEnabled = configContext.tournament.rating.enabled;
 	const useRating =
 		ratingEnabled &&
 		contestants.length > 0 &&
@@ -300,14 +313,20 @@ export function computeLeaderboard(
 	revisionsById?: Map<string, RevisionMetadata>,
 	initialLeaderboardResults?: StoredInitialLeaderboardResult[] | null,
 	finaleSummary?: FinaleSummary,
+	configContext: LeaderboardConfigContext = DEFAULT_LEADERBOARD_CONTEXT,
 ): string {
-	const config = getConfig();
-	const SWISS_JUDGES = getSwissJudges();
-	const FINALE_JUDGES = getFinaleJudges();
+	const config = configContext;
+	const SWISS_JUDGES = config.swissJudges;
+	const FINALE_JUDGES = config.finaleJudges;
 	const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 	const is1v1 = SWISS_FORMAT === "1v1";
 
-	const entries = getLeaderboard(contestants, swissMatches, revisionsById);
+	const entries = getLeaderboard(
+		contestants,
+		swissMatches,
+		revisionsById,
+		configContext,
+	);
 	const showRating =
 		config.tournament.rating.enabled &&
 		entries.some((c) => typeof c.rating === "number");
@@ -543,14 +562,16 @@ export function computeRunSummary(args: {
 	revisionsById?: Map<string, RevisionMetadata>;
 	finaleSummary?: FinaleSummary;
 	swissEarlyStopReason?: string | null;
+	configContext?: LeaderboardConfigContext;
 }): RunSummaryV1 {
-	const config = getConfig();
+	const config = args.configContext ?? DEFAULT_LEADERBOARD_CONTEXT;
 	const swissFormat = config.tournament.swissFormat ?? "1v1v1";
 
 	const entries = getLeaderboard(
 		args.contestants,
 		args.swissMatches,
 		args.revisionsById,
+		config,
 	);
 	const topK = Math.max(
 		1,

@@ -6,12 +6,10 @@ import {
 	pairwiseJudge,
 } from "../aiClient";
 import {
-	getConfig,
-	getInitialLeaderboardJudges,
-	getModelsForRole,
-	getSwissJudges,
 	type InitialLeaderboardStyle,
 	type RoleEntry,
+	type InitialLeaderboardConfig,
+	type PipelineConfig,
 } from "../config";
 import {
 	isPhaseCompleted,
@@ -40,6 +38,55 @@ interface DraftStanding {
 export interface InitialLeaderboardResult {
 	/** Best draft selected for each model */
 	selectedByModel: Map<ModelSlug, GenerateResult>;
+}
+
+export interface InitialLeaderboardPhaseConfig {
+	generatorSlugs: ModelSlug[];
+	initialLeaderboard: InitialLeaderboardConfig;
+	initialGenerations: number;
+	leaderboardJudges: RoleEntry[];
+	swissJudges: RoleEntry[];
+	prompts: PipelineConfig["prompts"];
+}
+
+/**
+ * Build inputs for the global ranking judge call using opaque IDs.
+ *
+ * This is a safety-critical anonymization step: the judge LLM must not see
+ * model slugs/names in the IDs it is asked to rank.
+ */
+export function buildGlobalRankInputs(
+	generatorSlugs: ModelSlug[],
+	draftsByModel: Map<ModelSlug, GenerateResult[]>,
+): {
+	statblockMap: Map<string, string>;
+	idToStanding: Map<string, DraftStanding>;
+} {
+	const statblockMap = new Map<string, string>();
+	const idToStanding = new Map<string, DraftStanding>();
+
+	let counter = 0;
+	for (const modelSlug of generatorSlugs) {
+		const drafts = draftsByModel.get(modelSlug) ?? [];
+		drafts.forEach((draft, idx) => {
+			counter += 1;
+			// Deterministic, opaque IDs.
+			const id = `R${counter}`;
+			statblockMap.set(id, draft.text);
+			idToStanding.set(id, {
+				model: modelSlug,
+				draftIndex: idx + 1,
+				text: draft.text,
+				result: draft,
+				points: 0,
+				wins: 0,
+				draws: 0,
+				losses: 0,
+			});
+		});
+	}
+
+	return { statblockMap, idToStanding };
 }
 
 function getStanding(
@@ -72,6 +119,7 @@ async function runPerModelPairwise(
 	modelSlug: ModelSlug,
 	drafts: GenerateResult[],
 	leaderboardJudges: RoleEntry[],
+	prompts: PipelineConfig["prompts"],
 	dryRun: boolean,
 	initialLeaderboardLogPath: string | null,
 ): Promise<{ winner: DraftStanding; standings: DraftStanding[] }> {
@@ -136,6 +184,8 @@ async function runPerModelPairwise(
 							second.text,
 							judge.model,
 							judge.effort,
+							judge.temperature,
+							prompts,
 						),
 					),
 				);
@@ -293,16 +343,16 @@ async function runPerModelRank(
 export async function runInitialLeaderboardPhase(
 	runDir: string,
 	state: PipelineState,
+	phaseConfig: InitialLeaderboardPhaseConfig,
 	draftsByModel: Map<ModelSlug, GenerateResult[]>,
 	initialLeaderboardLogPath: string | null,
 	dryRun: boolean,
 	isResuming: boolean,
 ): Promise<InitialLeaderboardResult> {
-	const config = getConfig();
-	const generatorSlugs = getModelsForRole("generators");
-	const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
-	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
-	const leaderboardJudges = getInitialLeaderboardJudges();
+	const generatorSlugs = phaseConfig.generatorSlugs;
+	const INITIAL_LEADERBOARD = phaseConfig.initialLeaderboard;
+	const INITIAL_GENERATIONS = phaseConfig.initialGenerations;
+	const leaderboardJudges = phaseConfig.leaderboardJudges;
 
 	const style = getEffectiveStyle(
 		INITIAL_LEADERBOARD.style,
@@ -421,6 +471,7 @@ export async function runInitialLeaderboardPhase(
 					modelSlug,
 					drafts,
 					leaderboardJudges,
+					phaseConfig.prompts,
 					dryRun,
 					initialLeaderboardLogPath,
 				);
@@ -463,7 +514,7 @@ export async function runInitialLeaderboardPhase(
 		}
 	} else if (style === "per-model-rank") {
 		const swissJudge = requireDefined(
-			getSwissJudges()[0],
+			phaseConfig.swissJudges[0],
 			"No coarse judge configured for First Draft Selection ranking styles",
 		);
 
@@ -572,6 +623,8 @@ export async function runInitialLeaderboardPhase(
 								second.text,
 								judge.model,
 								judge.effort,
+								judge.temperature,
+								phaseConfig.prompts,
 							),
 						),
 					);
@@ -652,34 +705,17 @@ export async function runInitialLeaderboardPhase(
 		}
 	} else if (style === "global-rank") {
 		const swissJudge = requireDefined(
-			getSwissJudges()[0],
+			phaseConfig.swissJudges[0],
 			"No coarse judge configured for First Draft Selection ranking styles",
 		);
 
 		// Single ranking call for all drafts
 		console.log("  Running 1 global ranking call");
 
-		const statblockMap = new Map<string, string>();
-		const idToStanding = new Map<string, DraftStanding>();
-
-		for (const modelSlug of generatorSlugs) {
-			const drafts = draftsByModel.get(modelSlug) ?? [];
-			const modelToken = getModelToken(modelSlug);
-			drafts.forEach((draft, idx) => {
-				const id = `${modelToken}_d${idx + 1}`;
-				statblockMap.set(id, draft.text);
-				idToStanding.set(id, {
-					model: modelSlug,
-					draftIndex: idx + 1,
-					text: draft.text,
-					result: draft,
-					points: 0,
-					wins: 0,
-					draws: 0,
-					losses: 0,
-				});
-			});
-		}
+		const { statblockMap, idToStanding } = buildGlobalRankInputs(
+			generatorSlugs,
+			draftsByModel,
+		);
 
 		if (!dryRun) {
 			const result = await judgeStatblocks(

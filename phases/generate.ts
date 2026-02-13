@@ -5,7 +5,7 @@ import {
 	generateStatblock,
 	type ModelSlug,
 } from "../aiClient";
-import { getConfig, getRoleEntries } from "../config";
+import type { PipelineConfig, RoleEntry } from "../config";
 import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
@@ -43,12 +43,16 @@ export interface GeneratePhaseResult {
 export async function runGeneratePhase(
 	runDir: string,
 	state: PipelineState,
+	generateConfig: {
+		generators: RoleEntry[];
+		initialGenerations: number;
+		prompts: PipelineConfig["prompts"];
+	},
 	dryRun: boolean,
 	isResuming: boolean,
 ): Promise<GeneratePhaseResult> {
-	const config = getConfig();
-	const generators = getRoleEntries("generators");
-	const INITIAL_GENERATIONS = config.tournament.initialGenerations;
+	const generators = generateConfig.generators;
+	const INITIAL_GENERATIONS = generateConfig.initialGenerations;
 
 	console.log("Phase 1/6: Generating statblocks from all models...");
 
@@ -139,6 +143,7 @@ export async function runGeneratePhase(
 							generator.model,
 							generator.effort ?? "high",
 							generator.temperature,
+							generateConfig.prompts,
 						);
 
 						// Write immediately

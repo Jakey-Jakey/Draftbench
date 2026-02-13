@@ -40,5 +40,6 @@ runs
 
 # misc test docs/markers (not used by runtime)
 tests/misc/
+plan.md
 
 

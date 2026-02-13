@@ -1,7 +1,14 @@
 import { appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pairwiseJudge } from "../aiClient";
-import { getConfig, getFinaleJudges } from "../config";
+import type {
+	FinaleConfig,
+	PipelineConfig,
+	RatingConfig,
+	RoleEntry,
+	SchedulingConfig,
+	StopRulesConfig,
+} from "../config";
 import type { SwissContestant } from "../leaderboard";
 import {
 	applyPairwiseBatch,
@@ -48,6 +55,15 @@ export interface FinalePhaseResult {
 	finaleMatches: StoredFinaleMatch[];
 	iterations: number;
 	converged: boolean;
+}
+
+export interface FinalePhaseConfig {
+	finale: FinaleConfig;
+	stopRules: StopRulesConfig;
+	rating: RatingConfig;
+	scheduling: SchedulingConfig;
+	finaleJudges: RoleEntry[];
+	prompts: PipelineConfig["prompts"];
 }
 
 /**
@@ -175,17 +191,17 @@ export async function runFinalePhase(
 	runDir: string,
 	output: FinaleOutputConfig,
 	state: PipelineState,
+	finalePhaseConfig: FinalePhaseConfig,
 	contestants: SwissContestant[],
 	revisionsById: Map<string, RevisionEntry>,
 	dryRun: boolean,
 	_isResuming: boolean,
 ): Promise<FinalePhaseResult> {
-	const config = getConfig();
-	const finaleConfig = config.tournament.finale;
-	const stopRulesConfig = config.tournament.stopRules;
-	const ratingConfig = config.tournament.rating;
-	const schedulingConfig = config.tournament.scheduling;
-	const FINALE_JUDGES = getFinaleJudges();
+	const finaleConfig = finalePhaseConfig.finale;
+	const stopRulesConfig = finalePhaseConfig.stopRules;
+	const ratingConfig = finalePhaseConfig.rating;
+	const schedulingConfig = finalePhaseConfig.scheduling;
+	const FINALE_JUDGES = finalePhaseConfig.finaleJudges;
 
 	if (!finaleConfig.enabled) {
 		console.log("Phase 6/6: Fine ranking disabled; skipping.\n");
@@ -360,16 +376,18 @@ export async function runFinalePhase(
 			} else {
 				const judgeResults = await Promise.all(
 					FINALE_JUDGES.map((judge) =>
-						pairwiseJudge(
-							"S1",
-							firstText,
-							"S2",
-							secondText,
-							judge.model,
-							judge.effort ?? "high",
-						),
+					pairwiseJudge(
+						"S1",
+						firstText,
+						"S2",
+						secondText,
+						judge.model,
+						judge.effort ?? "high",
+						judge.temperature,
+						finalePhaseConfig.prompts,
 					),
-				);
+				),
+			);
 				for (const result of judgeResults) {
 					const resolvedWinner = result.winner === "S1" ? firstId : secondId;
 					if (resolvedWinner === idA) votesA += 1;

@@ -5,7 +5,8 @@
 	"private": true,
 	"scripts": {
 		"lint": "bun x @biomejs/biome check .",
-		"test": "bun test"
+		"test": "bun test",
+		"test:integration": "bun test tests/integration"
 	},
 	"dependencies": {
 		"@openrouter/ai-sdk-provider": "^1.0.0",

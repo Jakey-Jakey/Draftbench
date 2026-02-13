@@ -122,7 +122,7 @@ allowOverRepeatCap = false      # if false, respects tournament.scheduling.maxRe
 # -----------------------------------------------------------------------------
 # CONCURRENCY
 # -----------------------------------------------------------------------------
-# Omit this section for unlimited parallel API calls
+# Omit this section (or set maxParallel = 0) for unlimited parallel API calls
 
 # [concurrency]
 # maxParallel = 5           # Limit parallel API calls

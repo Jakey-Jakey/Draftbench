@@ -6,7 +6,7 @@ import {
 	type ReviewResult,
 	reviewStatblock,
 } from "../aiClient";
-import { getRoleEntries } from "../config";
+import type { PipelineConfig, RoleEntry } from "../config";
 import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
@@ -37,11 +37,15 @@ export async function runReviewPhase(
 	runDir: string,
 	reviewsDir: string,
 	state: PipelineState,
+	reviewerConfig: {
+		reviewers: RoleEntry[];
+		prompts: PipelineConfig["prompts"];
+	},
 	selectedByModel: Map<ModelSlug, GenerateResult>,
 	dryRun: boolean,
 	isResuming: boolean,
 ): Promise<ReviewPhaseResult> {
-	const reviewers = getRoleEntries("reviewers");
+	const reviewers = reviewerConfig.reviewers;
 	const draftModels = Array.from(selectedByModel.keys());
 
 	console.log(
@@ -130,6 +134,7 @@ export async function runReviewPhase(
 							statblock,
 							reviewer.effort ?? "medium",
 							reviewer.temperature,
+							reviewerConfig.prompts,
 						);
 
 						// Write immediately
