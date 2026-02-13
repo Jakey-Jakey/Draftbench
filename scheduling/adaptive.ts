@@ -111,7 +111,7 @@ export function scheduleAdaptivePairs(
 				continue;
 			}
 
-		const leftRecord = ratingState.records.get(left.id);
+			const leftRecord = ratingState.records.get(left.id);
 			const rightRecord = ratingState.records.get(right.id);
 			const p = estimateWinProbability(ratingState, left.id, right.id);
 			const repeatPenalty = repeats * options.avoidRepeatPenalty;

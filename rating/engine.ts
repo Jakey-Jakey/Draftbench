@@ -447,7 +447,7 @@ export function getRatingStandingsWithOptions(
 	// Determine CI source based on config ciMode when bootstrapCi is requested.
 	let ciMap = new Map<string, { low: number; high: number }>();
 	if (options.bootstrapCi === true) {
-		const mode = state.config.ciMode;
+		const mode = state.config.ciMode ?? "bootstrap";
 		if (mode === "hessian" && state.config.backend === "bradley-terry") {
 			ciMap = hessianCi(state, confidence);
 		} else if (mode === "bootstrap") {
@@ -490,7 +490,12 @@ export function serializeRatingState(state: RatingState): StoredRatingState {
 
 export function deserializeRatingState(stored: StoredRatingState): RatingState {
 	return {
-		config: stored.config,
+		config: {
+			...stored.config,
+			btRegularization: stored.config.btRegularization ?? 0,
+			btUseNewton: stored.config.btUseNewton ?? false,
+			ciMode: stored.config.ciMode ?? "bootstrap",
+		},
 		records: new Map(stored.records.map((record) => [record.id, record])),
 		history: stored.history,
 	};

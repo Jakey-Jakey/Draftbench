@@ -329,7 +329,7 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			if (ratingRaw.btTolerance !== undefined) {
 				result.tournament.rating.btTolerance = ratingRaw.btTolerance as number;
 			}
-		if (ratingRaw.ciBootstrapSamples !== undefined) {
+			if (ratingRaw.ciBootstrapSamples !== undefined) {
 				result.tournament.rating.ciBootstrapSamples =
 					ratingRaw.ciBootstrapSamples as number;
 			}
@@ -361,7 +361,7 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 				result.tournament.scheduling.avoidRepeatPenalty =
 					schedulingRaw.avoidRepeatPenalty as number;
 			}
-		if (schedulingRaw.maxRepeatPairs !== undefined) {
+			if (schedulingRaw.maxRepeatPairs !== undefined) {
 				result.tournament.scheduling.maxRepeatPairs =
 					schedulingRaw.maxRepeatPairs as number;
 			}

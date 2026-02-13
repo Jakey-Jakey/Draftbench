@@ -248,7 +248,7 @@ allowOverRepeatCap = false
 - `rating.enabled`: when true, coarse standings use rating estimates instead of raw points.
 - `rating.btRegularization`: L2 penalty strength for the Bradley-Terry backend; shrinks player parameters toward the mean to reduce noise from sparse observations (0 = disabled).
 - `rating.btUseNewton`: when true, uses per-player Hessian-diagonal (Newton/MM) step sizes instead of a fixed learning rate, converging significantly faster.
-- `rating.ciMode`: selects confidence interval computation: `"bootstrap"` (resample-based), `"hessian"` (analytic from BT log-likelihood Hessian, O(history) instead of O(samples * iters * history)), or `"normal"` (z * uncertainty fallback).
+- `rating.ciMode`: selects confidence interval computation: `"bootstrap"` (resample-based), `"hessian"` (analytic from BT log-likelihood Hessian, `O(history)` instead of `O(samples * iters * history)`), or `"normal"` (`z * uncertainty` fallback).
 - `scheduling.mode = "adaptive"`: prioritizes uncertain/close matchups and penalizes repeats (for `1v1` Swiss).
 - `scheduling.scoringMode`: `"heuristic"` uses the original composite score (uncertainty + closeness + coverage); `"fisher"` uses Fisher information `p*(1-p)` weighted by combined uncertainty, which is the statistically optimal measure of expected information gain from a pairwise comparison.
 - `stopRules.enabled`: allows coarse ranking to stop early once top-K is stable and sufficiently separated/confident.

@@ -230,6 +230,9 @@ function buildRatingStateFromSwiss(
 		btIterations: rating.btIterations,
 		btTolerance: rating.btTolerance,
 		ciBootstrapSamples: rating.ciBootstrapSamples,
+		btRegularization: rating.btRegularization,
+		btUseNewton: rating.btUseNewton,
+		ciMode: rating.ciMode,
 	});
 	const pairwiseHistory: PairwiseObservation[] = [];
 	for (const match of swissMatches) {
@@ -381,6 +384,9 @@ export async function computeDetailedRunSummary(args: {
 		btIterations: config.tournament.rating.btIterations,
 		btTolerance: config.tournament.rating.btTolerance,
 		ciBootstrapSamples: config.tournament.rating.ciBootstrapSamples,
+		btRegularization: config.tournament.rating.btRegularization,
+		btUseNewton: config.tournament.rating.btUseNewton,
+		ciMode: config.tournament.rating.ciMode,
 	});
 
 	const topKHistory: string[][] = [];
@@ -512,6 +518,7 @@ export async function computeDetailedRunSummary(args: {
 				repeatCounts,
 				maxRepeatPairs: effectiveMaxRepeatPairs,
 				targetWinProb: config.tournament.finale.targetWinProb,
+				scoringMode: config.tournament.scheduling.scoringMode,
 			},
 			scope,
 			9999,
