@@ -219,7 +219,7 @@ function adjacentUnseparatedWithMinGap(args: {
 		const right = byId.get(rightId);
 		if (!left || !right) continue;
 		const gap = left.rating - right.rating;
-		const ciSeparated = left.ciLow > right.ciHigh || right.ciLow > left.ciHigh;
+		const ciSeparated = left.ciLow > right.ciHigh;
 		const gapSeparated = minSeparation > 0 ? gap >= minSeparation : false;
 		if (!ciSeparated && !gapSeparated) unseparated.push([leftId, rightId]);
 	}

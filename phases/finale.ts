@@ -1,4 +1,3 @@
-import { appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pairwiseJudge } from "../aiClient";
 import type {
@@ -429,7 +428,7 @@ export async function runFinalePhase(
 				md += `- ${idA}: ${votesA}\n`;
 				md += `- ${idB}: ${votesB}\n`;
 				md += `- Result: ${isDraw ? "DRAW" : votesA > votesB ? idA : idB}\n`;
-				await writeFile(judgmentFile, md, "utf-8");
+				await Bun.write(judgmentFile, md);
 			}
 
 			return match;
@@ -453,6 +452,9 @@ export async function runFinalePhase(
 					storedMatches.length
 				}`,
 			};
+			// Note: Each applyPairwiseBatch call refits BT from full history.
+			// This is O(matches × btIterations × history) but enables per-match
+			// delta logging for debugging. Acceptable for small finale batches.
 			applyPairwiseBatch(ratingState, [observation]);
 
 			const ratingAfterA = ratingState.records.get(match.aId)?.rating ?? null;
@@ -530,12 +532,11 @@ export async function runFinalePhase(
 						`| ${i + 1} | ${entry.id} | ${entry.rating.toFixed(1)} | ${entry.uncertainty.toFixed(1)} |\n`,
 					);
 				}
-				await writeFile(
+				await Bun.write(
 					join(output.standingsDir, `iter${iteration}.md`),
 					mdLines.join(""),
-					"utf-8",
 				);
-				await writeFile(
+				await Bun.write(
 					join(output.standingsDir, `iter${iteration}.json`),
 					JSON.stringify(
 						{
@@ -551,15 +552,18 @@ export async function runFinalePhase(
 						null,
 						2,
 					),
-					"utf-8",
 				);
 			}
 
 			if (isStructured) {
 				const iterPath = join(output.iterationsRoot, `iter${iteration}.md`);
-				await writeFile(iterPath, iterationLogMd, "utf-8");
+				await Bun.write(iterPath, iterationLogMd);
 			} else {
-				await appendFile(output.iterationsRoot, `${iterationLogMd}\n`, "utf-8");
+				const existing = await Bun.file(output.iterationsRoot).text();
+				await Bun.write(
+					output.iterationsRoot,
+					existing + `${iterationLogMd}\n`,
+				);
 			}
 		}
 

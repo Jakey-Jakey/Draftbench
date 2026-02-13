@@ -465,13 +465,20 @@ async function runCrossReviewPipeline(): Promise<void> {
 	console.log("");
 	console.log("🏆 TOP 3 (Final Rankings):");
 
+	const ratingEnabled = config.tournament.rating.enabled;
+	const useRating =
+		ratingEnabled &&
+		contestants.length > 0 &&
+		contestants.every((c) => typeof c.rating === "number");
+
 	const finalSorted = [...contestants].sort((a, b) => {
-		const ratingA = typeof a.rating === "number" ? a.rating : null;
-		const ratingB = typeof b.rating === "number" ? b.rating : null;
-		if (ratingA !== null && ratingB !== null && ratingB !== ratingA) {
-			return ratingB - ratingA;
+		if (useRating) {
+			const ratingA = a.rating ?? 0;
+			const ratingB = b.rating ?? 0;
+			if (ratingB !== ratingA) return ratingB - ratingA;
+		} else {
+			if (b.points !== a.points) return b.points - a.points;
 		}
-		if (b.points !== a.points) return b.points - a.points;
 		const winsA = a.wins ?? 0;
 		const winsB = b.wins ?? 0;
 		if (winsB !== winsA) return winsB - winsA;

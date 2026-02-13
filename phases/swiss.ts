@@ -1076,13 +1076,7 @@ export async function runSwissPhase(
 				console.log(`    ⏹ Coarse early stop triggered: ${stop.reason}`);
 				if (!dryRun) {
 					roundLogBody += `\n> Coarse ranking stopped early at round ${round}: ${stop.reason}\n`;
-				}
-				if (!dryRun) {
 					await writeRoundLog(round, roundLogBody);
-				}
-				if (!dryRun) {
-					// Persist intermediate stop state; the final save (with phase-complete marker)
-					// happens after the Swiss loop.
 					state.swissRound = round;
 					state.swissMatches = allSwissMatches as StoredSwissMatch[];
 					state.contestants = serializeContestants(contestants);
