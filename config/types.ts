@@ -93,7 +93,10 @@ export interface OutputConfig {
 }
 
 export interface ConcurrencyConfig {
-	maxParallel?: number | null;
+	/**
+	 * Max concurrent API calls. Omit this field (or set to 0 in TOML) for unlimited.
+	 */
+	maxParallel?: number;
 }
 
 export interface PromptsConfig {

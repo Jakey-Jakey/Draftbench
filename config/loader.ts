@@ -481,10 +481,7 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 
 	if (raw.concurrency) {
 		const concurrencyRaw = raw.concurrency as Record<string, unknown>;
-		if (
-			typeof concurrencyRaw.maxParallel === "number" ||
-			concurrencyRaw.maxParallel === null
-		) {
+		if (typeof concurrencyRaw.maxParallel === "number") {
 			result.concurrency = {
 				maxParallel: concurrencyRaw.maxParallel,
 			};

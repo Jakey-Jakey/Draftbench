@@ -127,7 +127,7 @@ allowOverRepeatCap = false
 # -----------------------------------------------------------------------------
 
 [concurrency]
-maxParallel = 5             # Limit parallel API calls (omit for unlimited)
+maxParallel = 5             # Limit parallel API calls (omit or set 0 for unlimited)
 
 # -----------------------------------------------------------------------------
 # OUTPUT

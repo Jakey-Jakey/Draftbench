@@ -137,7 +137,7 @@ minSeparation = 0
 allowOverRepeatCap = false
 
 [concurrency]
-maxParallel = 5          # Limit parallel API calls
+maxParallel = 5          # Limit parallel API calls (omit or set 0 for unlimited)
 ```
 
 ### Custom Prompts
