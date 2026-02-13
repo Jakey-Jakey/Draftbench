@@ -9,6 +9,8 @@ export interface PairwiseObservation {
 	sourceMatchId?: string;
 }
 
+export type CiMode = "bootstrap" | "hessian" | "normal";
+
 export interface RatingEngineConfig {
 	backend: RatingBackend;
 	initialRating: number;
@@ -18,6 +20,12 @@ export interface RatingEngineConfig {
 	btIterations: number;
 	btTolerance: number;
 	ciBootstrapSamples: number;
+	/** L2 regularization strength for Bradley-Terry. Shrinks theta toward 0 (the mean). 0 = disabled. */
+	btRegularization: number;
+	/** When true, use per-player Hessian-diagonal (Newton/MM) step sizes instead of a fixed learning rate. */
+	btUseNewton: boolean;
+	/** Confidence interval computation mode: "bootstrap" (resample), "hessian" (analytic, BT only), "normal" (z * uncertainty). */
+	ciMode: CiMode;
 }
 
 export interface RatingRecord {

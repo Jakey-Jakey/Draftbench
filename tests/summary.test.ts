@@ -45,7 +45,12 @@ describe("computeRunSummary", () => {
 			contestants,
 			swissMatches: [],
 			revisionsById,
-			finaleSummary: { matches: 3, judgments: 3, iterations: 1, converged: true },
+			finaleSummary: {
+				matches: 3,
+				judgments: 3,
+				iterations: 1,
+				converged: true,
+			},
 			swissEarlyStopReason: "stable top-k with confidence separation",
 		});
 
@@ -68,9 +73,8 @@ describe("computeRunSummary", () => {
 		expect(gen2?.n).toBe(1);
 
 		const pairRows = summary.attribution.pairs.gen_reviewer;
-		expect(pairRows.some((r) => r.key.includes("Gen1 (gen) + Rev1 (rev)"))).toBe(
-			true,
-		);
+		expect(
+			pairRows.some((r) => r.key.includes("Gen1 (gen) + Rev1 (rev)")),
+		).toBe(true);
 	});
 });
-

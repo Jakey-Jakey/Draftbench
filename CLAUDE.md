@@ -66,9 +66,13 @@ Coarse ranking (Swiss rounds) supports a formal rating backend and Swiss early s
 [tournament.rating]
 enabled = true
 backend = "elo" # or "bradley-terry"
+btRegularization = 0.01 # L2 regularization for BT (0 = disabled)
+btUseNewton = true # Per-player Hessian step sizes for BT
+ciMode = "hessian" # "bootstrap", "hessian", or "normal"
 
 [tournament.scheduling]
 mode = "adaptive" # or "static"
+scoringMode = "fisher" # "heuristic" or "fisher"
 
 [tournament.stopRules]
 enabled = true

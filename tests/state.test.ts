@@ -85,6 +85,9 @@ describe("PipelineState", () => {
 					btIterations: 200,
 					btTolerance: 1e-6,
 					ciBootstrapSamples: 123,
+					btRegularization: 0,
+					btUseNewton: false,
+					ciMode: "bootstrap",
 				},
 				records: [
 					{

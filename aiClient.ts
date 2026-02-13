@@ -1,8 +1,11 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateText } from "ai";
-
+import {
+	interpolate,
+	type PipelineConfig,
+	type ReasoningEffort,
+} from "./config";
 import { DEFAULT_CONFIG } from "./config/defaults";
-import { interpolate, type PipelineConfig, type ReasoningEffort } from "./config";
 import {
 	JudgeStatblocksResponseSchema,
 	PairwiseJudgeResponseSchema,

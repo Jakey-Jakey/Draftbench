@@ -1,11 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "./args";
-import { getLoadedConfig, getLoadedPaths, resetLoadedConfig, setLoadedConfig } from "./context";
+import {
+	getLoadedConfig,
+	getLoadedPaths,
+	resetLoadedConfig,
+	setLoadedConfig,
+} from "./context";
 import { DEFAULT_CONFIG } from "./defaults";
 import { deepMerge, loadPrompts, parseTOMLConfig } from "./loader";
-import { estimateApiCalls, normalizeConfig, validateConfig } from "./validator";
 import type { PipelineConfig, ReasoningEffort, RoleEntry } from "./types";
+import { estimateApiCalls, normalizeConfig, validateConfig } from "./validator";
 
 export * from "./types";
 export { parseArgs };
@@ -78,7 +83,10 @@ export function loadConfig(
 			};
 			console.log(`📝 Loaded prompts from: ${resolvedPromptsPath}`);
 		} catch (e) {
-			console.error(`⚠️ Failed to parse prompts file ${resolvedPromptsPath}:`, e);
+			console.error(
+				`⚠️ Failed to parse prompts file ${resolvedPromptsPath}:`,
+				e,
+			);
 			console.log("   Using default prompts.");
 		}
 	} else if (promptsPath) {

@@ -3,12 +3,16 @@ import type { RatingStanding, RatingState } from "../rating/types";
 import { confidenceMultiplier } from "../utils";
 import { pairKey } from "./pairs";
 
+export type ActiveScoringMode = "heuristic" | "fisher";
+
 export interface ActiveRankingContext {
 	standings: RatingStanding[];
 	ratingState: RatingState;
 	repeatCounts: Map<string, number>;
 	maxRepeatPairs: number;
 	targetWinProb: number;
+	/** Pair scoring strategy: "heuristic" (|p - target|, lower=better) or "fisher" (p*(1-p), higher=better). */
+	scoringMode?: ActiveScoringMode;
 }
 
 export interface ActiveRankingResult {
@@ -121,6 +125,7 @@ export function planActiveRankingBatch(
 	const byId = new Map(context.standings.map((s) => [s.id, s] as const));
 	const sep = allPairsSeparated(context.standings, scope, confidenceLevel);
 
+	const useFisher = (context.scoringMode ?? "heuristic") === "fisher";
 	const candidates: { aId: string; bId: string; score: number }[] = [];
 	for (let i = 0; i < scope.length; i++) {
 		for (let j = i + 1; j < scope.length; j++) {
@@ -138,7 +143,17 @@ export function planActiveRankingBatch(
 			if (repeats >= context.maxRepeatPairs) continue;
 
 			const p = estimateWinProbability(context.ratingState, aId, bId);
-			const score = Math.abs(p - context.targetWinProb); // lower is more informative
+
+			let score: number;
+			if (useFisher) {
+				// Fisher information: p*(1-p) is the exact expected information gain
+				// from a single pairwise comparison. Higher = more informative.
+				// We negate so that sorting ascending still picks the best candidates.
+				score = -(p * (1 - p));
+			} else {
+				// Original heuristic: |p - targetWinProb|, lower is more informative
+				score = Math.abs(p - context.targetWinProb);
+			}
 			candidates.push({ aId, bId, score });
 		}
 	}

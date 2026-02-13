@@ -308,8 +308,8 @@ function countSwissJudgeCalls(
 }
 
 // ============================================================================
-	// Swiss Phase
-	// ============================================================================
+// Swiss Phase
+// ============================================================================
 
 export interface SwissOutputConfig {
 	mode: "legacy" | "structured";
@@ -370,37 +370,41 @@ export async function runSwissPhase(
 	console.log(
 		`Phase 5/6: Coarse Ranking (Swiss rounds) (${SWISS_ROUNDS} rounds, ${SWISS_FORMAT} format, judges: ${judgeLabel})...`,
 	);
-		if (schedulingConfig.mode === "adaptive" && !ratingConfig.enabled) {
-			console.warn(
-				"  ⚠️ Adaptive scheduling requested without rating backend; falling back to static Swiss pairing.",
-			);
+	if (schedulingConfig.mode === "adaptive" && !ratingConfig.enabled) {
+		console.warn(
+			"  ⚠️ Adaptive scheduling requested without rating backend; falling back to static Swiss pairing.",
+		);
+	}
+	if (stopRulesConfig.enabled && !ratingConfig.enabled) {
+		console.warn(
+			"  ⚠️ Stop rules enabled without rating backend; stop rules will be ignored.",
+		);
+	}
+
+	const isStructured = output.mode === "structured";
+
+	const writeRoundLog = async (round: number, bodyMd: string) => {
+		if (dryRun) return;
+		if (isStructured) {
+			const roundPath = join(output.roundsRoot, `round${round}.md`);
+			const md = `# Coarse Ranking (Swiss rounds) - Round ${round}\n\n${bodyMd}`;
+			await writeFile(roundPath, md, "utf-8");
+			return;
 		}
-		if (stopRulesConfig.enabled && !ratingConfig.enabled) {
-			console.warn(
-				"  ⚠️ Stop rules enabled without rating backend; stop rules will be ignored.",
-			);
-		}
 
-		const isStructured = output.mode === "structured";
+		// Legacy mode appends to a single `swiss_rounds.md`.
+		await appendFile(
+			output.roundsRoot,
+			`## Round ${round}\n\n${bodyMd}\n`,
+			"utf-8",
+		);
+	};
 
-		const writeRoundLog = async (round: number, bodyMd: string) => {
-			if (dryRun) return;
-			if (isStructured) {
-				const roundPath = join(output.roundsRoot, `round${round}.md`);
-				const md = `# Coarse Ranking (Swiss rounds) - Round ${round}\n\n${bodyMd}`;
-				await writeFile(roundPath, md, "utf-8");
-				return;
-			}
-
-			// Legacy mode appends to a single `swiss_rounds.md`.
-			await appendFile(output.roundsRoot, `## Round ${round}\n\n${bodyMd}\n`, "utf-8");
-		};
-
-		const hasSwissProgress =
-			isResuming &&
-			(state.swissRound ?? 0) > 0 &&
-			state.contestants &&
-			state.swissMatches.length > 0;
+	const hasSwissProgress =
+		isResuming &&
+		(state.swissRound ?? 0) > 0 &&
+		state.contestants &&
+		state.swissMatches.length > 0;
 	const swissAlreadyCompleted =
 		hasSwissProgress &&
 		isPhaseCompleted(state, "swiss") &&
@@ -508,6 +512,7 @@ export async function runSwissPhase(
 						avoidRepeatPenalty: schedulingConfig.avoidRepeatPenalty,
 						maxRepeatPairs: schedulingConfig.maxRepeatPairs,
 						randomSeed: round * 9_973,
+						scoringMode: schedulingConfig.scoringMode ?? "heuristic",
 					},
 				);
 				pairs = scheduled.pairs;
@@ -524,33 +529,36 @@ export async function runSwissPhase(
 				pairs = scheduled.pairs;
 				bye = scheduled.bye;
 				if (bye) byeIds.add(bye);
-				}
-				const pairPromises = pairs.map(
-					async ([idA, idB]): Promise<{ match: SwissMatch; logEntry: string }> => {
-						const textA = revisionsById.get(idA)?.result.text;
-						const textB = revisionsById.get(idB)?.result.text;
-						if (!textA || !textB) {
-							throw new Error(
-								`Missing revision text for Swiss 1v1 match: ${!textA ? idA : idB}`,
-							);
-						}
-						const entries: [string, string][] = [
-							[idA, textA],
-							[idB, textB],
-						];
-						// Shuffle presentation order
-						const shuffled = shuffleArray(entries);
-						const e1 = requireDefined(
-							shuffled[0],
-							"Missing shuffled entry 1 for Swiss pair",
+			}
+			const pairPromises = pairs.map(
+				async ([idA, idB]): Promise<{
+					match: SwissMatch;
+					logEntry: string;
+				}> => {
+					const textA = revisionsById.get(idA)?.result.text;
+					const textB = revisionsById.get(idB)?.result.text;
+					if (!textA || !textB) {
+						throw new Error(
+							`Missing revision text for Swiss 1v1 match: ${!textA ? idA : idB}`,
 						);
-						const e2 = requireDefined(
-							shuffled[1],
-							"Missing shuffled entry 2 for Swiss pair",
-						);
-	
-						let match: SwissMatch;
-						let logEntry = "";
+					}
+					const entries: [string, string][] = [
+						[idA, textA],
+						[idB, textB],
+					];
+					// Shuffle presentation order
+					const shuffled = shuffleArray(entries);
+					const e1 = requireDefined(
+						shuffled[0],
+						"Missing shuffled entry 1 for Swiss pair",
+					);
+					const e2 = requireDefined(
+						shuffled[1],
+						"Missing shuffled entry 2 for Swiss pair",
+					);
+
+					let match: SwissMatch;
+					let logEntry = "";
 
 					if (dryRun) {
 						// Mock
@@ -643,12 +651,12 @@ export async function runSwissPhase(
 							logEntry += `  - ${result.judge} picked ${resolvedWinner}: *${result.reasoning}*\n`;
 						}
 
-							// Save judgment artifact
-							const judgmentFile = join(
-								output.judgmentsDir,
-								`round${round}_${idA}_vs_${idB}.md`,
-							);
-							let judgmentMd = `# Swiss Round ${round} Judgment (1v1)\n\n`;
+						// Save judgment artifact
+						const judgmentFile = join(
+							output.judgmentsDir,
+							`round${round}_${idA}_vs_${idB}.md`,
+						);
+						let judgmentMd = `# Swiss Round ${round} Judgment (1v1)\n\n`;
 						judgmentMd += `## Judges\n`;
 						for (const judge of SWISS_JUDGES) {
 							judgmentMd += `- ${getShortModelName(judge.model)} (${judge.effort ?? "low"})\n`;
@@ -660,32 +668,32 @@ export async function runSwissPhase(
 						} else {
 							judgmentMd += `Winner: ${match.first}\n\n`;
 						}
-							judgmentMd += "## Votes\n";
-							judgmentMd += logEntry.replace(/^- /, "");
-							await writeFile(judgmentFile, judgmentMd, "utf-8");
-						}
-
-						return { match, logEntry };
-					},
-				);
-
-				const roundResults = await Promise.all(pairPromises);
-
-				for (const { match, logEntry } of roundResults) {
-					const idA = match.ids[0];
-					const idB = match.ids[1];
-					if (!idA || !idB || idB === "BYE") {
-						allSwissMatches.push(match);
-						continue;
+						judgmentMd += "## Votes\n";
+						judgmentMd += logEntry.replace(/^- /, "");
+						await writeFile(judgmentFile, judgmentMd, "utf-8");
 					}
 
-					if (!dryRun && logEntry) {
-						roundLogBody += logEntry;
-					}
+					return { match, logEntry };
+				},
+			);
 
-					const contenderA = contestants.find((c) => c.id === idA);
-					const contenderB = contestants.find((c) => c.id === idB);
-					if (contenderA && contenderB) {
+			const roundResults = await Promise.all(pairPromises);
+
+			for (const { match, logEntry } of roundResults) {
+				const idA = match.ids[0];
+				const idB = match.ids[1];
+				if (!idA || !idB || idB === "BYE") {
+					allSwissMatches.push(match);
+					continue;
+				}
+
+				if (!dryRun && logEntry) {
+					roundLogBody += logEntry;
+				}
+
+				const contenderA = contestants.find((c) => c.id === idA);
+				const contenderB = contestants.find((c) => c.id === idB);
+				if (contenderA && contenderB) {
 					const sharedPoints = getSharedPoints(match);
 					contenderA.points += sharedPoints[idA] ?? 0;
 					contenderB.points += sharedPoints[idB] ?? 0;
@@ -712,10 +720,10 @@ export async function runSwissPhase(
 						);
 					}
 				}
-					allSwissMatches.push(match);
-				}
+				allSwissMatches.push(match);
+			}
 
-				for (const byeId of byeIds) {
+			for (const byeId of byeIds) {
 				const byeContestant = contestants.find((c) => c.id === byeId);
 				if (byeContestant) {
 					byeContestant.points += 1;
@@ -729,18 +737,18 @@ export async function runSwissPhase(
 					second: "BYE",
 					third: "N/A",
 					reasoning: "Bye (no opponent available this round).",
-					};
+				};
 
-					if (!dryRun) {
-						roundLogBody += `- **Winner: ${byeId}** (bye)\n  - *${byeMatch.reasoning}*\n`;
-					}
-
-					console.log(`    ✓ ${byeId} receives a bye (1 point awarded)`);
-					allSwissMatches.push(byeMatch);
+				if (!dryRun) {
+					roundLogBody += `- **Winner: ${byeId}** (bye)\n  - *${byeMatch.reasoning}*\n`;
 				}
-				const matchCount = pairs.length + byeIds.size;
-				console.log(`    ✓ Round ${round} complete (${matchCount} matches)`);
-			} else {
+
+				console.log(`    ✓ ${byeId} receives a bye (1 point awarded)`);
+				allSwissMatches.push(byeMatch);
+			}
+			const matchCount = pairs.length + byeIds.size;
+			console.log(`    ✓ Round ${round} complete (${matchCount} matches)`);
+		} else {
 			// === 1v1v1 TRIPLE FORMAT (Original) ===
 			const { triples } = generateSwissTriples(contestants, round);
 
@@ -784,11 +792,14 @@ export async function runSwissPhase(
 				}
 			} else {
 				// Real API calls
-					const triplePromises = triples.map(
-						async ([idA, idB, idC]): Promise<{ match: SwissMatch; logEntry: string }> => {
-							const textA = revisionsById.get(idA)?.result.text;
-							const textB = revisionsById.get(idB)?.result.text;
-							const textC = revisionsById.get(idC)?.result.text;
+				const triplePromises = triples.map(
+					async ([idA, idB, idC]): Promise<{
+						match: SwissMatch;
+						logEntry: string;
+					}> => {
+						const textA = revisionsById.get(idA)?.result.text;
+						const textB = revisionsById.get(idB)?.result.text;
+						const textC = revisionsById.get(idC)?.result.text;
 						if (!textA || !textB || !textC) {
 							const missingId = !textA ? idA : !textB ? idB : idC;
 							throw new Error(
@@ -910,22 +921,22 @@ export async function runSwissPhase(
 								logEntry;
 						}
 
-							const match: SwissMatch = {
-								round,
-								ids: [idA, idB, idC],
-								first: first[0],
+						const match: SwissMatch = {
+							round,
+							ids: [idA, idB, idC],
+							first: first[0],
 							second: second[0],
 							third: third[0],
 							reasoning: "Aggregated multi-judge Swiss vote.",
 							tieGroup,
-								sharedPoints,
-							};
+							sharedPoints,
+						};
 
-							const judgmentFile = join(
-								output.judgmentsDir,
-								`round${round}_${idA}_vs_${idB}_vs_${idC}.md`,
-							);
-							let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
+						const judgmentFile = join(
+							output.judgmentsDir,
+							`round${round}_${idA}_vs_${idB}_vs_${idC}.md`,
+						);
+						let judgmentMd = `# Swiss Round ${round} Judgment\n\n`;
 						judgmentMd += "## Judges\n";
 						for (const judge of SWISS_JUDGES) {
 							judgmentMd += `- ${getShortModelName(judge.model)} (${judge.effort ?? "low"})\n`;
@@ -940,36 +951,36 @@ export async function runSwissPhase(
 						judgmentMd += `- ${match.second}: ${match.sharedPoints?.[match.second] ?? 0} pts\n`;
 						judgmentMd += `- ${match.third}: ${match.sharedPoints?.[match.third] ?? 0} pts\n`;
 						judgmentMd += `- Tie Group: ${match.tieGroup ?? "none"}\n\n`;
-							judgmentMd += "## Votes\n";
-							judgmentMd += logEntry.replace(/^- /, "");
-							await writeFile(judgmentFile, judgmentMd, "utf-8");
+						judgmentMd += "## Votes\n";
+						judgmentMd += logEntry.replace(/^- /, "");
+						await writeFile(judgmentFile, judgmentMd, "utf-8");
 
-							return { match, logEntry };
-						},
-					);
+						return { match, logEntry };
+					},
+				);
 
-					const roundResults = await Promise.all(triplePromises);
+				const roundResults = await Promise.all(triplePromises);
 
-					for (const { match, logEntry } of roundResults) {
-						if (!dryRun && logEntry) {
-							roundLogBody += logEntry;
-						}
-						applyThreeWaySwissMatch(contestants, match);
+				for (const { match, logEntry } of roundResults) {
+					if (!dryRun && logEntry) {
+						roundLogBody += logEntry;
+					}
+					applyThreeWaySwissMatch(contestants, match);
 
-						allSwissMatches.push(match);
-						if ((match.tieGroup ?? "none") === "none") {
+					allSwissMatches.push(match);
+					if ((match.tieGroup ?? "none") === "none") {
 						console.log(
 							`    ✓ 1st: ${match.first} | 2nd: ${match.second} | 3rd: ${match.third}`,
 						);
 					} else {
 						console.log(
 							`    = Tie result: ${match.first} | ${match.second} | ${match.third} (${match.tieGroup})`,
-							);
-						}
+						);
 					}
 				}
-				console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
 			}
+			console.log(`    ✓ Round ${round} complete (${triples.length} matches)`);
+		}
 
 		lastCompletedRound = round;
 		const roundPairwise = allSwissMatches
@@ -979,124 +990,122 @@ export async function runSwissPhase(
 			pairwiseHistory.push(...roundPairwise);
 		}
 
-			if (ratingState && roundPairwise.length > 0) {
-				applyPairwiseBatch(ratingState, roundPairwise);
-				const orderedIds = syncContestantsWithRatings(contestants, ratingState);
-				if (stopRulesConfig.enabled) {
+		if (ratingState && roundPairwise.length > 0) {
+			applyPairwiseBatch(ratingState, roundPairwise);
+			const orderedIds = syncContestantsWithRatings(contestants, ratingState);
+			if (stopRulesConfig.enabled) {
 				const topK = Math.max(
 					1,
 					Math.min(stopRulesConfig.topK, orderedIds.length),
 				);
-					topKHistory.push(orderedIds.slice(0, topK));
+				topKHistory.push(orderedIds.slice(0, topK));
+			}
+		}
+
+		if (!dryRun && ratingState && ratingsBeforeRound) {
+			const standings = getRatingStandings(ratingState);
+			const top = standings.slice(0, Math.min(8, standings.length));
+			if (top.length > 0) {
+				console.log("    📈 Rating moves (top 8):");
+				for (let i = 0; i < top.length; i++) {
+					const entry = top[i];
+					if (!entry) continue;
+					const before = ratingsBeforeRound.get(entry.id) ?? entry.rating;
+					const delta = entry.rating - before;
+					console.log(
+						`      ${i + 1}. ${entry.id}: ${entry.rating.toFixed(1)} (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})`,
+					);
 				}
 			}
 
-			if (!dryRun && ratingState && ratingsBeforeRound) {
-				const standings = getRatingStandings(ratingState);
-				const top = standings.slice(0, Math.min(8, standings.length));
-				if (top.length > 0) {
-					console.log("    📈 Rating moves (top 8):");
-					for (let i = 0; i < top.length; i++) {
-						const entry = top[i];
-						if (!entry) continue;
-						const before = ratingsBeforeRound.get(entry.id) ?? entry.rating;
-						const delta = entry.rating - before;
-						console.log(
-							`      ${i + 1}. ${entry.id}: ${entry.rating.toFixed(1)} (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})`,
-						);
-					}
-				}
-
-				if (isStructured && output.standingsDir) {
-					const mdLines: string[] = [];
-					mdLines.push(`# Coarse Standings - Round ${round}\n`);
-					mdLines.push(`| # | id | rating | Δ | unc |\n|---:|---|---:|---:|---:|\n`);
-					for (let i = 0; i < top.length; i++) {
-						const entry = top[i];
-						if (!entry) continue;
-						const before = ratingsBeforeRound.get(entry.id) ?? entry.rating;
-						const delta = entry.rating - before;
-						mdLines.push(
-							`| ${i + 1} | ${entry.id} | ${entry.rating.toFixed(1)} | ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} | ${entry.uncertainty.toFixed(1)} |\n`,
-						);
-					}
-					await writeFile(
-						join(output.standingsDir, `round${round}.md`),
-						mdLines.join(""),
-						"utf-8",
-					);
-					await writeFile(
-						join(output.standingsDir, `round${round}.json`),
-						JSON.stringify(
-							{
-								round,
-								standings: standings.map((s) => ({
-									id: s.id,
-									rating: s.rating,
-									uncertainty: s.uncertainty,
-								})),
-							},
-							null,
-							2,
-						),
-						"utf-8",
+			if (isStructured && output.standingsDir) {
+				const mdLines: string[] = [];
+				mdLines.push(`# Coarse Standings - Round ${round}\n`);
+				mdLines.push(
+					`| # | id | rating | Δ | unc |\n|---:|---|---:|---:|---:|\n`,
+				);
+				for (let i = 0; i < top.length; i++) {
+					const entry = top[i];
+					if (!entry) continue;
+					const before = ratingsBeforeRound.get(entry.id) ?? entry.rating;
+					const delta = entry.rating - before;
+					mdLines.push(
+						`| ${i + 1} | ${entry.id} | ${entry.rating.toFixed(1)} | ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} | ${entry.uncertainty.toFixed(1)} |\n`,
 					);
 				}
-				}
-
-				if (ratingState && stopRulesConfig.enabled) {
-					const stop = evaluateStopRules(
+				await writeFile(
+					join(output.standingsDir, `round${round}.md`),
+					mdLines.join(""),
+					"utf-8",
+				);
+				await writeFile(
+					join(output.standingsDir, `round${round}.json`),
+					JSON.stringify(
 						{
 							round,
-							totalCalls: countSwissJudgeCalls(
-								allSwissMatches,
-								SWISS_JUDGES.length,
-							),
-							standings: getRatingStandings(ratingState),
-							topKHistory,
+							standings: standings.map((s) => ({
+								id: s.id,
+								rating: s.rating,
+								uncertainty: s.uncertainty,
+							})),
 						},
-						stopRulesConfig,
-					);
-
-					if (stop.shouldStop) {
-						stopReason = stop.reason;
-						console.log(`    ⏹ Coarse early stop triggered: ${stop.reason}`);
-						if (!dryRun) {
-							roundLogBody += `\n> Coarse ranking stopped early at round ${round}: ${stop.reason}\n`;
-						}
-						if (!dryRun) {
-							await writeRoundLog(round, roundLogBody);
-						}
-						if (!dryRun) {
-						// Persist intermediate stop state; the final save (with phase-complete marker)
-							// happens after the Swiss loop.
-							state.swissRound = round;
-							state.swissMatches = allSwissMatches as StoredSwissMatch[];
-							state.contestants = serializeContestants(contestants);
-							state.ratingState = serializeRatingState(ratingState);
-							state.pairwiseHistory = pairwiseHistory;
-							state.topKHistory = topKHistory;
-							state.swissStopReason = stopReason;
-							saveState(runDir, state);
-						}
-						break;
-					}
-				}
-
-			if (!dryRun) {
-				await writeRoundLog(round, roundLogBody);
+						null,
+						2,
+					),
+					"utf-8",
+				);
 			}
+		}
 
-			if (!dryRun) {
+		if (ratingState && stopRulesConfig.enabled) {
+			const stop = evaluateStopRules(
+				{
+					round,
+					totalCalls: countSwissJudgeCalls(
+						allSwissMatches,
+						SWISS_JUDGES.length,
+					),
+					standings: getRatingStandings(ratingState),
+					topKHistory,
+				},
+				stopRulesConfig,
+			);
+
+			if (stop.shouldStop) {
+				stopReason = stop.reason;
+				console.log(`    ⏹ Coarse early stop triggered: ${stop.reason}`);
+				if (!dryRun) {
+					roundLogBody += `\n> Coarse ranking stopped early at round ${round}: ${stop.reason}\n`;
+					await writeRoundLog(round, roundLogBody);
 					state.swissRound = round;
 					state.swissMatches = allSwissMatches as StoredSwissMatch[];
 					state.contestants = serializeContestants(contestants);
-					state.ratingState = ratingState ? serializeRatingState(ratingState) : null;
+					state.ratingState = serializeRatingState(ratingState);
 					state.pairwiseHistory = pairwiseHistory;
 					state.topKHistory = topKHistory;
 					state.swissStopReason = stopReason;
 					saveState(runDir, state);
 				}
+				break;
+			}
+		}
+
+		if (!dryRun) {
+			await writeRoundLog(round, roundLogBody);
+		}
+
+		if (!dryRun) {
+			state.swissRound = round;
+			state.swissMatches = allSwissMatches as StoredSwissMatch[];
+			state.contestants = serializeContestants(contestants);
+			state.ratingState = ratingState
+				? serializeRatingState(ratingState)
+				: null;
+			state.pairwiseHistory = pairwiseHistory;
+			state.topKHistory = topKHistory;
+			state.swissStopReason = stopReason;
+			saveState(runDir, state);
+		}
 	}
 
 	console.log("");

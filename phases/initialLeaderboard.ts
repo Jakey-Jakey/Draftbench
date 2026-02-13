@@ -5,11 +5,11 @@ import {
 	type ModelSlug,
 	pairwiseJudge,
 } from "../aiClient";
-import {
-	type InitialLeaderboardStyle,
-	type RoleEntry,
-	type InitialLeaderboardConfig,
-	type PipelineConfig,
+import type {
+	InitialLeaderboardConfig,
+	InitialLeaderboardStyle,
+	PipelineConfig,
+	RoleEntry,
 } from "../config";
 import {
 	isPhaseCompleted,
@@ -375,11 +375,11 @@ export async function runInitialLeaderboardPhase(
 		>) {
 			selectedByModel.set(model, draft as GenerateResult);
 		}
-			console.log(
-				"  ↩︎ Loaded first-draft selection results from state (skipping selection)\n",
-			);
-			return { selectedByModel };
-		}
+		console.log(
+			"  ↩︎ Loaded first-draft selection results from state (skipping selection)\n",
+		);
+		return { selectedByModel };
+	}
 
 	// Handle disabled leaderboard or single generation
 	if (!INITIAL_LEADERBOARD.enabled || INITIAL_GENERATIONS <= 1) {

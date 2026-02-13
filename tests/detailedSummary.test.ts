@@ -68,7 +68,12 @@ describe("computeDetailedRunSummary", () => {
 			contestants,
 			swissMatches,
 			finaleMatches,
-			finaleSummary: { matches: 1, judgments: 2, iterations: 1, converged: false },
+			finaleSummary: {
+				matches: 1,
+				judgments: 2,
+				iterations: 1,
+				converged: false,
+			},
 			swissStopReason: null,
 			includeHashes: false,
 		});
@@ -84,9 +89,8 @@ describe("computeDetailedRunSummary", () => {
 		expect(detailed.fineRanking.iterations.length).toBe(1);
 		expect(detailed.fineRanking.iterations[0]?.iteration).toBe(1);
 		expect(detailed.fineRanking.iterations[0]?.matches.length).toBe(1);
-		expect(detailed.fineRanking.iterations[0]?.matches[0]?.judgmentFile).toContain(
-			"finale_judgments",
-		);
+		expect(
+			detailed.fineRanking.iterations[0]?.matches[0]?.judgmentFile,
+		).toContain("finale_judgments");
 	});
 });
-

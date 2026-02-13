@@ -48,10 +48,10 @@
 |------|---------|
 | `utils.ts` | Shared utilities: directory creation, timestamps, shuffle, dry-run helpers. |
 | `leaderboard.ts` | Leaderboard computation and coarse/fine ranking type definitions. |
-| `rating/engine.ts` | Elo and Bradley-Terry rating backend used by Swiss standings. |
+| `rating/engine.ts` | Elo and Bradley-Terry rating backend used by Swiss standings. BT supports L2 regularization, Newton/MM step sizes, and Hessian-based CIs. |
 | `rating/convert.ts` | Converts Swiss match outcomes into pairwise observations for rating updates. |
-| `scheduling/adaptive.ts` | Adaptive pair scheduler for Swiss `1v1`. |
-| `scheduling/activeRanking.ts` | Active-learning planner for selecting informative fine ranking matchups. |
+| `scheduling/adaptive.ts` | Adaptive pair scheduler for Swiss `1v1`. Supports Fisher-information-based scoring. |
+| `scheduling/activeRanking.ts` | Active-learning planner for selecting informative fine ranking matchups. Supports Fisher-information-based pair scoring. |
 | `scheduling/stopRules.ts` | Confidence/stability stop-rule evaluator for early Swiss termination. |
 
 ### Configuration Files
@@ -149,9 +149,13 @@ initialGenerations = 1
 [tournament.rating]
 enabled = true
 backend = "elo"  # "elo" or "bradley-terry"
+btRegularization = 0.01  # L2 regularization for BT (0 = disabled)
+btUseNewton = true  # Per-player Hessian step sizes for BT
+ciMode = "hessian"  # "bootstrap", "hessian" (analytic, BT only), or "normal"
 
 [tournament.scheduling]
 mode = "adaptive"  # "adaptive" or "static"
+scoringMode = "fisher"  # "heuristic" or "fisher"
 
 [tournament.stopRules]
 enabled = true
@@ -242,7 +246,11 @@ allowOverRepeatCap = false
 ```
 
 - `rating.enabled`: when true, coarse standings use rating estimates instead of raw points.
+- `rating.btRegularization`: L2 penalty strength for the Bradley-Terry backend; shrinks player parameters toward the mean to reduce noise from sparse observations (0 = disabled).
+- `rating.btUseNewton`: when true, uses per-player Hessian-diagonal (Newton/MM) step sizes instead of a fixed learning rate, converging significantly faster.
+- `rating.ciMode`: selects confidence interval computation: `"bootstrap"` (resample-based), `"hessian"` (analytic from BT log-likelihood Hessian, `O(history)` instead of `O(samples * iters * history)`), or `"normal"` (`z * uncertainty` fallback).
 - `scheduling.mode = "adaptive"`: prioritizes uncertain/close matchups and penalizes repeats (for `1v1` Swiss).
+- `scheduling.scoringMode`: `"heuristic"` uses the original composite score (uncertainty + closeness + coverage); `"fisher"` uses Fisher information `p*(1-p)` weighted by combined uncertainty, which is the statistically optimal measure of expected information gain from a pairwise comparison.
 - `stopRules.enabled`: allows coarse ranking to stop early once top-K is stable and sufficiently separated/confident.
 - `fineRanking.enabled`: after coarse ranking, runs targeted pairwise matches among the top-K to separate adjacent confidence intervals (budget-capped).
 

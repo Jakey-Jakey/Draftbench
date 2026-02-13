@@ -277,6 +277,24 @@ export function validateConfig(config: PipelineConfig): string[] {
 		);
 	}
 	if (
+		!Number.isFinite(config.tournament.rating.btRegularization) ||
+		config.tournament.rating.btRegularization < 0
+	) {
+		throw new Error("tournament.rating.btRegularization must be a number >= 0");
+	}
+	if (typeof config.tournament.rating.btUseNewton !== "boolean") {
+		throw new Error("tournament.rating.btUseNewton must be a boolean");
+	}
+	if (
+		config.tournament.rating.ciMode !== "bootstrap" &&
+		config.tournament.rating.ciMode !== "hessian" &&
+		config.tournament.rating.ciMode !== "normal"
+	) {
+		throw new Error(
+			'tournament.rating.ciMode must be "bootstrap", "hessian", or "normal"',
+		);
+	}
+	if (
 		config.tournament.scheduling.mode !== "adaptive" &&
 		config.tournament.scheduling.mode !== "static"
 	) {
@@ -307,6 +325,14 @@ export function validateConfig(config: PipelineConfig): string[] {
 	) {
 		throw new Error(
 			"tournament.scheduling.maxRepeatPairs must be an integer >= 1",
+		);
+	}
+	if (
+		config.tournament.scheduling.scoringMode !== "heuristic" &&
+		config.tournament.scheduling.scoringMode !== "fisher"
+	) {
+		throw new Error(
+			'tournament.scheduling.scoringMode must be "heuristic" or "fisher"',
 		);
 	}
 	if (
@@ -473,7 +499,10 @@ export function validateConfig(config: PipelineConfig): string[] {
 		);
 		config.tournament.stopRules.topK = clamped;
 	}
-	if (config.tournament.stopRules.enabled && !config.tournament.rating.enabled) {
+	if (
+		config.tournament.stopRules.enabled &&
+		!config.tournament.rating.enabled
+	) {
 		warnings.push(
 			"tournament.stopRules.enabled requires tournament.rating.enabled; disabling stop rules.",
 		);

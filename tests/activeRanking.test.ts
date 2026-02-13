@@ -98,6 +98,116 @@ describe("active ranking", () => {
 		expect(planned.pairs).toEqual([["B", "C"]]);
 	});
 
+	test("planActiveRankingBatch with fisher scoring prioritizes highest Fisher info pair", () => {
+		const ids = ["A", "B", "C", "D"];
+		const ratingState = createRatingState(ids, {
+			backend: "elo",
+			initialRating: 1500,
+			kFactor: 24,
+			provisionalMatches: 5,
+			tieValue: 0.5,
+			btIterations: 200,
+			btTolerance: 1e-6,
+			ciBootstrapSamples: 0,
+		});
+
+		// B/C closest → Fisher info p*(1-p) is highest
+		requireDefined(ratingState.records.get("A"), "missing A record").rating =
+			1700;
+		requireDefined(ratingState.records.get("B"), "missing B record").rating =
+			1500;
+		requireDefined(ratingState.records.get("C"), "missing C record").rating =
+			1490;
+		requireDefined(ratingState.records.get("D"), "missing D record").rating =
+			1200;
+
+		const standings = standingsFromRatings({
+			A: { rating: 1700, uncertainty: 200 },
+			B: { rating: 1500, uncertainty: 200 },
+			C: { rating: 1490, uncertainty: 200 },
+			D: { rating: 1200, uncertainty: 200 },
+		});
+
+		const scope = ["A", "B", "C", "D"];
+		const planned = planActiveRankingBatch(
+			{
+				standings,
+				ratingState,
+				repeatCounts: new Map(),
+				maxRepeatPairs: 2,
+				targetWinProb: 0.5,
+				scoringMode: "fisher",
+			},
+			scope,
+			1,
+			0.9,
+		);
+
+		// B-C is the pair with the highest Fisher information (closest to p=0.5)
+		expect(planned.pairs).toEqual([["B", "C"]]);
+	});
+
+	test("fisher and heuristic scoring agree on most informative pair", () => {
+		const ids = ["A", "B", "C"];
+		const ratingState = createRatingState(ids, {
+			backend: "elo",
+			initialRating: 1500,
+			kFactor: 24,
+			provisionalMatches: 5,
+			tieValue: 0.5,
+			btIterations: 200,
+			btTolerance: 1e-6,
+			ciBootstrapSamples: 0,
+		});
+
+		requireDefined(ratingState.records.get("A"), "missing A record").rating =
+			1600;
+		requireDefined(ratingState.records.get("B"), "missing B record").rating =
+			1500;
+		requireDefined(ratingState.records.get("C"), "missing C record").rating =
+			1400;
+
+		const standings = standingsFromRatings({
+			A: { rating: 1600, uncertainty: 200 },
+			B: { rating: 1500, uncertainty: 200 },
+			C: { rating: 1400, uncertainty: 200 },
+		});
+
+		const scope = ["A", "B", "C"];
+
+		const heuristic = planActiveRankingBatch(
+			{
+				standings,
+				ratingState,
+				repeatCounts: new Map(),
+				maxRepeatPairs: 2,
+				targetWinProb: 0.5,
+				scoringMode: "heuristic",
+			},
+			scope,
+			1,
+			0.9,
+		);
+
+		const fisher = planActiveRankingBatch(
+			{
+				standings,
+				ratingState,
+				repeatCounts: new Map(),
+				maxRepeatPairs: 2,
+				targetWinProb: 0.5,
+				scoringMode: "fisher",
+			},
+			scope,
+			1,
+			0.9,
+		);
+
+		// When ratings are equally spaced, both methods should agree on the first pair
+		// (both favor the pair closest to 50/50 predicted outcome)
+		expect(heuristic.pairs[0]).toEqual(fisher.pairs[0]);
+	});
+
 	test("planActiveRankingBatch respects maxRepeatPairs cap", () => {
 		const ids = ["A", "B", "C", "D"];
 		const ratingState = createRatingState(ids, {

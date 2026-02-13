@@ -205,9 +205,7 @@ type Accumulator = {
 	ratings: number[];
 };
 
-function toAttributionRows(
-	acc: Map<string, Accumulator>,
-): AttributionRowV1[] {
+function toAttributionRows(acc: Map<string, Accumulator>): AttributionRowV1[] {
 	const rows: AttributionRowV1[] = [];
 	for (const [key, a] of acc.entries()) {
 		const n = a.ranks.length;
@@ -347,8 +345,17 @@ export function computeLeaderboard(
 		reviewerReviser: new Map<string, Accumulator>(),
 	};
 
-	const record = (m: Map<string, Accumulator>, key: string, e: LeaderboardEntry) => {
-		const a = m.get(key) ?? { ranks: [], topKCount: 0, points: [], ratings: [] };
+	const record = (
+		m: Map<string, Accumulator>,
+		key: string,
+		e: LeaderboardEntry,
+	) => {
+		const a = m.get(key) ?? {
+			ranks: [],
+			topKCount: 0,
+			points: [],
+			ratings: [],
+		};
 		a.ranks.push(e.rank);
 		if (e.rank <= TOP_K) a.topKCount += 1;
 		a.points.push(e.points);
@@ -365,8 +372,10 @@ export function computeLeaderboard(
 		if (rev) record(roleAcc.reviewer, rev, e);
 		if (rvr) record(roleAcc.reviser, rvr, e);
 
-		if (gen && rev) record(pairAcc.genReviewer, `${gen} (gen) + ${rev} (rev)`, e);
-		if (gen && rvr) record(pairAcc.genReviser, `${gen} (gen) + ${rvr} (reviser)`, e);
+		if (gen && rev)
+			record(pairAcc.genReviewer, `${gen} (gen) + ${rev} (rev)`, e);
+		if (gen && rvr)
+			record(pairAcc.genReviser, `${gen} (gen) + ${rvr} (reviser)`, e);
 		if (rev && rvr)
 			record(pairAcc.reviewerReviser, `${rev} (rev) + ${rvr} (reviser)`, e);
 	}
@@ -393,14 +402,14 @@ export function computeLeaderboard(
 	// Winner showcase (card format)
 	if (entries.length > 0) {
 		const winner = entries[0];
-			if (winner) {
-				md += "## 🥇 Winner\n\n";
-				md += `**${formatRevisionNickname(winner.id)}**\n\n`;
-					md += `- **Coarse:** ${winner.points} pts`;
-				if (!is1v1) {
-					md += ` (${winner.placements.first} firsts, ${winner.placements.second} seconds)`;
-				}
-				md += "\n";
+		if (winner) {
+			md += "## 🥇 Winner\n\n";
+			md += `**${formatRevisionNickname(winner.id)}**\n\n`;
+			md += `- **Coarse:** ${winner.points} pts`;
+			if (!is1v1) {
+				md += ` (${winner.placements.first} firsts, ${winner.placements.second} seconds)`;
+			}
+			md += "\n";
 			if (showRating && typeof winner.rating === "number") {
 				const ciLow =
 					typeof winner.ratingCiLow === "number"
@@ -482,10 +491,8 @@ export function computeLeaderboard(
 	const MAX_PAIR_ROWS = 20;
 	const renderPairTable = (title: string, rows: AttributionRowV1[]) => {
 		md += `### ${title}\n\n`;
-		md +=
-			"| Pair | N | Avg Rank | Top K | Avg Swiss Pts | Avg Rating |\n";
-		md +=
-			"|------|---|----------|-------|--------------|------------|\n";
+		md += "| Pair | N | Avg Rank | Top K | Avg Swiss Pts | Avg Rating |\n";
+		md += "|------|---|----------|-------|--------------|------------|\n";
 		const sliced = rows.slice(0, MAX_PAIR_ROWS);
 		for (const r of sliced) {
 			md += `| ${r.key} | ${r.n} | #${r.avgRank.toFixed(1)} | ${fmtTopK(
@@ -501,10 +508,7 @@ export function computeLeaderboard(
 
 	renderPairTable("Pair Synergy: Generator + Reviewer", pairRows.genReviewer);
 	renderPairTable("Pair Synergy: Generator + Reviser", pairRows.genReviser);
-	renderPairTable(
-		"Pair Synergy: Reviewer + Reviser",
-		pairRows.reviewerReviser,
-	);
+	renderPairTable("Pair Synergy: Reviewer + Reviser", pairRows.reviewerReviser);
 
 	md += "---\n\n";
 
@@ -532,7 +536,7 @@ export function computeLeaderboard(
 	md += "## 🌱 First Draft Selection\n\n";
 	if (initialLeaderboardResults && initialLeaderboardResults.length > 0) {
 		md +=
-				"Each model's initial drafts were compared to select the best draft per model.\n\n";
+			"Each model's initial drafts were compared to select the best draft per model.\n\n";
 		md += "| Model | Selected | Record | Margin |\n";
 		md += "|-------|----------|--------|--------|\n";
 		for (const result of initialLeaderboardResults) {
@@ -589,8 +593,17 @@ export function computeRunSummary(args: {
 		reviewerReviser: new Map<string, Accumulator>(),
 	};
 
-	const record = (m: Map<string, Accumulator>, key: string, e: LeaderboardEntry) => {
-		const a = m.get(key) ?? { ranks: [], topKCount: 0, points: [], ratings: [] };
+	const record = (
+		m: Map<string, Accumulator>,
+		key: string,
+		e: LeaderboardEntry,
+	) => {
+		const a = m.get(key) ?? {
+			ranks: [],
+			topKCount: 0,
+			points: [],
+			ratings: [],
+		};
 		a.ranks.push(e.rank);
 		if (e.rank <= topK) a.topKCount += 1;
 		a.points.push(e.points);
@@ -607,8 +620,10 @@ export function computeRunSummary(args: {
 		if (rev) record(roleAcc.reviewer, rev, e);
 		if (rvr) record(roleAcc.reviser, rvr, e);
 
-		if (gen && rev) record(pairAcc.genReviewer, `${gen} (gen) + ${rev} (rev)`, e);
-		if (gen && rvr) record(pairAcc.genReviser, `${gen} (gen) + ${rvr} (reviser)`, e);
+		if (gen && rev)
+			record(pairAcc.genReviewer, `${gen} (gen) + ${rev} (rev)`, e);
+		if (gen && rvr)
+			record(pairAcc.genReviser, `${gen} (gen) + ${rvr} (reviser)`, e);
 		if (rev && rvr)
 			record(pairAcc.reviewerReviser, `${rev} (rev) + ${rvr} (reviser)`, e);
 	}
@@ -620,7 +635,9 @@ export function computeRunSummary(args: {
 		const reviserSlug = e.reviser ?? reviserTok;
 
 		const rating =
-			typeof e.rating === "number" && Number.isFinite(e.rating) ? e.rating : null;
+			typeof e.rating === "number" && Number.isFinite(e.rating)
+				? e.rating
+				: null;
 		const ratingCi95 =
 			typeof e.ratingCiLow === "number" && typeof e.ratingCiHigh === "number"
 				? { low: e.ratingCiLow, high: e.ratingCiHigh }

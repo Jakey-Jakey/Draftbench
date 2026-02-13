@@ -40,12 +40,16 @@ export const DEFAULT_CONFIG: PipelineConfig = {
 			btIterations: 200,
 			btTolerance: 1e-6,
 			ciBootstrapSamples: 200,
+			btRegularization: 0.01,
+			btUseNewton: true,
+			ciMode: "hessian",
 		},
 		scheduling: {
 			mode: "adaptive",
 			exploration: 0.15,
 			avoidRepeatPenalty: 0.35,
 			maxRepeatPairs: 2,
+			scoringMode: "fisher",
 		},
 		stopRules: {
 			enabled: true,

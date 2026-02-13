@@ -288,6 +288,9 @@ const RatingConfigSchema = z.object({
 	btIterations: z.number(),
 	btTolerance: z.number(),
 	ciBootstrapSamples: z.number().int().min(0).default(200),
+	btRegularization: z.number().min(0).default(0),
+	btUseNewton: z.boolean().default(false),
+	ciMode: z.enum(["bootstrap", "hessian", "normal"]).default("bootstrap"),
 });
 
 const RatingRecordSchema = z.object({
