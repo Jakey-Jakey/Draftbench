@@ -2,8 +2,13 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { PipelineConfig } from "../config";
-import { DEFAULT_CONFIG } from "../config/defaults";
 import { getLoadedConfig } from "../config/context";
+import { DEFAULT_CONFIG } from "../config/defaults";
+import type {
+	FinaleSummary,
+	SwissContestant,
+	SwissMatch,
+} from "../leaderboard";
 import { pairwiseFromSwissMatch } from "../rating/convert";
 import {
 	applyPairwiseBatch,
@@ -14,16 +19,11 @@ import {
 } from "../rating/engine";
 import type { PairwiseObservation, RatingState } from "../rating/types";
 import { planActiveRankingBatch } from "../scheduling/activeRanking";
-import { evaluateStopRules } from "../scheduling/stopRules";
 import { countRepeatPairs, pairKey } from "../scheduling/pairs";
-import type {
-	FinaleSummary,
-	SwissContestant,
-	SwissMatch,
-} from "../leaderboard";
+import { evaluateStopRules } from "../scheduling/stopRules";
 import type { StoredFinaleMatch } from "../state";
-import { sha256File } from "./hash";
 import { confidenceMultiplier } from "../utils";
+import { sha256File } from "./hash";
 
 export interface DetailedFileEntryV1 {
 	path: string;
@@ -114,7 +114,11 @@ export interface DetailedRunSummaryV1 {
 			finaleJudges: { model: string; effort: string }[];
 			effectiveMaxRepeatPairs: number;
 		};
-		stoppedReason: "disabled" | "converged" | "budget_exhausted" | "no_eligible_pairs";
+		stoppedReason:
+			| "disabled"
+			| "converged"
+			| "budget_exhausted"
+			| "no_eligible_pairs";
 		iterations: FinaleIterationDiagnosticsV1[];
 	};
 }
@@ -177,7 +181,8 @@ function computeBoundarySnapshot(args: {
 	const leftLow = boundaryLeft.rating - z * boundaryLeft.uncertainty;
 	const rightHigh = boundaryRight.rating + z * boundaryRight.uncertainty;
 	const passesConfidence = leftLow > rightHigh;
-	const passesSeparation = minSeparation > 0 ? separation >= minSeparation : null;
+	const passesSeparation =
+		minSeparation > 0 ? separation >= minSeparation : null;
 
 	return {
 		topK: k,
@@ -192,7 +197,13 @@ function computeBoundarySnapshot(args: {
 }
 
 function adjacentUnseparatedWithMinGap(args: {
-	standings: { id: string; rating: number; uncertainty: number; ciLow: number; ciHigh: number }[];
+	standings: {
+		id: string;
+		rating: number;
+		uncertainty: number;
+		ciLow: number;
+		ciHigh: number;
+	}[];
 	scope: string[];
 	minSeparation: number;
 }): { separated: boolean; unseparated: [string, string][] } {
@@ -240,7 +251,8 @@ function buildRatingStateFromSwiss(
 		const edges = pairwiseFromSwissMatch(match, rating.tieValue);
 		pairwiseHistory.push(...edges);
 	}
-	if (pairwiseHistory.length > 0) applyPairwiseBatch(ratingState, pairwiseHistory);
+	if (pairwiseHistory.length > 0)
+		applyPairwiseBatch(ratingState, pairwiseHistory);
 	return { ratingState, pairwiseHistory };
 }
 
@@ -278,66 +290,63 @@ export async function computeDetailedRunSummary(args: {
 			}
 		};
 
-			await add(join(runDir, "state.json"), "state");
-			await add(join(runDir, "leaderboard.md"), "leaderboard_md");
-			await add(join(runDir, "summary.json"), "summary_json");
-			// summary.detailed.json is written after this function returns; caller can add it if desired.
-			if (!hasStructuredLayout) {
-				await add(join(runDir, "swiss_rounds.md"), "swiss_log");
-				await add(join(runDir, "finale_rounds.md"), "finale_log");
-			} else {
-				try {
-					const coarseRoundsDir = join(runDir, "coarse", "rounds");
-					const entries = await readdir(coarseRoundsDir);
-					for (const name of entries) {
-						if (!name.endsWith(".md")) continue;
-						await add(join(coarseRoundsDir, name), "coarse_round_md");
-					}
-				} catch {
-					// ignore
+		await add(join(runDir, "state.json"), "state");
+		await add(join(runDir, "leaderboard.md"), "leaderboard_md");
+		await add(join(runDir, "summary.json"), "summary_json");
+		// summary.detailed.json is written after this function returns; caller can add it if desired.
+		if (!hasStructuredLayout) {
+			await add(join(runDir, "swiss_rounds.md"), "swiss_log");
+			await add(join(runDir, "finale_rounds.md"), "finale_log");
+		} else {
+			try {
+				const coarseRoundsDir = join(runDir, "coarse", "rounds");
+				const entries = await readdir(coarseRoundsDir);
+				for (const name of entries) {
+					if (!name.endsWith(".md")) continue;
+					await add(join(coarseRoundsDir, name), "coarse_round_md");
 				}
-				try {
-					const fineIterationsDir = join(runDir, "fine", "iterations");
-					const entries = await readdir(fineIterationsDir);
-					for (const name of entries) {
-						if (!name.endsWith(".md")) continue;
-						await add(join(fineIterationsDir, name), "fine_iteration_md");
-					}
-				} catch {
-					// ignore
-				}
-				try {
-					const coarseStandingsDir = join(runDir, "coarse", "standings");
-					const entries = await readdir(coarseStandingsDir);
-					for (const name of entries) {
-						if (name.endsWith(".md")) {
-							await add(join(coarseStandingsDir, name), "coarse_standings_md");
-						}
-						if (name.endsWith(".json")) {
-							await add(
-								join(coarseStandingsDir, name),
-								"coarse_standings_json",
-							);
-						}
-					}
-				} catch {
-					// ignore
-				}
-				try {
-					const fineStandingsDir = join(runDir, "fine", "standings");
-					const entries = await readdir(fineStandingsDir);
-					for (const name of entries) {
-						if (name.endsWith(".md")) {
-							await add(join(fineStandingsDir, name), "fine_standings_md");
-						}
-						if (name.endsWith(".json")) {
-							await add(join(fineStandingsDir, name), "fine_standings_json");
-						}
-					}
-				} catch {
-					// ignore
-				}
+			} catch {
+				// ignore
 			}
+			try {
+				const fineIterationsDir = join(runDir, "fine", "iterations");
+				const entries = await readdir(fineIterationsDir);
+				for (const name of entries) {
+					if (!name.endsWith(".md")) continue;
+					await add(join(fineIterationsDir, name), "fine_iteration_md");
+				}
+			} catch {
+				// ignore
+			}
+			try {
+				const coarseStandingsDir = join(runDir, "coarse", "standings");
+				const entries = await readdir(coarseStandingsDir);
+				for (const name of entries) {
+					if (name.endsWith(".md")) {
+						await add(join(coarseStandingsDir, name), "coarse_standings_md");
+					}
+					if (name.endsWith(".json")) {
+						await add(join(coarseStandingsDir, name), "coarse_standings_json");
+					}
+				}
+			} catch {
+				// ignore
+			}
+			try {
+				const fineStandingsDir = join(runDir, "fine", "standings");
+				const entries = await readdir(fineStandingsDir);
+				for (const name of entries) {
+					if (name.endsWith(".md")) {
+						await add(join(fineStandingsDir, name), "fine_standings_md");
+					}
+					if (name.endsWith(".json")) {
+						await add(join(fineStandingsDir, name), "fine_standings_json");
+					}
+				}
+			} catch {
+				// ignore
+			}
+		}
 
 		// Hash all revisions (the most important content artifacts).
 		try {
@@ -352,7 +361,10 @@ export async function computeDetailedRunSummary(args: {
 		}
 
 		// Initial leaderboard output (if enabled)
-		await add(join(runDir, "initial_leaderboard", "leaderboard.md"), "initial_leaderboard_md");
+		await add(
+			join(runDir, "initial_leaderboard", "leaderboard.md"),
+			"initial_leaderboard_md",
+		);
 	}
 
 	// -----------------------------
@@ -372,8 +384,13 @@ export async function computeDetailedRunSummary(args: {
 	const swissJudgeCount = config.roles.swissJudges.length;
 	const stopRulesConfig = config.tournament.stopRules;
 
-	const swissMatchesSorted = [...args.swissMatches].sort((a, b) => a.round - b.round);
-	const maxRound = swissMatchesSorted.reduce((acc, m) => Math.max(acc, m.round), 0);
+	const swissMatchesSorted = [...args.swissMatches].sort(
+		(a, b) => a.round - b.round,
+	);
+	const maxRound = swissMatchesSorted.reduce(
+		(acc, m) => Math.max(acc, m.round),
+		0,
+	);
 
 	const ratingStateRounds = createRatingState(contestantIds, {
 		backend: config.tournament.rating.backend,
@@ -401,9 +418,12 @@ export async function computeDetailedRunSummary(args: {
 
 		const roundPairwise = roundMatches
 			.filter((m) => !m.ids.includes("BYE"))
-			.flatMap((m) => pairwiseFromSwissMatch(m, config.tournament.rating.tieValue));
+			.flatMap((m) =>
+				pairwiseFromSwissMatch(m, config.tournament.rating.tieValue),
+			);
 
-		if (roundPairwise.length > 0) applyPairwiseBatch(ratingStateRounds, roundPairwise);
+		if (roundPairwise.length > 0)
+			applyPairwiseBatch(ratingStateRounds, roundPairwise);
 
 		const standings = getRatingStandings(ratingStateRounds);
 		const orderedIds = standings.map((s) => s.id);
@@ -434,17 +454,18 @@ export async function computeDetailedRunSummary(args: {
 			}),
 			stopRuleEvaluation: stop,
 		});
-		}
+	}
 
-		const swissJudgmentsBase = hasStructuredLayout
-			? join("coarse", "judgments")
-			: "swiss_judgments";
-		const swissMatchesDetailed: DetailedSwissMatchV1[] = swissMatchesSorted.map((m) => ({
+	const swissJudgmentsBase = hasStructuredLayout
+		? join("coarse", "judgments")
+		: "swiss_judgments";
+	const swissMatchesDetailed: DetailedSwissMatchV1[] = swissMatchesSorted.map(
+		(m) => ({
 			round: m.round,
 			ids: m.ids,
 			first: m.first,
-		second: m.second,
-		third: m.third,
+			second: m.second,
+			third: m.third,
 			tieGroup: m.tieGroup,
 			sharedPoints: m.sharedPoints,
 			judgmentFile: m.ids.includes("BYE")
@@ -453,16 +474,14 @@ export async function computeDetailedRunSummary(args: {
 			pairwiseObservations: m.ids.includes("BYE")
 				? []
 				: pairwiseFromSwissMatch(m, config.tournament.rating.tieValue),
-		}));
+		}),
+	);
 
 	// -----------------------------
 	// Fine ranking: per-iteration uncertainty + match details
 	// -----------------------------
-	const { ratingState: ratingStateAfterSwiss, pairwiseHistory } = buildRatingStateFromSwiss(
-		contestantIds,
-		swissMatchesSorted,
-		config,
-	);
+	const { ratingState: ratingStateAfterSwiss, pairwiseHistory } =
+		buildRatingStateFromSwiss(contestantIds, swissMatchesSorted, config);
 	void pairwiseHistory; // retained for potential future diagnostics
 
 	// Now step through finale matches in stored order.
@@ -471,10 +490,13 @@ export async function computeDetailedRunSummary(args: {
 		return pairKey(a.aId, a.bId).localeCompare(pairKey(b.aId, b.bId));
 	});
 
-	let stoppedReason: DetailedRunSummaryV1["fineRanking"]["stoppedReason"] = "disabled";
+	let stoppedReason: DetailedRunSummaryV1["fineRanking"]["stoppedReason"] =
+		"disabled";
 	if (config.tournament.finale.enabled) {
 		if (args.finaleSummary.converged) stoppedReason = "converged";
-		else if (finaleMatchesSorted.length >= config.tournament.finale.maxTotalMatches)
+		else if (
+			finaleMatchesSorted.length >= config.tournament.finale.maxTotalMatches
+		)
 			stoppedReason = "budget_exhausted";
 		else stoppedReason = "no_eligible_pairs";
 	}
@@ -494,13 +516,18 @@ export async function computeDetailedRunSummary(args: {
 	// We'll mutate this state as we apply finale observations.
 	const ratingStateFine = ratingStateAfterSwiss;
 
-	for (const [iteration, matches] of Array.from(iterationsMap.entries()).sort((a, b) => a[0] - b[0])) {
+	for (const [iteration, matches] of Array.from(iterationsMap.entries()).sort(
+		(a, b) => a[0] - b[0],
+	)) {
 		const standings = getRatingStandingsWithOptions(ratingStateFine, {
 			bootstrapCi: false,
 			confidence: config.tournament.finale.confidence,
 		});
 		const orderedIds = standings.map((s) => s.id);
-		const topK = Math.max(1, Math.min(config.tournament.stopRules.topK, orderedIds.length));
+		const topK = Math.max(
+			1,
+			Math.min(config.tournament.stopRules.topK, orderedIds.length),
+		);
 		const scope = orderedIds.slice(0, topK);
 
 		const sep = adjacentUnseparatedWithMinGap({
@@ -525,26 +552,26 @@ export async function computeDetailedRunSummary(args: {
 			config.tournament.finale.confidence,
 		);
 
-			const detailedMatches: DetailedFinaleMatchV1[] = [];
-			const fineJudgmentsBase = hasStructuredLayout
-				? join("fine", "judgments")
-				: "finale_judgments";
-			for (const m of matches) {
-				const key = pairKey(m.aId, m.bId);
-				const repeats = repeatCounts.get(key) ?? 0;
-				const predicted = estimateWinProbability(ratingStateFine, m.aId, m.bId);
-				const detailed: DetailedFinaleMatchV1 = {
-					...m,
-					judgmentFile: finaleJudgmentPath(
-						m.iteration,
-						m.aId,
-						m.bId,
-						fineJudgmentsBase,
-					),
-					repeatCountBefore: repeats,
-					predictedWinProbBefore: predicted,
-					revisionPathA: join("revisions", `${m.aId}.md`),
-					revisionPathB: join("revisions", `${m.bId}.md`),
+		const detailedMatches: DetailedFinaleMatchV1[] = [];
+		const fineJudgmentsBase = hasStructuredLayout
+			? join("fine", "judgments")
+			: "finale_judgments";
+		for (const m of matches) {
+			const key = pairKey(m.aId, m.bId);
+			const repeats = repeatCounts.get(key) ?? 0;
+			const predicted = estimateWinProbability(ratingStateFine, m.aId, m.bId);
+			const detailed: DetailedFinaleMatchV1 = {
+				...m,
+				judgmentFile: finaleJudgmentPath(
+					m.iteration,
+					m.aId,
+					m.bId,
+					fineJudgmentsBase,
+				),
+				repeatCountBefore: repeats,
+				predictedWinProbBefore: predicted,
+				revisionPathA: join("revisions", `${m.aId}.md`),
+				revisionPathB: join("revisions", `${m.bId}.md`),
 			};
 			detailedMatches.push(detailed);
 

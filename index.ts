@@ -23,6 +23,7 @@ import { runInitialLeaderboardPhase } from "./phases/initialLeaderboard";
 import { runReviewPhase } from "./phases/review";
 import { runRevisePhase } from "./phases/revise";
 import { runSwissPhase } from "./phases/swiss";
+import { computeDetailedRunSummary } from "./report/detailedSummary";
 import { initConcurrencyLimiter } from "./semaphore";
 import { createInitialState, loadState, type PipelineState } from "./state";
 import {
@@ -31,7 +32,6 @@ import {
 	getTimestamp,
 	printDryRunConfig,
 } from "./utils";
-import { computeDetailedRunSummary } from "./report/detailedSummary";
 
 // ============================================================================
 // Configuration
@@ -60,20 +60,18 @@ const STOP_RULES = config.tournament.stopRules;
 // Main Pipeline
 // ============================================================================
 
-	/**
-	 * Orchestrates a full Cross-Review pipeline that runs generation, first-draft selection, review,
-	 * revision, a coarse-ranking tournament (Swiss), an optional fine-ranking (active learning),
-	 * and produces a final leaderboard.
-	 *
-	 * This function initializes or resumes a run directory (with optional dry-run mode), creates required
-	 * subdirectories and logs, executes the pipeline phases in order (generate -> first draft selection
-	 * -> review -> revise -> coarse ranking -> fine ranking), computes the final leaderboard from
-	 * tournament results, and writes the leaderboard file when not in dry-run mode.
-	 */
-	async function runCrossReviewPipeline(): Promise<void> {
-	console.log(
-		"🎲 Draftbench: D&D 5e Cross-Review Pipeline\n",
-	);
+/**
+ * Orchestrates a full Cross-Review pipeline that runs generation, first-draft selection, review,
+ * revision, a coarse-ranking tournament (Swiss), an optional fine-ranking (active learning),
+ * and produces a final leaderboard.
+ *
+ * This function initializes or resumes a run directory (with optional dry-run mode), creates required
+ * subdirectories and logs, executes the pipeline phases in order (generate -> first draft selection
+ * -> review -> revise -> coarse ranking -> fine ranking), computes the final leaderboard from
+ * tournament results, and writes the leaderboard file when not in dry-run mode.
+ */
+async function runCrossReviewPipeline(): Promise<void> {
+	console.log("🎲 Draftbench: D&D 5e Cross-Review Pipeline\n");
 
 	if (DRY_RUN) {
 		console.log("🧪 DRY RUN MODE - No API calls will be made\n");
@@ -92,20 +90,20 @@ const STOP_RULES = config.tournament.stopRules;
 	console.log(
 		`\nCoarse Ranking (Swiss rounds): ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`,
 	);
-		console.log(
-			`Coarse Ranking Engine: ${RATING.enabled ? `${RATING.backend} ratings + ${SCHEDULING.mode} scheduling` : "legacy points-only"} | Coarse Early Stop Rules: ${
-				STOP_RULES.enabled
-					? `on (min ${STOP_RULES.minBatches}, max ${STOP_RULES.maxBatches}, topK ${STOP_RULES.topK})`
-					: "off"
-			}`,
-		);
-		console.log(
-			`Fine Ranking (Top-K refinement; active learning): ${
-				FINALE.enabled
-					? `active learning (topK ${TOP_K}, max ${FINALE.maxTotalMatches} matches, batch ${FINALE.maxMatchesPerBatch}, judges: ${FINALE_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`
-					: "off"
-			}`,
-		);
+	console.log(
+		`Coarse Ranking Engine: ${RATING.enabled ? `${RATING.backend} ratings + ${SCHEDULING.mode} scheduling` : "legacy points-only"} | Coarse Early Stop Rules: ${
+			STOP_RULES.enabled
+				? `on (min ${STOP_RULES.minBatches}, max ${STOP_RULES.maxBatches}, topK ${STOP_RULES.topK})`
+				: "off"
+		}`,
+	);
+	console.log(
+		`Fine Ranking (Top-K refinement; active learning): ${
+			FINALE.enabled
+				? `active learning (topK ${TOP_K}, max ${FINALE.maxTotalMatches} matches, batch ${FINALE.maxMatchesPerBatch}, judges: ${FINALE_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "high"})`).join(", ")})`
+				: "off"
+		}`,
+	);
 	console.log(
 		`Coarse Judges: ${SWISS_JUDGES.map((j) => `${getShortModelName(j.model)} (${j.effort ?? "low"})`).join(", ")} | First Draft Selection: ${
 			INITIAL_LEADERBOARD.enabled ? "enabled" : "disabled"
@@ -195,31 +193,63 @@ const STOP_RULES = config.tournament.stopRules;
 
 	const swissJudgmentsDir =
 		layoutMode === "legacy"
-			? await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "swiss_judgments"), DRY_RUN)
-			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "coarse", "judgments"), DRY_RUN);
+			? await ensureRunsDirectory(
+					RUNS_DIR,
+					join(relRunPath, "swiss_judgments"),
+					DRY_RUN,
+				)
+			: await ensureRunsDirectory(
+					RUNS_DIR,
+					join(relRunPath, "coarse", "judgments"),
+					DRY_RUN,
+				);
 	const swissRoundsRoot =
 		layoutMode === "legacy"
 			? legacySwissLogPath
-			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "coarse", "rounds"), DRY_RUN);
+			: await ensureRunsDirectory(
+					RUNS_DIR,
+					join(relRunPath, "coarse", "rounds"),
+					DRY_RUN,
+				);
 	const swissStandingsDir =
 		layoutMode === "legacy"
 			? null
-			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "coarse", "standings"), DRY_RUN);
+			: await ensureRunsDirectory(
+					RUNS_DIR,
+					join(relRunPath, "coarse", "standings"),
+					DRY_RUN,
+				);
 
 	const finaleJudgmentsDir = FINALE.enabled
 		? layoutMode === "legacy"
-			? await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "finale_judgments"), DRY_RUN)
-			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "fine", "judgments"), DRY_RUN)
+			? await ensureRunsDirectory(
+					RUNS_DIR,
+					join(relRunPath, "finale_judgments"),
+					DRY_RUN,
+				)
+			: await ensureRunsDirectory(
+					RUNS_DIR,
+					join(relRunPath, "fine", "judgments"),
+					DRY_RUN,
+				)
 		: null;
 	const finaleIterationsRoot = FINALE.enabled
 		? layoutMode === "legacy"
 			? legacyFinaleLogPath
-			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "fine", "iterations"), DRY_RUN)
+			: await ensureRunsDirectory(
+					RUNS_DIR,
+					join(relRunPath, "fine", "iterations"),
+					DRY_RUN,
+				)
 		: null;
 	const finaleStandingsDir = FINALE.enabled
 		? layoutMode === "legacy"
 			? null
-			: await ensureRunsDirectory(RUNS_DIR, join(relRunPath, "fine", "standings"), DRY_RUN)
+			: await ensureRunsDirectory(
+					RUNS_DIR,
+					join(relRunPath, "fine", "standings"),
+					DRY_RUN,
+				)
 		: null;
 
 	const initialLeaderboardLogPath = initialLeaderboardDir
@@ -323,150 +353,150 @@ const STOP_RULES = config.tournament.stopRules;
 		isResuming,
 	);
 
-		// === PHASE 6: Fine Ranking (Top-K Refinement Matches) ===
-		const { finaleMatches } = await runFinalePhase(
-			runDir,
-			{
-				mode: layoutMode,
-				iterationsRoot: finaleIterationsRoot ?? null,
-				standingsDir: finaleStandingsDir,
-				judgmentsDir: finaleJudgmentsDir ?? null,
-			},
-			state,
-			{
-				finale: FINALE,
-				stopRules: STOP_RULES,
-				rating: RATING,
-				scheduling: SCHEDULING,
-				finaleJudges: FINALE_JUDGES,
-				prompts: config.prompts,
-			},
-			contestants,
-			revisionsById,
+	// === PHASE 6: Fine Ranking (Top-K Refinement Matches) ===
+	const { finaleMatches } = await runFinalePhase(
+		runDir,
+		{
+			mode: layoutMode,
+			iterationsRoot: finaleIterationsRoot ?? null,
+			standingsDir: finaleStandingsDir,
+			judgmentsDir: finaleJudgmentsDir ?? null,
+		},
+		state,
+		{
+			finale: FINALE,
+			stopRules: STOP_RULES,
+			rating: RATING,
+			scheduling: SCHEDULING,
+			finaleJudges: FINALE_JUDGES,
+			prompts: config.prompts,
+		},
+		contestants,
+		revisionsById,
 		DRY_RUN,
 		isResuming,
 	);
 
 	// === FINAL: Leaderboard ===
-		const finaleJudgmentCalls = finaleMatches.reduce(
-			(acc, m) => acc + (m.judges?.length ?? 0),
-			0,
+	const finaleJudgmentCalls = finaleMatches.reduce(
+		(acc, m) => acc + (m.judges?.length ?? 0),
+		0,
+	);
+
+	const fineSummary = {
+		matches: finaleMatches.length,
+		judgments: finaleJudgmentCalls,
+		iterations: state.finaleIterations ?? 0,
+		converged: state.finaleConverged ?? false,
+	};
+	const leaderboard = computeLeaderboard(
+		contestants,
+		allSwissMatches,
+		revisionsById,
+		state.initialLeaderboardResults,
+		fineSummary,
+		{
+			tournament: config.tournament,
+			swissJudges: SWISS_JUDGES,
+			finaleJudges: FINALE_JUDGES,
+		},
+	);
+	const leaderboardOutput = DRY_RUN
+		? `> ⚠️ DRY RUN ARTIFACT: This file contains mock/simulated data only.\n\n${leaderboard}`
+		: leaderboard;
+	const leaderboardPath = join(runDir, "leaderboard.md");
+	await writeFile(leaderboardPath, leaderboardOutput, "utf-8");
+	console.log(`  ✓ Wrote ${leaderboardPath}`);
+
+	const summary = computeRunSummary({
+		runDir,
+		contestants,
+		swissMatches: allSwissMatches,
+		revisionsById,
+		finaleSummary: fineSummary,
+		swissEarlyStopReason: state.swissStopReason ?? null,
+		configContext: {
+			tournament: config.tournament,
+			swissJudges: SWISS_JUDGES,
+			finaleJudges: FINALE_JUDGES,
+		},
+	});
+	const summaryPath = join(runDir, "summary.json");
+	await writeFile(summaryPath, JSON.stringify(summary, null, 2), "utf-8");
+	console.log(`  ✓ Wrote ${summaryPath}`);
+	if (DRY_RUN) {
+		const dryRunMarkerPath = join(runDir, "DRY_RUN.md");
+		await writeFile(
+			dryRunMarkerPath,
+			"# DRY RUN\n\nThis run directory contains mock/simulated outputs only.\n",
+			"utf-8",
 		);
-
-		const fineSummary = {
-			matches: finaleMatches.length,
-			judgments: finaleJudgmentCalls,
-			iterations: state.finaleIterations ?? 0,
-			converged: state.finaleConverged ?? false,
-		};
-		const leaderboard = computeLeaderboard(
-			contestants,
-			allSwissMatches,
-			revisionsById,
-			state.initialLeaderboardResults,
-			fineSummary,
-			{
-				tournament: config.tournament,
-				swissJudges: SWISS_JUDGES,
-				finaleJudges: FINALE_JUDGES,
-			},
-		);
-		const leaderboardOutput = DRY_RUN
-			? `> ⚠️ DRY RUN ARTIFACT: This file contains mock/simulated data only.\n\n${leaderboard}`
-			: leaderboard;
-		const leaderboardPath = join(runDir, "leaderboard.md");
-		await writeFile(leaderboardPath, leaderboardOutput, "utf-8");
-		console.log(`  ✓ Wrote ${leaderboardPath}`);
-
-			const summary = computeRunSummary({
-				runDir,
-				contestants,
-				swissMatches: allSwissMatches,
-				revisionsById,
-				finaleSummary: fineSummary,
-				swissEarlyStopReason: state.swissStopReason ?? null,
-				configContext: {
-					tournament: config.tournament,
-					swissJudges: SWISS_JUDGES,
-					finaleJudges: FINALE_JUDGES,
-				},
-			});
-		const summaryPath = join(runDir, "summary.json");
-		await writeFile(summaryPath, JSON.stringify(summary, null, 2), "utf-8");
-		console.log(`  ✓ Wrote ${summaryPath}`);
-		if (DRY_RUN) {
-			const dryRunMarkerPath = join(runDir, "DRY_RUN.md");
-			await writeFile(
-				dryRunMarkerPath,
-				"# DRY RUN\n\nThis run directory contains mock/simulated outputs only.\n",
-				"utf-8",
-			);
-			console.log(`  ✓ Wrote ${dryRunMarkerPath}`);
-		}
-
-		if (!DRY_RUN) {
-			const detailed = await computeDetailedRunSummary({
-				runDir,
-				contestants,
-				swissMatches: allSwissMatches,
-				finaleMatches,
-				finaleSummary: fineSummary,
-				config,
-			});
-			const detailedPath = join(runDir, "summary.detailed.json");
-			await writeFile(detailedPath, JSON.stringify(detailed, null, 2), "utf-8");
-			console.log(`  ✓ Wrote ${detailedPath}`);
-		}
-
-		// Print summary stats
-		console.log(`\n${"=".repeat(60)}`);
-		console.log("📊 RUN SUMMARY");
-		console.log("=".repeat(60));
-		if (DRY_RUN) {
-			console.log("🧪 DRY RUN - No API calls were made");
-		}
-		console.log(
-			`Coarse Ranking (Swiss rounds): ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`,
-		);
-		console.log(`Coarse Matches: ${allSwissMatches.length}`);
-		console.log(
-			`Fine Matches: ${finaleMatches.length} (judgments: ${finaleJudgmentCalls})`,
-		);
-		console.log("");
-		console.log("🏆 TOP 3 (Final Rankings):");
-
-		const finalSorted = [...contestants].sort((a, b) => {
-			const ratingA = typeof a.rating === "number" ? a.rating : null;
-			const ratingB = typeof b.rating === "number" ? b.rating : null;
-			if (ratingA !== null && ratingB !== null && ratingB !== ratingA) {
-				return ratingB - ratingA;
-			}
-			if (b.points !== a.points) return b.points - a.points;
-			const winsA = a.wins ?? 0;
-			const winsB = b.wins ?? 0;
-			if (winsB !== winsA) return winsB - winsA;
-			if (b.placements.first !== a.placements.first)
-				return b.placements.first - a.placements.first;
-			return b.placements.second - a.placements.second;
-		});
-
-		for (let i = 0; i < 3; i++) {
-			const c = finalSorted[i];
-			if (!c) break;
-			const ratingStr =
-				typeof c.rating === "number" ? `, rating ${c.rating.toFixed(1)}` : "";
-			console.log(
-				`  ${["🥇", "🥈", "🥉"][i]} ${c.id} (${c.points} coarse pts${ratingStr})`,
-			);
-		}
-		console.log("=".repeat(60));
-		console.log(
-			`\n✨ Pipeline complete! ${DRY_RUN ? "(dry run)" : `Output in: ${runDir}`}`,
-		);
+		console.log(`  ✓ Wrote ${dryRunMarkerPath}`);
 	}
 
-	// Run the pipeline
-	runCrossReviewPipeline().catch((error) => {
+	if (!DRY_RUN) {
+		const detailed = await computeDetailedRunSummary({
+			runDir,
+			contestants,
+			swissMatches: allSwissMatches,
+			finaleMatches,
+			finaleSummary: fineSummary,
+			config,
+		});
+		const detailedPath = join(runDir, "summary.detailed.json");
+		await writeFile(detailedPath, JSON.stringify(detailed, null, 2), "utf-8");
+		console.log(`  ✓ Wrote ${detailedPath}`);
+	}
+
+	// Print summary stats
+	console.log(`\n${"=".repeat(60)}`);
+	console.log("📊 RUN SUMMARY");
+	console.log("=".repeat(60));
+	if (DRY_RUN) {
+		console.log("🧪 DRY RUN - No API calls were made");
+	}
+	console.log(
+		`Coarse Ranking (Swiss rounds): ${SWISS_ROUNDS} (${SWISS_FORMAT} format)`,
+	);
+	console.log(`Coarse Matches: ${allSwissMatches.length}`);
+	console.log(
+		`Fine Matches: ${finaleMatches.length} (judgments: ${finaleJudgmentCalls})`,
+	);
+	console.log("");
+	console.log("🏆 TOP 3 (Final Rankings):");
+
+	const finalSorted = [...contestants].sort((a, b) => {
+		const ratingA = typeof a.rating === "number" ? a.rating : null;
+		const ratingB = typeof b.rating === "number" ? b.rating : null;
+		if (ratingA !== null && ratingB !== null && ratingB !== ratingA) {
+			return ratingB - ratingA;
+		}
+		if (b.points !== a.points) return b.points - a.points;
+		const winsA = a.wins ?? 0;
+		const winsB = b.wins ?? 0;
+		if (winsB !== winsA) return winsB - winsA;
+		if (b.placements.first !== a.placements.first)
+			return b.placements.first - a.placements.first;
+		return b.placements.second - a.placements.second;
+	});
+
+	for (let i = 0; i < 3; i++) {
+		const c = finalSorted[i];
+		if (!c) break;
+		const ratingStr =
+			typeof c.rating === "number" ? `, rating ${c.rating.toFixed(1)}` : "";
+		console.log(
+			`  ${["🥇", "🥈", "🥉"][i]} ${c.id} (${c.points} coarse pts${ratingStr})`,
+		);
+	}
+	console.log("=".repeat(60));
+	console.log(
+		`\n✨ Pipeline complete! ${DRY_RUN ? "(dry run)" : `Output in: ${runDir}`}`,
+	);
+}
+
+// Run the pipeline
+runCrossReviewPipeline().catch((error) => {
 	console.error("Error running pipeline:", error);
 	process.exit(1);
 });

@@ -210,9 +210,7 @@ describe("bradley-terry regularization", () => {
 		expect(topNoReg?.id).toBe("A");
 		expect(topReg?.id).toBe("A");
 
-		const deviationNoReg = Math.abs(
-			(topNoReg?.rating ?? 1500) - 1500,
-		);
+		const deviationNoReg = Math.abs((topNoReg?.rating ?? 1500) - 1500);
 		const deviationReg = Math.abs((topReg?.rating ?? 1500) - 1500);
 		expect(deviationReg).toBeLessThan(deviationNoReg);
 	});
@@ -308,9 +306,7 @@ describe("bradley-terry newton steps", () => {
 		const standNewton = getRatingStandings(stateNewton);
 
 		// Both should produce the same ordering: A > B > C
-		expect(standFixed.map((s) => s.id)).toEqual(
-			standNewton.map((s) => s.id),
-		);
+		expect(standFixed.map((s) => s.id)).toEqual(standNewton.map((s) => s.id));
 		expect(standNewton[0]?.id).toBe("A");
 		expect(standNewton[2]?.id).toBe("C");
 	});

@@ -280,9 +280,7 @@ export function validateConfig(config: PipelineConfig): string[] {
 		!Number.isFinite(config.tournament.rating.btRegularization) ||
 		config.tournament.rating.btRegularization < 0
 	) {
-		throw new Error(
-			"tournament.rating.btRegularization must be a number >= 0",
-		);
+		throw new Error("tournament.rating.btRegularization must be a number >= 0");
 	}
 	if (typeof config.tournament.rating.btUseNewton !== "boolean") {
 		throw new Error("tournament.rating.btUseNewton must be a boolean");
@@ -501,7 +499,10 @@ export function validateConfig(config: PipelineConfig): string[] {
 		);
 		config.tournament.stopRules.topK = clamped;
 	}
-	if (config.tournament.stopRules.enabled && !config.tournament.rating.enabled) {
+	if (
+		config.tournament.stopRules.enabled &&
+		!config.tournament.rating.enabled
+	) {
 		warnings.push(
 			"tournament.stopRules.enabled requires tournament.rating.enabled; disabling stop rules.",
 		);

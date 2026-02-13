@@ -174,12 +174,12 @@ describe("prompts configuration", () => {
 		expect(config.prompts.generate.user.length).toBeGreaterThan(0);
 	});
 
-		test("revise template has required placeholders", () => {
-			const config = loadConfig(undefined, "prompts.toml");
-			const template = config.prompts.revise.userTemplate;
-			expect(template).toMatch(/\{(artifact|statblock)\}/);
-			expect(template).toContain("{feedback}");
-		});
+	test("revise template has required placeholders", () => {
+		const config = loadConfig(undefined, "prompts.toml");
+		const template = config.prompts.revise.userTemplate;
+		expect(template).toMatch(/\{(artifact|statblock)\}/);
+		expect(template).toContain("{feedback}");
+	});
 
 	test("judge templates have required id placeholders", () => {
 		const config = loadConfig(undefined, "prompts.toml");

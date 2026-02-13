@@ -378,7 +378,8 @@ function hessianCi(
 		const rating = state.records.get(id)?.rating ?? state.config.initialRating;
 		const absH = Math.abs(hessianDiag.get(id) ?? 0);
 		// Variance = 1/|H_ii|; convert to rating-space standard deviation
-		const stdDev = absH > 1e-12 ? (Math.sqrt(1 / absH) * THETA_SCALE) : STARTING_UNCERTAINTY;
+		const stdDev =
+			absH > 1e-12 ? Math.sqrt(1 / absH) * THETA_SCALE : STARTING_UNCERTAINTY;
 		result.set(id, {
 			low: rating - z * stdDev,
 			high: rating + z * stdDev,
@@ -459,7 +460,8 @@ export function getRatingStandingsWithOptions(
 	return Array.from(state.records.values())
 		.map((record) => ({
 			...record,
-			ciLow: ciMap.get(record.id)?.low ?? record.rating - z * record.uncertainty,
+			ciLow:
+				ciMap.get(record.id)?.low ?? record.rating - z * record.uncertainty,
 			ciHigh:
 				ciMap.get(record.id)?.high ?? record.rating + z * record.uncertainty,
 		}))

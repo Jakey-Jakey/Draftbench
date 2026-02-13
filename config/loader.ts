@@ -297,7 +297,9 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			);
 			result.tournament.initialLeaderboard = {
 				enabled: initialLeaderboardRaw.enabled as boolean,
-				style: initialLeaderboardRaw.style as InitialLeaderboardStyle | undefined,
+				style: initialLeaderboardRaw.style as
+					| InitialLeaderboardStyle
+					| undefined,
 			};
 		}
 
@@ -314,7 +316,8 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 				result.tournament.rating.kFactor = ratingRaw.kFactor as number;
 			}
 			if (ratingRaw.initialRating !== undefined) {
-				result.tournament.rating.initialRating = ratingRaw.initialRating as number;
+				result.tournament.rating.initialRating =
+					ratingRaw.initialRating as number;
 			}
 			if (ratingRaw.provisionalMatches !== undefined) {
 				result.tournament.rating.provisionalMatches =
@@ -324,7 +327,8 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 				result.tournament.rating.tieValue = ratingRaw.tieValue as number;
 			}
 			if (ratingRaw.btIterations !== undefined) {
-				result.tournament.rating.btIterations = ratingRaw.btIterations as number;
+				result.tournament.rating.btIterations =
+					ratingRaw.btIterations as number;
 			}
 			if (ratingRaw.btTolerance !== undefined) {
 				result.tournament.rating.btTolerance = ratingRaw.btTolerance as number;
@@ -338,8 +342,7 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 					ratingRaw.btRegularization as number;
 			}
 			if (ratingRaw.btUseNewton !== undefined) {
-				result.tournament.rating.btUseNewton =
-					ratingRaw.btUseNewton as boolean;
+				result.tournament.rating.btUseNewton = ratingRaw.btUseNewton as boolean;
 			}
 			if (ratingRaw.ciMode !== undefined) {
 				result.tournament.rating.ciMode = ratingRaw.ciMode as CiMode;
@@ -378,10 +381,12 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 				result.tournament.stopRules.enabled = stopRulesRaw.enabled as boolean;
 			}
 			if (stopRulesRaw.minBatches !== undefined) {
-				result.tournament.stopRules.minBatches = stopRulesRaw.minBatches as number;
+				result.tournament.stopRules.minBatches =
+					stopRulesRaw.minBatches as number;
 			}
 			if (stopRulesRaw.maxBatches !== undefined) {
-				result.tournament.stopRules.maxBatches = stopRulesRaw.maxBatches as number;
+				result.tournament.stopRules.maxBatches =
+					stopRulesRaw.maxBatches as number;
 			}
 			if (stopRulesRaw.topK !== undefined) {
 				result.tournament.stopRules.topK = stopRulesRaw.topK as number;
@@ -391,7 +396,8 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 					stopRulesRaw.minSeparation as number;
 			}
 			if (stopRulesRaw.confidence !== undefined) {
-				result.tournament.stopRules.confidence = stopRulesRaw.confidence as number;
+				result.tournament.stopRules.confidence =
+					stopRulesRaw.confidence as number;
 			}
 			if (stopRulesRaw.stabilityBatches !== undefined) {
 				result.tournament.stopRules.stabilityBatches =
@@ -430,7 +436,8 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 					rawObj.maxMatchesPerBatch as number;
 			}
 			if (rawObj.maxTotalMatches !== undefined) {
-				result.tournament.finale.maxTotalMatches = rawObj.maxTotalMatches as number;
+				result.tournament.finale.maxTotalMatches =
+					rawObj.maxTotalMatches as number;
 			}
 			if (rawObj.targetWinProb !== undefined) {
 				result.tournament.finale.targetWinProb = rawObj.targetWinProb as number;
@@ -472,7 +479,8 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 					disRaw.maxMatchesPerSwissRound as number;
 			}
 			if (disRaw.maxTotalMatches !== undefined) {
-				result.tournament.finale.maxTotalMatches = disRaw.maxTotalMatches as number;
+				result.tournament.finale.maxTotalMatches =
+					disRaw.maxTotalMatches as number;
 			}
 			if (disRaw.targetWinProb !== undefined) {
 				result.tournament.finale.targetWinProb = disRaw.targetWinProb as number;

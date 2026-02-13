@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { createInitialState, saveState } from "../../state";
 import { getModelToken } from "../../utils";
@@ -167,22 +173,43 @@ maxTotalMatches = 0
 			"revise",
 			"swiss",
 		];
-		state.generatedDrafts = new Map([[gen, [{ text: "seed draft", model: gen }]]]);
+		state.generatedDrafts = new Map([
+			[gen, [{ text: "seed draft", model: gen }]],
+		]);
 		state.completedGenerators = [gen];
 		state.selectedDrafts = new Map([[gen, { text: "seed draft", model: gen }]]);
 		state.completedLeaderboardModels = [gen];
 		state.initialLeaderboardResults = [
-			{ model: gen, selectedDraftIndex: 1, wins: 0, draws: 0, losses: 0, totalDrafts: 1 },
+			{
+				model: gen,
+				selectedDraftIndex: 1,
+				wins: 0,
+				draws: 0,
+				losses: 0,
+				totalDrafts: 1,
+			},
 		];
 		state.reviews = [{ text: "seed review", reviewer, reviewed: gen }];
 		state.revisions = new Map([
 			[
 				idA,
-				{ id: idA, text: "seed rev A", generator: gen, reviewer, reviser: reviserA },
+				{
+					id: idA,
+					text: "seed rev A",
+					generator: gen,
+					reviewer,
+					reviser: reviserA,
+				},
 			],
 			[
 				idB,
-				{ id: idB, text: "seed rev B", generator: gen, reviewer, reviser: reviserB },
+				{
+					id: idB,
+					text: "seed rev B",
+					generator: gen,
+					reviewer,
+					reviser: reviserB,
+				},
 			],
 		]);
 		state.swissRound = 1;

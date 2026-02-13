@@ -211,7 +211,9 @@ export function printDryRunConfig(config: PipelineConfig): void {
 	console.log(`\nTournament:`);
 	console.log(`  Coarse Ranking (Swiss rounds): ${SWISS_ROUNDS}`);
 	console.log(`  Drafts per Model: ${INITIAL_GENERATIONS}`);
-	console.log(`  First Draft Selection Enabled: ${INITIAL_LEADERBOARD.enabled}`);
+	console.log(
+		`  First Draft Selection Enabled: ${INITIAL_LEADERBOARD.enabled}`,
+	);
 	console.log(
 		`  Rating Backend: ${config.tournament.rating.enabled ? config.tournament.rating.backend : "disabled"}`,
 	);

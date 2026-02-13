@@ -128,9 +128,7 @@ export function scheduleAdaptivePairs(
 					(leftRecord?.uncertainty ?? STARTING_UNCERTAINTY) +
 					(rightRecord?.uncertainty ?? STARTING_UNCERTAINTY);
 				score =
-					fisherInfo * combinedUncertainty +
-					explorationBoost -
-					repeatPenalty;
+					fisherInfo * combinedUncertainty + explorationBoost - repeatPenalty;
 			} else {
 				// Original heuristic composite scoring
 				const uncertaintyTerm =
