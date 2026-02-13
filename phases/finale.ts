@@ -556,10 +556,11 @@ export async function runFinalePhase(
 				const iterPath = join(output.iterationsRoot, `iter${iteration}.md`);
 				await Bun.write(iterPath, iterationLogMd);
 			} else {
-				const existing = await Bun.file(output.iterationsRoot).text();
+				const file = Bun.file(output.iterationsRoot);
+				const existing = await file.exists() ? await file.text() : "";
 				await Bun.write(
 					output.iterationsRoot,
-					existing + `${iterationLogMd}\n`,
+					`${existing}${iterationLogMd}\n`,
 				);
 			}
 		}
