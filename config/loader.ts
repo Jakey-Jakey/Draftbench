@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parse as parseTOML } from "smol-toml";
 import type {
+	CiMode,
 	InitialLeaderboardStyle,
 	PipelineConfig,
 	PromptsConfig,
@@ -8,6 +9,7 @@ import type {
 	RoleEntry,
 	RolesConfig,
 	SchedulingMode,
+	SchedulingScoringMode,
 	TournamentConfig,
 } from "./types";
 
@@ -327,9 +329,20 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 			if (ratingRaw.btTolerance !== undefined) {
 				result.tournament.rating.btTolerance = ratingRaw.btTolerance as number;
 			}
-			if (ratingRaw.ciBootstrapSamples !== undefined) {
+		if (ratingRaw.ciBootstrapSamples !== undefined) {
 				result.tournament.rating.ciBootstrapSamples =
 					ratingRaw.ciBootstrapSamples as number;
+			}
+			if (ratingRaw.btRegularization !== undefined) {
+				result.tournament.rating.btRegularization =
+					ratingRaw.btRegularization as number;
+			}
+			if (ratingRaw.btUseNewton !== undefined) {
+				result.tournament.rating.btUseNewton =
+					ratingRaw.btUseNewton as boolean;
+			}
+			if (ratingRaw.ciMode !== undefined) {
+				result.tournament.rating.ciMode = ratingRaw.ciMode as CiMode;
 			}
 		}
 
@@ -348,9 +361,13 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 				result.tournament.scheduling.avoidRepeatPenalty =
 					schedulingRaw.avoidRepeatPenalty as number;
 			}
-			if (schedulingRaw.maxRepeatPairs !== undefined) {
+		if (schedulingRaw.maxRepeatPairs !== undefined) {
 				result.tournament.scheduling.maxRepeatPairs =
 					schedulingRaw.maxRepeatPairs as number;
+			}
+			if (schedulingRaw.scoringMode !== undefined) {
+				result.tournament.scheduling.scoringMode =
+					schedulingRaw.scoringMode as SchedulingScoringMode;
 			}
 		}
 

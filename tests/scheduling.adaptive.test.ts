@@ -111,6 +111,120 @@ describe("adaptive scheduler", () => {
 		expect(hasAB).toBe(false);
 	});
 
+	test("fisher scoring mode creates valid non-overlapping pairs", () => {
+		const contestants = [
+			contestant("A"),
+			contestant("B"),
+			contestant("C"),
+			contestant("D"),
+		];
+		const ratingState = createRatingState(
+			contestants.map((c) => c.id),
+			{
+				backend: "elo",
+				initialRating: 1500,
+				kFactor: 24,
+				tieValue: 0.5,
+				provisionalMatches: 12,
+			},
+		);
+
+		const scheduled = scheduleAdaptivePairs(contestants, ratingState, [], {
+			exploration: 0,
+			avoidRepeatPenalty: 0.5,
+			maxRepeatPairs: 2,
+			randomSeed: 42,
+			scoringMode: "fisher",
+		});
+
+		expect(scheduled.pairs.length).toBe(2);
+		const allIds = scheduled.pairs.flat();
+		expect(new Set(allIds).size).toBe(4);
+		expect(scheduled.bye).toBeNull();
+	});
+
+	test("fisher scoring mode respects repeat limits", () => {
+		const contestants = [
+			contestant("A"),
+			contestant("B"),
+			contestant("C"),
+			contestant("D"),
+		];
+		const ratingState = createRatingState(
+			contestants.map((c) => c.id),
+			{
+				backend: "elo",
+				initialRating: 1500,
+				kFactor: 24,
+				tieValue: 0.5,
+				provisionalMatches: 12,
+			},
+		);
+
+		const history: PairwiseObservation[] = [
+			{ aId: "A", bId: "B", scoreA: 1, scoreB: 0, round: 1 },
+			{ aId: "A", bId: "B", scoreA: 0, scoreB: 1, round: 2 },
+		];
+		applyPairwiseBatch(ratingState, history);
+
+		const scheduled = scheduleAdaptivePairs(contestants, ratingState, history, {
+			exploration: 0,
+			avoidRepeatPenalty: 0.8,
+			maxRepeatPairs: 2,
+			randomSeed: 7,
+			scoringMode: "fisher",
+		});
+
+		const hasAB = scheduled.pairs.some(
+			([a, b]) => (a === "A" && b === "B") || (a === "B" && b === "A"),
+		);
+		expect(hasAB).toBe(false);
+	});
+
+	test("fisher scoring prioritizes close matchups with high uncertainty", () => {
+		const contestants = [
+			contestant("A"),
+			contestant("B"),
+			contestant("C"),
+			contestant("D"),
+		];
+		const ratingState = createRatingState(
+			contestants.map((c) => c.id),
+			{
+				backend: "elo",
+				initialRating: 1500,
+				kFactor: 24,
+				tieValue: 0.5,
+				provisionalMatches: 12,
+			},
+		);
+
+		// Make A much stronger than D, B and C close
+		const recA = ratingState.records.get("A");
+		const recB = ratingState.records.get("B");
+		const recC = ratingState.records.get("C");
+		const recD = ratingState.records.get("D");
+		if (recA) recA.rating = 1800;
+		if (recB) recB.rating = 1510;
+		if (recC) recC.rating = 1490;
+		if (recD) recD.rating = 1200;
+
+		const scheduled = scheduleAdaptivePairs(contestants, ratingState, [], {
+			exploration: 0,
+			avoidRepeatPenalty: 0.5,
+			maxRepeatPairs: 2,
+			randomSeed: 42,
+			scoringMode: "fisher",
+		});
+
+		// B-C should be the top priority pair because they're closest in rating
+		// (highest Fisher information p*(1-p) ~ 0.25) and both have high uncertainty
+		const firstPair = scheduled.pairs[0];
+		expect(firstPair).toBeDefined();
+		const pairIds = new Set(firstPair);
+		expect(pairIds.has("B") && pairIds.has("C")).toBe(true);
+	});
+
 	test("does not create over-repeated matchups in fallback (leaves unpaired)", () => {
 		const contestants = [
 			contestant("A"),

@@ -3,11 +3,15 @@ import { estimateWinProbability, STARTING_UNCERTAINTY } from "../rating/engine";
 import type { PairwiseObservation, RatingState } from "../rating/types";
 import { countRepeatPairs, pairKey } from "./pairs";
 
+export type ScoringMode = "heuristic" | "fisher";
+
 export interface AdaptiveSchedulerOptions {
 	exploration: number;
 	avoidRepeatPenalty: number;
 	maxRepeatPairs: number;
 	randomSeed?: number;
+	/** Pair scoring strategy: "heuristic" (original composite) or "fisher" (Fisher-information-weighted). */
+	scoringMode?: ScoringMode;
 }
 
 export interface AdaptiveScheduleDiagnostics {
@@ -84,6 +88,7 @@ export function scheduleAdaptivePairs(
 	}
 
 	const rng = hashInt(options.randomSeed ?? 123456789);
+	const scoringMode: ScoringMode = options.scoringMode ?? "heuristic";
 	const repeatCounts = countRepeatPairs(history);
 	const bye = chooseByeId(contestants, ratingState);
 	const active = contestants.filter((c) => c.id !== bye);
@@ -106,30 +111,49 @@ export function scheduleAdaptivePairs(
 				continue;
 			}
 
-			const leftRecord = ratingState.records.get(left.id);
+		const leftRecord = ratingState.records.get(left.id);
 			const rightRecord = ratingState.records.get(right.id);
-			const uncertaintyTerm =
-				((leftRecord?.uncertainty ?? STARTING_UNCERTAINTY) +
-					(rightRecord?.uncertainty ?? STARTING_UNCERTAINTY)) /
-				(STARTING_UNCERTAINTY * 2);
 			const p = estimateWinProbability(ratingState, left.id, right.id);
-			const closenessTerm = 1 - Math.abs(p - 0.5) * 2;
-			const coverageTerm =
-				1 / (1 + (leftRecord?.matches ?? 0)) +
-				1 / (1 + (rightRecord?.matches ?? 0));
 			const repeatPenalty = repeats * options.avoidRepeatPenalty;
 			const explorationBoost = rng() < options.exploration ? rng() : 0;
+
+			let score: number;
+			if (scoringMode === "fisher") {
+				// Fisher information: p*(1-p) measures expected information gain from
+				// a pairwise comparison. Maximized at p=0.5 (most uncertain outcome).
+				// Weight by combined uncertainty to prioritize matches that reduce
+				// global ranking uncertainty, not just local pair uncertainty.
+				const fisherInfo = p * (1 - p);
+				const combinedUncertainty =
+					(leftRecord?.uncertainty ?? STARTING_UNCERTAINTY) +
+					(rightRecord?.uncertainty ?? STARTING_UNCERTAINTY);
+				score =
+					fisherInfo * combinedUncertainty +
+					explorationBoost -
+					repeatPenalty;
+			} else {
+				// Original heuristic composite scoring
+				const uncertaintyTerm =
+					((leftRecord?.uncertainty ?? STARTING_UNCERTAINTY) +
+						(rightRecord?.uncertainty ?? STARTING_UNCERTAINTY)) /
+					(STARTING_UNCERTAINTY * 2);
+				const closenessTerm = 1 - Math.abs(p - 0.5) * 2;
+				const coverageTerm =
+					1 / (1 + (leftRecord?.matches ?? 0)) +
+					1 / (1 + (rightRecord?.matches ?? 0));
+				score =
+					uncertaintyTerm +
+					closenessTerm +
+					coverageTerm +
+					explorationBoost -
+					repeatPenalty;
+			}
 
 			candidates.push({
 				aId: left.id,
 				bId: right.id,
 				repeats,
-				score:
-					uncertaintyTerm +
-					closenessTerm +
-					coverageTerm +
-					explorationBoost -
-					repeatPenalty,
+				score,
 			});
 		}
 	}

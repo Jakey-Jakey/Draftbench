@@ -36,6 +36,8 @@ export interface InitialLeaderboardConfig {
 
 export type RatingBackend = "elo" | "bradley-terry";
 export type SchedulingMode = "adaptive" | "static";
+export type CiMode = "bootstrap" | "hessian" | "normal";
+export type SchedulingScoringMode = "heuristic" | "fisher";
 
 export interface RatingConfig {
 	enabled: boolean;
@@ -47,6 +49,12 @@ export interface RatingConfig {
 	btIterations: number;
 	btTolerance: number;
 	ciBootstrapSamples: number;
+	/** L2 regularization strength for Bradley-Terry. 0 = disabled. */
+	btRegularization: number;
+	/** Use per-player Hessian-diagonal (Newton/MM) step sizes for BT. */
+	btUseNewton: boolean;
+	/** CI computation mode: "bootstrap", "hessian" (analytic, BT only), or "normal" (z * uncertainty). */
+	ciMode: CiMode;
 }
 
 export interface SchedulingConfig {
@@ -54,6 +62,8 @@ export interface SchedulingConfig {
 	exploration: number;
 	avoidRepeatPenalty: number;
 	maxRepeatPairs: number;
+	/** Pair scoring strategy: "heuristic" (original composite) or "fisher" (Fisher-information-weighted). */
+	scoringMode: SchedulingScoringMode;
 }
 
 export interface StopRulesConfig {

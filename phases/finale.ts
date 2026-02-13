@@ -305,6 +305,7 @@ export async function runFinalePhase(
 				repeatCounts,
 				maxRepeatPairs,
 				targetWinProb: finaleConfig.targetWinProb,
+				scoringMode: schedulingConfig.scoringMode ?? "heuristic",
 			},
 			scope,
 			Math.min(

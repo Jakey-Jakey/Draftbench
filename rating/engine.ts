@@ -12,6 +12,8 @@ const RATING_SCALE = 400;
 const MIN_UNCERTAINTY = 40;
 export const STARTING_UNCERTAINTY = 350;
 const DEFAULT_CI_CONFIDENCE = 0.9;
+/** Scale factor converting between latent theta space and rating space: rating = initialRating + theta * THETA_SCALE */
+const THETA_SCALE = 173.7178;
 
 function clampUnit(value: number): number {
 	if (Number.isNaN(value)) return 0;
@@ -96,11 +98,17 @@ function applyEloBatch(state: RatingState, batch: PairwiseObservation[]): void {
 }
 
 /**
- * Refits and updates player ratings using the Bradley–Terry model for a batch of pairwise observations.
+ * Refits and updates player ratings using the Bradley-Terry model for a batch of pairwise observations.
  *
  * Applies each observation to the corresponding records (updating matches, outcomes, and uncertainty), then
  * performs an iterative estimation of latent skill parameters from the state's history and writes the resulting
  * ratings back into state.records. Modifies the provided state in place.
+ *
+ * Supports:
+ * - L2 regularization (`btRegularization`): shrinks theta toward 0 (the prior mean) to reduce noise
+ *   when some players have few observations.
+ * - Newton/MM step sizes (`btUseNewton`): uses the diagonal of the Hessian of the BT log-likelihood
+ *   to compute per-player adaptive step sizes, converging significantly faster than a fixed learning rate.
  *
  * @param state - The rating state to update
  * @param batch - Array of pairwise observations to apply before refitting ratings
@@ -126,12 +134,19 @@ function applyBradleyTerryBatch(
 	const theta = new Map<string, number>();
 	for (const id of ids) {
 		const rating = state.records.get(id)?.rating ?? state.config.initialRating;
-		theta.set(id, (rating - state.config.initialRating) / 173.7178);
+		theta.set(id, (rating - state.config.initialRating) / THETA_SCALE);
 	}
 
-	const learningRate = 0.2;
+	const lambda = state.config.btRegularization;
+	const useNewton = state.config.btUseNewton;
+	const fallbackLearningRate = 0.2;
+
 	for (let iter = 0; iter < state.config.btIterations; iter++) {
 		const gradients = new Map<string, number>(ids.map((id) => [id, 0]));
+		// Hessian diagonal: H_ii = -sum_j [ p_ij * (1 - p_ij) ] - lambda
+		const hessianDiag = useNewton
+			? new Map<string, number>(ids.map((id) => [id, 0]))
+			: null;
 
 		for (const obs of state.history) {
 			const a = theta.get(obs.aId);
@@ -145,17 +160,48 @@ function applyBradleyTerryBatch(
 			const gradB = scoreB - (1 - pA);
 			gradients.set(obs.aId, (gradients.get(obs.aId) ?? 0) + gradA);
 			gradients.set(obs.bId, (gradients.get(obs.bId) ?? 0) + gradB);
+
+			if (hessianDiag) {
+				// Second derivative of log-likelihood: -p*(1-p) for each observation
+				const h = -(pA * (1 - pA));
+				hessianDiag.set(obs.aId, (hessianDiag.get(obs.aId) ?? 0) + h);
+				hessianDiag.set(obs.bId, (hessianDiag.get(obs.bId) ?? 0) + h);
+			}
+		}
+
+		// Apply L2 regularization: gradient -= lambda * theta_i, hessian -= lambda
+		if (lambda > 0) {
+			for (const id of ids) {
+				const t = theta.get(id) ?? 0;
+				gradients.set(id, (gradients.get(id) ?? 0) - lambda * t);
+				if (hessianDiag) {
+					hessianDiag.set(id, (hessianDiag.get(id) ?? 0) - lambda);
+				}
+			}
 		}
 
 		let maxChange = 0;
 		for (const id of ids) {
 			const current = theta.get(id) ?? 0;
 			const grad = gradients.get(id) ?? 0;
-			const updated = current + learningRate * grad;
+
+			let step: number;
+			if (hessianDiag) {
+				// Newton step: -gradient / hessian (hessian is negative, so step = grad / |H|)
+				const h = hessianDiag.get(id) ?? 0;
+				const absH = Math.abs(h);
+				// Guard against near-zero hessian (new player with no observations)
+				step = absH > 1e-12 ? grad / absH : fallbackLearningRate * grad;
+			} else {
+				step = fallbackLearningRate * grad;
+			}
+
+			const updated = current + step;
 			theta.set(id, updated);
-			maxChange = Math.max(maxChange, Math.abs(updated - current));
+			maxChange = Math.max(maxChange, Math.abs(step));
 		}
 
+		// Re-center theta to have zero mean (identifiability constraint)
 		const mean =
 			ids.reduce((acc, id) => acc + (theta.get(id) ?? 0), 0) / ids.length;
 		for (const id of ids) {
@@ -171,7 +217,7 @@ function applyBradleyTerryBatch(
 		const record = state.records.get(id);
 		if (!record) continue;
 		record.rating =
-			state.config.initialRating + (theta.get(id) ?? 0) * 173.7178;
+			state.config.initialRating + (theta.get(id) ?? 0) * THETA_SCALE;
 	}
 }
 
@@ -270,6 +316,78 @@ function bootstrapCi(
 	return result;
 }
 
+/**
+ * Computes confidence intervals using the inverse Hessian diagonal of the Bradley-Terry log-likelihood.
+ *
+ * For each player i, the Hessian diagonal entry is:
+ *   H_ii = -sum_j [ p_ij * (1 - p_ij) ] - lambda
+ * where p_ij is the predicted win probability and lambda is the L2 regularization strength.
+ *
+ * The asymptotic variance is Var(theta_i) = 1 / |H_ii|, giving CI = rating +/- z * sqrt(1/|H_ii|) * THETA_SCALE.
+ * This is O(history) instead of O(bootstrap_samples * iterations * history) for bootstrap CIs.
+ *
+ * Falls back to normal (z * uncertainty) CIs when the backend is not Bradley-Terry or when
+ * there is insufficient history.
+ */
+function hessianCi(
+	state: RatingState,
+	confidence: number,
+): Map<string, { low: number; high: number }> {
+	const ids = Array.from(state.records.keys());
+	const result = new Map<string, { low: number; high: number }>();
+
+	if (
+		state.config.backend !== "bradley-terry" ||
+		state.history.length < 2 ||
+		ids.length < 2
+	) {
+		return result;
+	}
+
+	const z = confidenceMultiplier(confidence);
+	const lambda = state.config.btRegularization;
+
+	// Build theta map from current ratings
+	const theta = new Map<string, number>();
+	for (const id of ids) {
+		const rating = state.records.get(id)?.rating ?? state.config.initialRating;
+		theta.set(id, (rating - state.config.initialRating) / THETA_SCALE);
+	}
+
+	// Compute Hessian diagonal from history
+	const hessianDiag = new Map<string, number>(ids.map((id) => [id, 0]));
+	for (const obs of state.history) {
+		const a = theta.get(obs.aId);
+		const b = theta.get(obs.bId);
+		if (a === undefined || b === undefined) continue;
+
+		const pA = 1 / (1 + Math.exp(-(a - b)));
+		const h = -(pA * (1 - pA));
+		hessianDiag.set(obs.aId, (hessianDiag.get(obs.aId) ?? 0) + h);
+		hessianDiag.set(obs.bId, (hessianDiag.get(obs.bId) ?? 0) + h);
+	}
+
+	// Add regularization contribution to Hessian
+	if (lambda > 0) {
+		for (const id of ids) {
+			hessianDiag.set(id, (hessianDiag.get(id) ?? 0) - lambda);
+		}
+	}
+
+	for (const id of ids) {
+		const rating = state.records.get(id)?.rating ?? state.config.initialRating;
+		const absH = Math.abs(hessianDiag.get(id) ?? 0);
+		// Variance = 1/|H_ii|; convert to rating-space standard deviation
+		const stdDev = absH > 1e-12 ? (Math.sqrt(1 / absH) * THETA_SCALE) : STARTING_UNCERTAINTY;
+		result.set(id, {
+			low: rating - z * stdDev,
+			high: rating + z * stdDev,
+		});
+	}
+
+	return result;
+}
+
 export function createRatingState(
 	ids: string[],
 	partialConfig: Partial<RatingEngineConfig>,
@@ -284,6 +402,9 @@ export function createRatingState(
 		btTolerance: partialConfig.btTolerance ?? 1e-6,
 		// Default to 0 when omitted by callers; persisted state/config loading supplies an explicit value.
 		ciBootstrapSamples: partialConfig.ciBootstrapSamples ?? 0,
+		btRegularization: partialConfig.btRegularization ?? 0,
+		btUseNewton: partialConfig.btUseNewton ?? false,
+		ciMode: partialConfig.ciMode ?? "bootstrap",
 	};
 
 	const records = new Map<string, RatingRecord>();
@@ -322,17 +443,25 @@ export function getRatingStandingsWithOptions(
 ): RatingStanding[] {
 	const confidence = options.confidence ?? DEFAULT_CI_CONFIDENCE;
 	const z = confidenceMultiplier(confidence);
-	const boot =
-		options.bootstrapCi === true
-			? bootstrapCi(state, confidence)
-			: new Map<string, { low: number; high: number }>();
+
+	// Determine CI source based on config ciMode when bootstrapCi is requested.
+	let ciMap = new Map<string, { low: number; high: number }>();
+	if (options.bootstrapCi === true) {
+		const mode = state.config.ciMode;
+		if (mode === "hessian" && state.config.backend === "bradley-terry") {
+			ciMap = hessianCi(state, confidence);
+		} else if (mode === "bootstrap") {
+			ciMap = bootstrapCi(state, confidence);
+		}
+		// mode === "normal" falls through with empty map -> uses z * uncertainty below
+	}
 
 	return Array.from(state.records.values())
 		.map((record) => ({
 			...record,
-			ciLow: boot.get(record.id)?.low ?? record.rating - z * record.uncertainty,
+			ciLow: ciMap.get(record.id)?.low ?? record.rating - z * record.uncertainty,
 			ciHigh:
-				boot.get(record.id)?.high ?? record.rating + z * record.uncertainty,
+				ciMap.get(record.id)?.high ?? record.rating + z * record.uncertainty,
 		}))
 		.sort((a, b) => {
 			if (b.rating !== a.rating) return b.rating - a.rating;

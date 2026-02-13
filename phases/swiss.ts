@@ -499,7 +499,7 @@ export async function runSwissPhase(
 			let bye: string | null;
 			const byeIds = new Set<string>();
 			if (schedulingConfig.mode === "adaptive" && ratingState) {
-				const scheduled = scheduleAdaptivePairs(
+			const scheduled = scheduleAdaptivePairs(
 					contestants,
 					ratingState,
 					pairwiseHistory,
@@ -508,6 +508,7 @@ export async function runSwissPhase(
 						avoidRepeatPenalty: schedulingConfig.avoidRepeatPenalty,
 						maxRepeatPairs: schedulingConfig.maxRepeatPairs,
 						randomSeed: round * 9_973,
+						scoringMode: schedulingConfig.scoringMode ?? "heuristic",
 					},
 				);
 				pairs = scheduled.pairs;

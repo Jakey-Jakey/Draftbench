@@ -91,12 +91,16 @@ tieValue = 0.5              # Draw score in pairwise space
 btIterations = 200
 btTolerance = 0.000001
 ciBootstrapSamples = 200
+btRegularization = 0.01     # L2 regularization for BT (shrinks toward mean; 0 = disabled)
+btUseNewton = true          # Per-player Hessian step sizes for BT (faster convergence)
+ciMode = "hessian"          # CI mode: "bootstrap", "hessian" (analytic, BT only), or "normal" (z*uncertainty)
 
 [tournament.scheduling]
 mode = "adaptive"           # "adaptive" or "static"
 exploration = 0.15          # 0-1 random exploration budget
 avoidRepeatPenalty = 0.35   # Penalty weight for repeated pairs
 maxRepeatPairs = 2          # Hard repeat cap per pair before fallback
+scoringMode = "fisher"      # Pair scoring: "heuristic" (original composite) or "fisher" (Fisher-information-weighted)
 
 # Coarse Early Stop Rules (coarse ranking only)
 [tournament.stopRules]
