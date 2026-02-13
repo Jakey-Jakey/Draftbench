@@ -371,8 +371,11 @@ const STOP_RULES = config.tournament.stopRules;
 				finaleJudges: FINALE_JUDGES,
 			},
 		);
+		const leaderboardOutput = DRY_RUN
+			? `> ⚠️ DRY RUN ARTIFACT: This file contains mock/simulated data only.\n\n${leaderboard}`
+			: leaderboard;
 		const leaderboardPath = join(runDir, "leaderboard.md");
-		await writeFile(leaderboardPath, leaderboard, "utf-8");
+		await writeFile(leaderboardPath, leaderboardOutput, "utf-8");
 		console.log(`  ✓ Wrote ${leaderboardPath}`);
 
 			const summary = computeRunSummary({
@@ -391,6 +394,15 @@ const STOP_RULES = config.tournament.stopRules;
 		const summaryPath = join(runDir, "summary.json");
 		await writeFile(summaryPath, JSON.stringify(summary, null, 2), "utf-8");
 		console.log(`  ✓ Wrote ${summaryPath}`);
+		if (DRY_RUN) {
+			const dryRunMarkerPath = join(runDir, "DRY_RUN.md");
+			await writeFile(
+				dryRunMarkerPath,
+				"# DRY RUN\n\nThis run directory contains mock/simulated outputs only.\n",
+				"utf-8",
+			);
+			console.log(`  ✓ Wrote ${dryRunMarkerPath}`);
+		}
 
 		if (!DRY_RUN) {
 			const detailed = await computeDetailedRunSummary({
