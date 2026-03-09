@@ -65,7 +65,18 @@ const SCHEDULING = config.tournament.scheduling;
 const STOP_RULES = config.tournament.stopRules;
 
 function resolveRunPathFromArg(runArg: string, runsDir: string): string {
-	return runArg.startsWith(runsDir) ? runArg : join(runsDir, runArg);
+	if (isAbsolute(runArg)) {
+		return resolve(runArg);
+	}
+
+	const runArgFromCwd = resolve(runArg);
+	const runsDirAbs = resolve(runsDir);
+	const relToRunsDir = relative(runsDirAbs, runArgFromCwd);
+	if (relToRunsDir && !relToRunsDir.startsWith("..") && !isAbsolute(relToRunsDir)) {
+		return runArgFromCwd;
+	}
+
+	return resolve(runsDir, runArg);
 }
 
 function cloneReusedState(sourceState: PipelineState): PipelineState {
@@ -216,8 +227,13 @@ async function runCrossReviewPipeline(): Promise<void> {
 			state.ratingState = sourceState.ratingState
 				? {
 						...sourceState.ratingState,
-						records: [...sourceState.ratingState.records],
-						history: [...sourceState.ratingState.history],
+						config: { ...sourceState.ratingState.config },
+						records: sourceState.ratingState.records.map((record) => ({
+							...record,
+						})),
+						history: sourceState.ratingState.history.map((entry) => ({
+							...entry,
+						})),
 					}
 				: null;
 			state.pairwiseHistory = [...(sourceState.pairwiseHistory ?? [])];

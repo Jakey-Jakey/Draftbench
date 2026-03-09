@@ -415,6 +415,95 @@ maxTotalMatches = 0
 		);
 	});
 
+	test("reuse-artifacts accepts an absolute source path when runsDirectory is relative", async () => {
+		const root = makeTempRoot("reuse-absolute-default-runs");
+		const sourceRunDir = join(root, "absolute-source-run");
+		mkdirSync(sourceRunDir, { recursive: true });
+		const cfgPath = join(root, "config.toml");
+		writeFileSync(
+			cfgPath,
+			`[roles]
+[[roles.generators]]
+model = "openai/gpt-5.2"
+
+[[roles.reviewers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "openai/gpt-5.2"
+
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+
+[tournament]
+coarseRounds = 1
+coarseFormat = "1v1"
+
+[tournament.firstDraftSelection]
+enabled = false
+initialGenerations = 1
+
+[tournament.fineRanking]
+enabled = false
+maxMatchesPerBatch = 0
+maxTotalMatches = 0
+`,
+		);
+
+		const gen = "openai/gpt-5.2";
+		const reviewer = "openai/gpt-5.2";
+		const reviser = "openai/gpt-5.2";
+		const revisionId = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviser)}`;
+		const sourceState = createInitialState();
+		sourceState.phasesCompleted = [
+			"generate",
+			"initial_leaderboard",
+			"review",
+			"revise",
+		];
+		sourceState.generatedDrafts = new Map([
+			[gen, [{ text: "seed draft", model: gen }]],
+		]);
+		sourceState.completedGenerators = [gen];
+		sourceState.selectedDrafts = new Map([
+			[gen, { text: "seed draft", model: gen }],
+		]);
+		sourceState.completedLeaderboardModels = [gen];
+		sourceState.reviews = [{ text: "seed review", reviewer, reviewed: gen }];
+		sourceState.revisions = new Map([
+			[
+				revisionId,
+				{
+					id: revisionId,
+					text: "seed revision",
+					generator: gen,
+					reviewer,
+					reviser,
+				},
+			],
+		]);
+		await saveState(sourceRunDir, sourceState);
+
+		mkdirSync("runs", { recursive: true });
+		const before = new Set(readdirSync("runs"));
+		const { stdout } = runPipeline([
+			"--config",
+			cfgPath,
+			"--reuse-artifacts",
+			sourceRunDir,
+			"--dry-run",
+		]);
+		const after = readdirSync("runs");
+		const newRuns = after.filter((entry) => !before.has(entry));
+
+		expect(stdout).toContain(`REUSING ARTIFACTS from: ${sourceRunDir}`);
+		expect(newRuns.length).toBe(1);
+		tmpRoots.push(resolve("runs", newRuns[0]!));
+	});
+
 	test("reuse-artifacts with --skip-coarse carries over swiss state into a fresh run", async () => {
 		const root = makeTempRoot("reuse-skip-coarse");
 		const runsDir = join(root, "runs");
