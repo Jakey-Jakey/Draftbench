@@ -393,10 +393,7 @@ export function saveState(runDir: string, state: PipelineState): void {
 		mkdirSync(runDir, { recursive: true });
 	}
 	const statePath = join(runDir, STATE_FILENAME);
-	const serialized = serializeState({
-		...state,
-		timestamp: new Date().toISOString(),
-	});
+	const serialized = serializeState(state);
 	writeFileSync(statePath, JSON.stringify(serialized, null, 2), "utf-8");
 }
 

@@ -130,6 +130,10 @@ export interface PromptsConfig {
 		system: string;
 		userTemplate: string;
 	};
+	judgeRank: {
+		system: string;
+		userTemplate: string;
+	};
 }
 
 export interface PipelineConfig {

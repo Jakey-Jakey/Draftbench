@@ -54,6 +54,51 @@ export type JudgeStatblocksResponse = z.infer<
 // JSON Parsing Utilities
 // ============================================================================
 
+function findBalancedJsonObjectCandidates(text: string): string[] {
+	const candidates: string[] = [];
+
+	for (let start = 0; start < text.length; start++) {
+		if (text[start] !== "{") continue;
+
+		let depth = 0;
+		let inString = false;
+		let escaping = false;
+
+		for (let i = start; i < text.length; i++) {
+			const char = text[i];
+			if (!char) continue;
+
+			if (escaping) {
+				escaping = false;
+				continue;
+			}
+
+			if (char === "\\") {
+				escaping = true;
+				continue;
+			}
+
+			if (char === '"') {
+				inString = !inString;
+				continue;
+			}
+
+			if (inString) continue;
+
+			if (char === "{") depth += 1;
+			if (char === "}") {
+				depth -= 1;
+				if (depth === 0) {
+					candidates.push(text.slice(start, i + 1));
+					break;
+				}
+			}
+		}
+	}
+
+	return candidates;
+}
+
 /**
  * Extracts and validates JSON from LLM text responses.
  *
@@ -67,38 +112,46 @@ export function parseJsonResponse<T>(
 	schema: z.ZodSchema<T>,
 	fallback: T,
 ): { success: true; data: T } | { success: false; data: T; error: string } {
-	try {
-		// Extract JSON from text (LLMs may include extra text before/after)
-		const jsonMatch = text.match(/\{[\s\S]*\}/);
-		if (!jsonMatch) {
-			return {
-				success: false,
-				data: fallback,
-				error: "No JSON object found in response",
-			};
-		}
-
-		const parsed = JSON.parse(jsonMatch[0]);
-		const result = schema.safeParse(parsed);
-
-		if (result.success) {
-			return { success: true, data: result.data };
-		} else {
-			const errorMessage = result.error.issues
-				.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-				.join("; ");
-			return {
-				success: false,
-				data: fallback,
-				error: `Schema validation failed: ${errorMessage}`,
-			};
-		}
-	} catch (e) {
-		const errorMessage = e instanceof Error ? e.message : String(e);
+	const candidates = findBalancedJsonObjectCandidates(text);
+	if (candidates.length === 0) {
 		return {
 			success: false,
 			data: fallback,
-			error: `JSON parse error: ${errorMessage}`,
+			error: "No JSON object found in response",
 		};
 	}
+
+	let lastParseError: string | null = null;
+	let lastSchemaError: string | null = null;
+
+	for (const candidate of candidates) {
+		try {
+			const parsed = JSON.parse(candidate);
+			const result = schema.safeParse(parsed);
+
+			if (result.success) {
+				return { success: true, data: result.data };
+			}
+
+			lastSchemaError = result.error.issues
+				.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+				.join("; ");
+		} catch (e) {
+			lastParseError = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	if (lastSchemaError) {
+		return {
+			success: false,
+			data: fallback,
+			error: `Schema validation failed: ${lastSchemaError}`,
+		};
+	}
+
+	return {
+		success: false,
+		data: fallback,
+		error: `JSON parse error: ${lastParseError ?? "Unknown parse failure"}`,
+	};
 }

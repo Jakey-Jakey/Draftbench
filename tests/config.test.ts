@@ -574,6 +574,27 @@ describe("prompt configuration", () => {
 		expect(config.prompts.judgeThreeWay.userTemplate).toContain("{idA}");
 		expect(config.prompts.judgeThreeWay.userTemplate).toContain("{idB}");
 		expect(config.prompts.judgeThreeWay.userTemplate).toContain("{idC}");
+		expect(config.prompts.judgeRank.userTemplate).toContain("{count}");
+		expect(config.prompts.judgeRank.userTemplate).toContain("{entries}");
+	});
+
+	test("rejects out-of-range temperature overrides", () => {
+		const tempPath = `tmp-invalid-temperature-${Date.now()}.toml`;
+		writeFileSync(
+			tempPath,
+			`[roles]
+[[roles.generators]]
+model = "openai/gpt-5.2"
+temperature = 3
+`,
+		);
+		try {
+			expect(() => loadConfig(tempPath)).toThrow(
+				'Invalid temperature for model "openai/gpt-5.2": expected a number between 0 and 2',
+			);
+		} finally {
+			rmSync(tempPath, { force: true });
+		}
 	});
 });
 

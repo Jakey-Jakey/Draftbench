@@ -21,7 +21,6 @@ import {
 import type { PairwiseObservation, RatingState } from "../rating/types";
 import { scheduleAdaptivePairs } from "../scheduling/adaptive";
 import { evaluateStopRules } from "../scheduling/stopRules";
-import { Semaphore } from "../semaphore";
 import {
 	isPhaseCompleted,
 	markPhaseCompleted,
@@ -30,7 +29,13 @@ import {
 	type StoredSwissMatch,
 	saveState,
 } from "../state";
-import { getShortModelName, requireDefined, shuffleArray } from "../utils";
+import {
+	createDeterministicRandom,
+	getShortModelName,
+	requireDefined,
+	shuffleArray,
+	shuffleArrayWithRng,
+} from "../utils";
 import type { RevisionEntry } from "./revise";
 
 // ============================================================================
@@ -562,19 +567,24 @@ export async function runSwissPhase(
 
 					if (dryRun) {
 						// Mock
-						const winnerId = idA;
-						const loserId = idB;
+						const rng = createDeterministicRandom(
+							`swiss:1v1:${round}:${idA}:${idB}`,
+						);
+						const outcome = rng();
+						const isDraw = outcome >= 0.8;
+						const winnerId = outcome < 0.4 ? idA : idB;
+						const loserId = winnerId === idA ? idB : idA;
 						match = {
 							round,
 							ids: [idA, idB, "N/A"],
-							first: winnerId,
-							second: loserId,
+							first: isDraw ? idA : winnerId,
+							second: isDraw ? idB : loserId,
 							third: "N/A",
-							reasoning: "Mock judgment for dry run (1v1).",
-							tieGroup: "none",
+							reasoning: "Deterministic mock judgment for dry run (1v1).",
+							tieGroup: isDraw ? "head_to_head" : "none",
 							sharedPoints: {
-								[winnerId]: 1,
-								[loserId]: 0,
+								[idA]: isDraw ? 0.5 : winnerId === idA ? 1 : 0,
+								[idB]: isDraw ? 0.5 : winnerId === idB ? 1 : 0,
 							},
 						};
 						console.log(`    ✓ Winner: ${winnerId} | Loser: ${loserId} (mock)`);
@@ -755,7 +765,10 @@ export async function runSwissPhase(
 			if (dryRun) {
 				// Mock judging
 				for (const [idA, idB, idC] of triples) {
-					const ids = shuffleArray([idA, idB, idC]);
+					const rng = createDeterministicRandom(
+						`swiss:1v1v1:${round}:${idA}:${idB}:${idC}`,
+					);
+					const ids = shuffleArrayWithRng([idA, idB, idC], rng);
 					const firstId = requireDefined(
 						ids[0],
 						"Missing first shuffled ID in Swiss dry-run triple",
@@ -774,7 +787,7 @@ export async function runSwissPhase(
 						first: firstId,
 						second: secondId,
 						third: thirdId,
-						reasoning: "Mock judgment for dry run.",
+						reasoning: "Deterministic mock judgment for dry run.",
 						tieGroup: "none",
 						sharedPoints: {
 							[firstId]: 2,
