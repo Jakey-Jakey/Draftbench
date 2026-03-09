@@ -123,6 +123,9 @@ export function parseJsonResponse<T>(
 
 	let lastParseError: string | null = null;
 	let lastSchemaError: string | null = null;
+	// Prefer schema errors over parse errors when reporting failure: once we have valid
+	// JSON, a precise validation mismatch is usually more actionable than an earlier
+	// candidate that failed to parse at all.
 
 	for (const candidate of candidates) {
 		try {
@@ -141,6 +144,8 @@ export function parseJsonResponse<T>(
 		}
 	}
 
+	// Keep schema failures higher priority here for the same reason: they tell us the
+	// model produced parseable JSON, but not in the shape we asked for.
 	if (lastSchemaError) {
 		return {
 			success: false,

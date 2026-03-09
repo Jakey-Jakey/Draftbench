@@ -128,7 +128,7 @@ describe("Semaphore", () => {
 			expect(() => sem.release()).toThrow("Semaphore released too many times");
 		});
 
-		test("multiple releases do not exceed initial permits", () => {
+		test("release on zero-permit Semaphore throws", () => {
 			const sem = new Semaphore(0);
 			expect(() => sem.release()).toThrow("Semaphore released too many times");
 		});
