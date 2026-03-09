@@ -6,7 +6,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
 	getFinaleJudges,
@@ -98,6 +98,36 @@ function cloneReusedState(sourceState: PipelineState): PipelineState {
 		reviews: sourceState.reviews ? [...sourceState.reviews] : null,
 		revisions: sourceState.revisions ? new Map(sourceState.revisions) : null,
 	};
+}
+
+async function copyIfExists(sourcePath: string, targetPath: string): Promise<void> {
+	if (!existsSync(sourcePath)) return;
+	await cp(sourcePath, targetPath, { recursive: true, force: true });
+}
+
+async function copyReusedArtifacts(
+	sourceRunDir: string,
+	targetRunDir: string,
+): Promise<void> {
+	const entries = await readdir(sourceRunDir, { withFileTypes: true });
+	for (const entry of entries) {
+		if (!entry.isFile()) continue;
+		if (!/_original_\d+\.md$/i.test(entry.name)) continue;
+		await copyIfExists(
+			join(sourceRunDir, entry.name),
+			join(targetRunDir, entry.name),
+		);
+	}
+
+	await copyIfExists(join(sourceRunDir, "reviews"), join(targetRunDir, "reviews"));
+	await copyIfExists(
+		join(sourceRunDir, "revisions"),
+		join(targetRunDir, "revisions"),
+	);
+	await copyIfExists(
+		join(sourceRunDir, "initial_leaderboard"),
+		join(targetRunDir, "initial_leaderboard"),
+	);
 }
 
 // ============================================================================
@@ -211,6 +241,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 		const timestamp = getTimestamp();
 		runDir = await ensureRunsDirectory(RUNS_DIR, timestamp, DRY_RUN);
 		state = cloneReusedState(sourceState);
+		await copyReusedArtifacts(sourcePath, runDir);
 		for (const phase of requiredPhases) {
 			markPhaseCompleted(state, phase);
 		}

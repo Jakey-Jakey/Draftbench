@@ -390,6 +390,29 @@ maxTotalMatches = 0
 			},
 		];
 		await saveState(sourceRunDir, sourceState);
+		writeFileSync(
+			join(sourceRunDir, `${getModelToken(gen)}_original_1.md`),
+			"# Source original draft\n\nseed draft",
+		);
+		mkdirSync(join(sourceRunDir, "reviews"), { recursive: true });
+		writeFileSync(
+			join(
+				sourceRunDir,
+				"reviews",
+				`${getModelToken(reviewer)}_reviews_${getModelToken(gen)}.md`,
+			),
+			"# Source review\n\nseed review",
+		);
+		mkdirSync(join(sourceRunDir, "revisions"), { recursive: true });
+		writeFileSync(
+			join(sourceRunDir, "revisions", `${idA}.md`),
+			"# Source revision A\n\nseed rev A",
+		);
+		mkdirSync(join(sourceRunDir, "initial_leaderboard"), { recursive: true });
+		writeFileSync(
+			join(sourceRunDir, "initial_leaderboard", "leaderboard.md"),
+			"# Source first draft leaderboard",
+		);
 		const sourceStateBefore = readFileSync(
 			join(sourceRunDir, "state.json"),
 			"utf-8",
@@ -411,6 +434,29 @@ maxTotalMatches = 0
 		expect(stdout).toContain("Phase 5/6: Coarse Ranking");
 		expect(newRuns.length).toBe(1);
 		expect(newRuns[0]).not.toBe("reuse-seeded");
+		const newRunDir = join(runsDir, newRuns[0]!);
+		expect(
+			readFileSync(join(newRunDir, `${getModelToken(gen)}_original_1.md`), "utf-8"),
+		).toContain("Source original draft");
+		expect(
+			readFileSync(
+				join(
+					newRunDir,
+					"reviews",
+					`${getModelToken(reviewer)}_reviews_${getModelToken(gen)}.md`,
+				),
+				"utf-8",
+			),
+		).toContain("Source review");
+		expect(
+			readFileSync(join(newRunDir, "revisions", `${idA}.md`), "utf-8"),
+		).toContain("Source revision A");
+		expect(
+			readFileSync(
+				join(newRunDir, "initial_leaderboard", "leaderboard.md"),
+				"utf-8",
+			),
+		).toContain("Source first draft leaderboard");
 		expect(readFileSync(join(sourceRunDir, "state.json"), "utf-8")).toBe(
 			sourceStateBefore,
 		);
