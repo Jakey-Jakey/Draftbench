@@ -9,10 +9,10 @@ import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
-	loadConfig,
-	parseArgs,
 	type CLIArgs,
+	loadConfig,
 	type PipelineConfig,
+	parseArgs,
 } from "./config";
 import { computeLeaderboard, computeRunSummary } from "./leaderboard";
 import { runFinalePhase } from "./phases/finale";
@@ -28,8 +28,8 @@ import {
 	createInitialState,
 	loadState,
 	markPhaseCompleted,
-	saveState,
 	type PipelineState,
+	saveState,
 } from "./state";
 import {
 	ensureRunsDirectory,

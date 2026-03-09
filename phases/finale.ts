@@ -433,29 +433,36 @@ export async function runFinalePhase(
 
 		const results = await Promise.all(matchPromises);
 
+		const ratingsBeforeIteration = new Map<string, number>();
 		for (const match of results) {
-			storedMatches.push(match);
+			const ratingBeforeA = ratingState.records.get(match.aId)?.rating;
+			const ratingBeforeB = ratingState.records.get(match.bId)?.rating;
+			if (ratingBeforeA !== undefined) {
+				ratingsBeforeIteration.set(match.aId, ratingBeforeA);
+			}
+			if (ratingBeforeB !== undefined) {
+				ratingsBeforeIteration.set(match.bId, ratingBeforeB);
+			}
+		}
 
-			const ratingBeforeA = ratingState.records.get(match.aId)?.rating ?? null;
-			const ratingBeforeB = ratingState.records.get(match.bId)?.rating ?? null;
+		const batchStartIndex = storedMatches.length;
+		const observations: PairwiseObservation[] = results.map((match, index) => ({
+			aId: match.aId,
+			bId: match.bId,
+			scoreA: match.scoreA,
+			scoreB: match.scoreB,
+			round: (state.swissRound ?? 0) + iteration,
+			sourceMatchId: `finale:i${iteration}:${pairKey(match.aId, match.bId)}:${
+				batchStartIndex + index + 1
+			}`,
+		}));
 
-			const observation: PairwiseObservation = {
-				aId: match.aId,
-				bId: match.bId,
-				scoreA: match.scoreA,
-				scoreB: match.scoreB,
-				round: (state.swissRound ?? 0) + iteration,
-				sourceMatchId: `finale:i${iteration}:${pairKey(match.aId, match.bId)}:${
-					storedMatches.length
-				}`,
-			};
-			// Note: Each applyPairwiseBatch call refits BT from full history.
-			// This is O(matches × btIterations × history) but enables per-match
-			// delta logging for debugging. Acceptable for small finale batches.
-			applyPairwiseBatch(ratingState, [observation]);
+		storedMatches.push(...results);
+		applyPairwiseBatch(ratingState, observations);
 
-			const ratingAfterA = ratingState.records.get(match.aId)?.rating ?? null;
-			const ratingAfterB = ratingState.records.get(match.bId)?.rating ?? null;
+		const iterationDeltas: string[] = [];
+		const deltaIds = new Set<string>();
+		for (const match of results) {
 			const winner =
 				match.votesA === match.votesB
 					? "DRAW"
@@ -463,20 +470,8 @@ export async function runFinalePhase(
 						? match.aId
 						: match.bId;
 
-			const deltaA =
-				ratingBeforeA !== null && ratingAfterA !== null
-					? ratingAfterA - ratingBeforeA
-					: null;
-			const deltaB =
-				ratingBeforeB !== null && ratingAfterB !== null
-					? ratingAfterB - ratingBeforeB
-					: null;
-
 			console.log(
-				`    ✓ ${match.aId} vs ${match.bId}: ${winner} (${match.votesA}-${match.votesB})` +
-					(deltaA !== null && deltaB !== null
-						? ` | Δ ${match.aId}: ${deltaA >= 0 ? "+" : ""}${deltaA.toFixed(1)}, ${match.bId}: ${deltaB >= 0 ? "+" : ""}${deltaB.toFixed(1)}`
-						: ""),
+				`    ✓ ${match.aId} vs ${match.bId}: ${winner} (${match.votesA}-${match.votesB})`,
 			);
 
 			if (!dryRun) {
@@ -487,6 +482,28 @@ export async function runFinalePhase(
 								match.votesA > match.votesB ? match.bId : match.aId
 							} (${match.votesA}-${match.votesB})\n`;
 				iterationLogMd += line;
+			}
+
+			for (const contestantId of [match.aId, match.bId]) {
+				if (deltaIds.has(contestantId)) continue;
+				deltaIds.add(contestantId);
+				const ratingBefore = ratingsBeforeIteration.get(contestantId);
+				const ratingAfter = ratingState.records.get(contestantId)?.rating;
+				if (ratingBefore === undefined || ratingAfter === undefined) continue;
+				const delta = ratingAfter - ratingBefore;
+				iterationDeltas.push(
+					`${contestantId}: ${delta >= 0 ? "+" : ""}${delta.toFixed(1)}`,
+				);
+			}
+		}
+
+		if (iterationDeltas.length > 0) {
+			console.log(`    Δ iteration ratings: ${iterationDeltas.join(", ")}`);
+			if (!dryRun) {
+				const deltaLine = `- Rating deltas: ${iterationDeltas.join(", ")}\n`;
+				iterationLogMd += isStructured
+					? `\n## Rating deltas\n\n${deltaLine}`
+					: `${deltaLine}\n`;
 			}
 		}
 
@@ -557,7 +574,7 @@ export async function runFinalePhase(
 				await Bun.write(iterPath, iterationLogMd);
 			} else {
 				const file = Bun.file(output.iterationsRoot);
-				const existing = await file.exists() ? await file.text() : "";
+				const existing = (await file.exists()) ? await file.text() : "";
 				await Bun.write(
 					output.iterationsRoot,
 					`${existing}${iterationLogMd}\n`,
@@ -571,7 +588,7 @@ export async function runFinalePhase(
 		state.finaleConverged = false;
 		state.ratingState = serializeRatingState(ratingState);
 		state.pairwiseHistory = ratingState.history;
-			if (!dryRun) saveState(runDir, state);
+		if (!dryRun) saveState(runDir, state);
 	}
 
 	// If we stopped due to budget, we may have achieved separation on the final batch.
