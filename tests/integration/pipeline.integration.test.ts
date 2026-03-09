@@ -1,16 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInitialState, saveState } from "../../state";
 import { getModelToken } from "../../utils";
 
 const tmpRoots: string[] = [];
+const workspaceRoot = process.cwd();
 
 function makeTempRoot(label: string): string {
 	const root = resolve(
@@ -29,10 +24,13 @@ function writeConfig(path: string, runsDir: string, body: string): void {
 	);
 }
 
-function runPipeline(args: string[]): { stdout: string; stderr: string } {
+function runPipeline(
+	args: string[],
+	options?: { cwd?: string },
+): { stdout: string; stderr: string } {
 	const proc = Bun.spawnSync({
-		cmd: ["bun", "run", "index.ts", ...args],
-		cwd: process.cwd(),
+		cmd: ["bun", "run", join(workspaceRoot, "index.ts"), ...args],
+		cwd: options?.cwd ?? workspaceRoot,
 		stdout: "pipe",
 		stderr: "pipe",
 		env: process.env,
@@ -48,14 +46,17 @@ function runPipeline(args: string[]): { stdout: string; stderr: string } {
 	return { stdout, stderr };
 }
 
-function runPipelineExpectFailure(args: string[]): {
+function runPipelineExpectFailure(
+	args: string[],
+	options?: { cwd?: string },
+): {
 	exitCode: number;
 	stdout: string;
 	stderr: string;
 } {
 	const proc = Bun.spawnSync({
-		cmd: ["bun", "run", "index.ts", ...args],
-		cwd: process.cwd(),
+		cmd: ["bun", "run", join(workspaceRoot, "index.ts"), ...args],
+		cwd: options?.cwd ?? workspaceRoot,
 		stdout: "pipe",
 		stderr: "pipe",
 		env: process.env,
@@ -418,9 +419,10 @@ maxTotalMatches = 0
 	test("reuse-artifacts accepts an absolute source path when runsDirectory is relative", async () => {
 		const root = makeTempRoot("reuse-absolute-default-runs");
 		const sourceRunDir = join(root, "absolute-source-run");
+		const runsDir = join(root, "runs");
 		mkdirSync(sourceRunDir, { recursive: true });
 		const cfgPath = join(root, "config.toml");
-		writeFileSync(
+		await Bun.write(
 			cfgPath,
 			`[roles]
 [[roles.generators]]
@@ -487,21 +489,137 @@ maxTotalMatches = 0
 		]);
 		await saveState(sourceRunDir, sourceState);
 
-		mkdirSync("runs", { recursive: true });
-		const before = new Set(readdirSync("runs"));
+		mkdirSync(runsDir, { recursive: true });
+		const before = new Set(readdirSync(runsDir));
 		const { stdout } = runPipeline([
 			"--config",
 			cfgPath,
 			"--reuse-artifacts",
 			sourceRunDir,
 			"--dry-run",
-		]);
-		const after = readdirSync("runs");
+		], { cwd: root });
+		const after = readdirSync(runsDir);
 		const newRuns = after.filter((entry) => !before.has(entry));
 
 		expect(stdout).toContain(`REUSING ARTIFACTS from: ${sourceRunDir}`);
 		expect(newRuns.length).toBe(1);
-		tmpRoots.push(resolve("runs", newRuns[0]!));
+	});
+
+	test("skip-fine propagates into generated summaries", () => {
+		const root = makeTempRoot("reuse-skip-fine-summary");
+		const runsDir = join(root, "runs");
+		const sourceRunDir = join(runsDir, "reuse-source");
+		mkdirSync(sourceRunDir, { recursive: true });
+		const cfgPath = join(root, "config.toml");
+		writeConfig(
+			cfgPath,
+			runsDir,
+			`[roles]
+[[roles.generators]]
+model = "openai/gpt-5.2"
+
+[[roles.reviewers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "anthropic/claude-opus-4.5"
+
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+
+[tournament]
+coarseRounds = 1
+coarseFormat = "1v1"
+
+[tournament.firstDraftSelection]
+enabled = false
+initialGenerations = 1
+
+[tournament.rating]
+enabled = false
+
+[tournament.stopRules]
+enabled = false
+
+[tournament.fineRanking]
+enabled = true
+maxMatchesPerBatch = 1
+maxTotalMatches = 1
+`,
+		);
+
+		const gen = "openai/gpt-5.2";
+		const reviewer = "openai/gpt-5.2";
+		const reviserA = "openai/gpt-5.2";
+		const reviserB = "anthropic/claude-opus-4.5";
+		const idA = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserA)}`;
+		const idB = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserB)}`;
+
+		const sourceState = createInitialState();
+		sourceState.phasesCompleted = [
+			"generate",
+			"initial_leaderboard",
+			"review",
+			"revise",
+		];
+		sourceState.generatedDrafts = new Map([
+			[gen, [{ text: "seed draft", model: gen }]],
+		]);
+		sourceState.completedGenerators = [gen];
+		sourceState.selectedDrafts = new Map([
+			[gen, { text: "seed draft", model: gen }],
+		]);
+		sourceState.completedLeaderboardModels = [gen];
+		sourceState.reviews = [{ text: "seed review", reviewer, reviewed: gen }];
+		sourceState.revisions = new Map([
+			[
+				idA,
+				{
+					id: idA,
+					text: "seed rev A",
+					generator: gen,
+					reviewer,
+					reviser: reviserA,
+				},
+			],
+			[
+				idB,
+				{
+					id: idB,
+					text: "seed rev B",
+					generator: gen,
+					reviewer,
+					reviser: reviserB,
+				},
+			],
+		]);
+		saveState(sourceRunDir, sourceState);
+
+		const before = new Set(readdirSync(runsDir));
+		runPipeline([
+			"--config",
+			cfgPath,
+			"--reuse-artifacts",
+			sourceRunDir,
+			"--skip-fine",
+			"--dry-run",
+		]);
+		const after = readdirSync(runsDir);
+		const newRuns = after.filter((entry) => !before.has(entry));
+		expect(newRuns.length).toBe(1);
+
+		const runDir = join(runsDir, newRuns[0]!);
+		const summary = JSON.parse(readFileSync(join(runDir, "summary.json"), "utf-8"));
+		expect(summary.fineRanking.enabled).toBe(false);
+		expect(readFileSync(join(runDir, "leaderboard.md"), "utf-8")).toContain(
+			"Fine ranking is disabled.",
+		);
 	});
 
 	test("reuse-artifacts with --skip-coarse carries over swiss state into a fresh run", async () => {

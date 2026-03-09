@@ -63,6 +63,8 @@ const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 const RATING = config.tournament.rating;
 const SCHEDULING = config.tournament.scheduling;
 const STOP_RULES = config.tournament.stopRules;
+const EFFECTIVE_TOURNAMENT = { ...config.tournament, finale: FINALE };
+const EFFECTIVE_CONFIG = { ...config, tournament: EFFECTIVE_TOURNAMENT };
 
 function resolveRunPathFromArg(runArg: string, runsDir: string): string {
 	if (isAbsolute(runArg)) {
@@ -519,7 +521,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 		state.initialLeaderboardResults,
 		fineSummary,
 		{
-			tournament: config.tournament,
+			tournament: EFFECTIVE_TOURNAMENT,
 			swissJudges: SWISS_JUDGES,
 			finaleJudges: FINALE_JUDGES,
 		},
@@ -539,7 +541,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 		finaleSummary: fineSummary,
 		swissEarlyStopReason: state.swissStopReason ?? null,
 		configContext: {
-			tournament: config.tournament,
+			tournament: EFFECTIVE_TOURNAMENT,
 			swissJudges: SWISS_JUDGES,
 			finaleJudges: FINALE_JUDGES,
 		},
@@ -564,7 +566,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 			swissMatches: allSwissMatches,
 			finaleMatches,
 			finaleSummary: fineSummary,
-			config,
+			config: EFFECTIVE_CONFIG,
 		});
 		const detailedPath = join(runDir, "summary.detailed.json");
 		await writeFile(detailedPath, JSON.stringify(detailed, null, 2), "utf-8");
