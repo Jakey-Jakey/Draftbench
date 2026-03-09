@@ -3,6 +3,7 @@ import type { CLIArgs } from "./types";
 export function parseArgs(argv: string[] = process.argv): CLIArgs {
 	const args: CLIArgs = {
 		dryRun: false,
+		reuseFineOnly: false,
 	};
 
 	for (let i = 0; i < argv.length; i++) {
@@ -16,6 +17,11 @@ export function parseArgs(argv: string[] = process.argv): CLIArgs {
 		} else if (arg === "--resume" && argv[i + 1]) {
 			args.resumeDir = argv[i + 1];
 			i++;
+		} else if (arg === "--reuse-artifacts" && argv[i + 1]) {
+			args.reuseArtifactsDir = argv[i + 1];
+			i++;
+		} else if (arg === "--reuse-fine-only") {
+			args.reuseFineOnly = true;
 		} else if (arg === "--dry-run") {
 			args.dryRun = true;
 		}

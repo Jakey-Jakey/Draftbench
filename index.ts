@@ -56,6 +56,55 @@ const RATING = config.tournament.rating;
 const SCHEDULING = config.tournament.scheduling;
 const STOP_RULES = config.tournament.stopRules;
 
+function resolveRunPathFromArg(runArg: string, runsDir: string): string {
+	return runArg.startsWith(runsDir) ? runArg : join(runsDir, runArg);
+}
+
+function prepareStateForReuse(
+	loadedState: PipelineState,
+	reuseFineOnly: boolean,
+): PipelineState {
+	const reused: PipelineState = {
+		...loadedState,
+		phasesCompleted: [...loadedState.phasesCompleted],
+		completedGenerators: [...loadedState.completedGenerators],
+		completedLeaderboardModels: [...loadedState.completedLeaderboardModels],
+		swissMatches: [...loadedState.swissMatches],
+		pairwiseHistory: [...(loadedState.pairwiseHistory ?? [])],
+		topKHistory: [...(loadedState.topKHistory ?? [])],
+		finaleMatches: loadedState.finaleMatches
+			? [...loadedState.finaleMatches]
+			: null,
+	};
+
+	if (reuseFineOnly) {
+		reused.finaleMatches = null;
+		reused.finaleIterations = 0;
+		reused.finaleConverged = false;
+		reused.phasesCompleted = reused.phasesCompleted.filter(
+			(p) => p !== "finale",
+		);
+		reused.phase = reused.phasesCompleted.length;
+		return reused;
+	}
+
+	reused.swissRound = 0;
+	reused.swissMatches = [];
+	reused.contestants = null;
+	reused.ratingState = null;
+	reused.pairwiseHistory = [];
+	reused.topKHistory = [];
+	reused.swissStopReason = null;
+	reused.finaleMatches = null;
+	reused.finaleIterations = 0;
+	reused.finaleConverged = false;
+	reused.phasesCompleted = reused.phasesCompleted.filter(
+		(p) => p !== "swiss" && p !== "finale",
+	);
+	reused.phase = reused.phasesCompleted.length;
+	return reused;
+}
+
 // ============================================================================
 // Main Pipeline
 // ============================================================================
@@ -115,10 +164,16 @@ async function runCrossReviewPipeline(): Promise<void> {
 	let state: PipelineState;
 	let isResuming = false;
 
+	if (cliArgs.resumeDir && cliArgs.reuseArtifactsDir) {
+		throw new Error("Cannot use --resume and --reuse-artifacts together");
+	}
+
+	if (cliArgs.reuseFineOnly && !cliArgs.reuseArtifactsDir) {
+		throw new Error("--reuse-fine-only requires --reuse-artifacts <run-dir>");
+	}
+
 	if (cliArgs.resumeDir) {
-		const resumePath = cliArgs.resumeDir.startsWith(RUNS_DIR)
-			? cliArgs.resumeDir
-			: join(RUNS_DIR, cliArgs.resumeDir);
+		const resumePath = resolveRunPathFromArg(cliArgs.resumeDir, RUNS_DIR);
 
 		if (!existsSync(resumePath)) {
 			throw new Error(`Resume directory not found: ${resumePath}`);
@@ -133,6 +188,30 @@ async function runCrossReviewPipeline(): Promise<void> {
 		state = loadedState;
 		isResuming = true;
 		console.log(`\n🔄 RESUMING from: ${runDir}`);
+		console.log(`   Phases completed: [${state.phasesCompleted.join(", ")}]\n`);
+	} else if (cliArgs.reuseArtifactsDir) {
+		const reusePath = resolveRunPathFromArg(
+			cliArgs.reuseArtifactsDir,
+			RUNS_DIR,
+		);
+
+		if (!existsSync(reusePath)) {
+			throw new Error(`Artifact reuse directory not found: ${reusePath}`);
+		}
+
+		const loadedState = loadState(reusePath);
+		if (!loadedState) {
+			throw new Error(`Could not load state from: ${reusePath}`);
+		}
+
+		runDir = reusePath;
+		state = prepareStateForReuse(loadedState, cliArgs.reuseFineOnly);
+		isResuming = true;
+		const reuseMode = cliArgs.reuseFineOnly
+			? "fine ranking only"
+			: "coarse + fine ranking";
+		console.log(`\n♻️ REUSING ARTIFACTS from: ${runDir}`);
+		console.log(`   Re-run mode: ${reuseMode}`);
 		console.log(`   Phases completed: [${state.phasesCompleted.join(", ")}]\n`);
 	} else {
 		const timestamp = getTimestamp();

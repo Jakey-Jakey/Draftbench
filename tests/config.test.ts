@@ -217,9 +217,22 @@ describe("CLI argument parsing", () => {
 		expect(args.dryRun).toBe(true);
 	});
 
-	test("defaults to dryRun false", () => {
+	test("parses --reuse-artifacts and --reuse-fine-only flags", () => {
+		const args = parseArgs([
+			"node",
+			"index.ts",
+			"--reuse-artifacts",
+			"runs/2024-01-01",
+			"--reuse-fine-only",
+		]);
+		expect(args.reuseArtifactsDir).toBe("runs/2024-01-01");
+		expect(args.reuseFineOnly).toBe(true);
+	});
+
+	test("defaults to dryRun false and reuseFineOnly false", () => {
 		const args = parseArgs(["node", "index.ts"]);
 		expect(args.dryRun).toBe(false);
+		expect(args.reuseFineOnly).toBe(false);
 	});
 });
 

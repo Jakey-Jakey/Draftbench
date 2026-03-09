@@ -154,5 +154,7 @@ export interface CLIArgs {
 	configPath?: string;
 	promptsPath?: string;
 	resumeDir?: string;
+	reuseArtifactsDir?: string;
+	reuseFineOnly: boolean;
 	dryRun: boolean;
 }

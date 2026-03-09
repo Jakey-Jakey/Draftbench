@@ -261,6 +261,325 @@ maxTotalMatches = 0
 		).toHaveProperty("leaderboard.entries");
 	});
 
+	test("reuse-artifacts reruns coarse phase from existing artifacts", async () => {
+		const root = makeTempRoot("reuse-coarse");
+		const runsDir = join(root, "runs");
+		const runDir = join(runsDir, "reuse-seeded");
+		mkdirSync(runDir, { recursive: true });
+		const cfgPath = join(root, "config.toml");
+		writeConfig(
+			cfgPath,
+			runsDir,
+			`[roles]
+[[roles.generators]]
+model = "openai/gpt-5.2"
+
+[[roles.reviewers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "anthropic/claude-opus-4.5"
+
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+
+[tournament]
+coarseRounds = 1
+coarseFormat = "1v1"
+
+[tournament.firstDraftSelection]
+enabled = false
+initialGenerations = 1
+
+[tournament.rating]
+enabled = false
+
+[tournament.stopRules]
+enabled = false
+
+[tournament.fineRanking]
+enabled = false
+maxMatchesPerBatch = 0
+maxTotalMatches = 0
+`,
+		);
+
+		const gen = "openai/gpt-5.2";
+		const reviewer = "openai/gpt-5.2";
+		const reviserA = "openai/gpt-5.2";
+		const reviserB = "anthropic/claude-opus-4.5";
+		const idA = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserA)}`;
+		const idB = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserB)}`;
+
+		const state = createInitialState();
+		state.phasesCompleted = [
+			"generate",
+			"initial_leaderboard",
+			"review",
+			"revise",
+			"swiss",
+			"finale",
+		];
+		state.generatedDrafts = new Map([
+			[gen, [{ text: "seed draft", model: gen }]],
+		]);
+		state.completedGenerators = [gen];
+		state.selectedDrafts = new Map([[gen, { text: "seed draft", model: gen }]]);
+		state.completedLeaderboardModels = [gen];
+		state.reviews = [{ text: "seed review", reviewer, reviewed: gen }];
+		state.revisions = new Map([
+			[
+				idA,
+				{
+					id: idA,
+					text: "seed rev A",
+					generator: gen,
+					reviewer,
+					reviser: reviserA,
+				},
+			],
+			[
+				idB,
+				{
+					id: idB,
+					text: "seed rev B",
+					generator: gen,
+					reviewer,
+					reviser: reviserB,
+				},
+			],
+		]);
+		state.swissRound = 1;
+		state.swissMatches = [
+			{
+				round: 1,
+				ids: [idA, idB, "BYE"],
+				first: idA,
+				second: idB,
+				third: "BYE",
+				reasoning: "seeded",
+			},
+		];
+		await saveState(runDir, state);
+
+		const { stdout } = runPipeline([
+			"--config",
+			cfgPath,
+			"--reuse-artifacts",
+			runDir,
+			"--dry-run",
+		]);
+		expect(stdout).toContain("REUSING ARTIFACTS");
+		expect(stdout).toContain("Phase 5/6: Coarse Ranking");
+	});
+
+	test("reuse-fine-only keeps coarse results and reruns fine phase", async () => {
+		const root = makeTempRoot("reuse-fine");
+		const runsDir = join(root, "runs");
+		const runDir = join(runsDir, "reuse-fine-seeded");
+		mkdirSync(runDir, { recursive: true });
+		const cfgPath = join(root, "config.toml");
+		writeConfig(
+			cfgPath,
+			runsDir,
+			`[roles]
+[[roles.generators]]
+model = "openai/gpt-5.2"
+
+[[roles.reviewers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "anthropic/claude-opus-4.5"
+
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+
+[tournament]
+coarseRounds = 1
+coarseFormat = "1v1"
+
+[tournament.firstDraftSelection]
+enabled = false
+initialGenerations = 1
+
+[tournament.rating]
+enabled = true
+backend = "elo"
+
+[tournament.stopRules]
+enabled = true
+topK = 2
+
+[tournament.fineRanking]
+enabled = true
+maxMatchesPerBatch = 1
+maxTotalMatches = 1
+`,
+		);
+
+		const gen = "openai/gpt-5.2";
+		const reviewer = "openai/gpt-5.2";
+		const reviserA = "openai/gpt-5.2";
+		const reviserB = "anthropic/claude-opus-4.5";
+		const idA = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserA)}`;
+		const idB = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserB)}`;
+
+		const state = createInitialState();
+		state.phasesCompleted = [
+			"generate",
+			"initial_leaderboard",
+			"review",
+			"revise",
+			"swiss",
+			"finale",
+		];
+		state.generatedDrafts = new Map([
+			[gen, [{ text: "seed draft", model: gen }]],
+		]);
+		state.completedGenerators = [gen];
+		state.selectedDrafts = new Map([[gen, { text: "seed draft", model: gen }]]);
+		state.completedLeaderboardModels = [gen];
+		state.reviews = [{ text: "seed review", reviewer, reviewed: gen }];
+		state.revisions = new Map([
+			[
+				idA,
+				{
+					id: idA,
+					text: "seed rev A",
+					generator: gen,
+					reviewer,
+					reviser: reviserA,
+				},
+			],
+			[
+				idB,
+				{
+					id: idB,
+					text: "seed rev B",
+					generator: gen,
+					reviewer,
+					reviser: reviserB,
+				},
+			],
+		]);
+		state.swissRound = 1;
+		state.swissMatches = [
+			{
+				round: 1,
+				ids: [idA, idB, "BYE"],
+				first: idA,
+				second: idB,
+				third: "BYE",
+				reasoning: "seeded",
+			},
+		];
+		state.contestants = [
+			{
+				id: idA,
+				points: 1,
+				opponents: [idB],
+				placements: { first: 1, second: 0, third: 0, ties: 0 },
+				wins: 1,
+				losses: 0,
+				draws: 0,
+				rating: 1510,
+				ratingUncertainty: 80,
+				ratingCiLow: 1430,
+				ratingCiHigh: 1590,
+			},
+			{
+				id: idB,
+				points: 0,
+				opponents: [idA],
+				placements: { first: 0, second: 1, third: 0, ties: 0 },
+				wins: 0,
+				losses: 1,
+				draws: 0,
+				rating: 1490,
+				ratingUncertainty: 80,
+				ratingCiLow: 1410,
+				ratingCiHigh: 1570,
+			},
+		];
+		state.ratingState = {
+			config: {
+				backend: "elo",
+				initialRating: 1500,
+				kFactor: 24,
+				tieValue: 0.5,
+				provisionalMatches: 0,
+				btIterations: 100,
+				btTolerance: 0.0001,
+				ciBootstrapSamples: 0,
+				btRegularization: 0,
+				btUseNewton: false,
+				ciMode: "normal",
+			},
+			records: [
+				{
+					id: idA,
+					rating: 1510,
+					matches: 1,
+					wins: 1,
+					losses: 0,
+					draws: 0,
+					uncertainty: 80,
+				},
+				{
+					id: idB,
+					rating: 1490,
+					matches: 1,
+					wins: 0,
+					losses: 1,
+					draws: 0,
+					uncertainty: 80,
+				},
+			],
+			history: [{ aId: idA, bId: idB, scoreA: 1, scoreB: 0, round: 1 }],
+		};
+		state.finaleMatches = [
+			{
+				iteration: 1,
+				aId: idA,
+				bId: idB,
+				scoreA: 1,
+				scoreB: 0,
+				votesA: 1,
+				votesB: 0,
+				judges: ["openai/gpt-5.2"],
+			},
+		];
+		state.finaleIterations = 1;
+		state.finaleConverged = true;
+		await saveState(runDir, state);
+
+		const { stdout } = runPipeline([
+			"--config",
+			cfgPath,
+			"--reuse-artifacts",
+			runDir,
+			"--reuse-fine-only",
+			"--dry-run",
+		]);
+		expect(stdout).toContain("REUSING ARTIFACTS");
+		expect(stdout).toContain("Re-run mode: fine ranking only");
+		expect(stdout).toContain("Loaded coarse ranking state (Swiss)");
+		expect(stdout).toContain("Phase 6/6: Fine Ranking");
+	});
+
 	test("deprecated key warnings are emitted", () => {
 		const root = makeTempRoot("warnings");
 		const runsDir = join(root, "runs");
