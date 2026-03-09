@@ -401,12 +401,22 @@ describe("PipelineState", () => {
 			await saveState(TEST_RUN_DIR, state);
 			const loaded = await loadState(TEST_RUN_DIR);
 
-			// Compare all fields except timestamp (which is updated on save)
 			expect(loaded).not.toBeNull();
 			if (loaded) {
-				const { timestamp: _, ...loadedWithoutTimestamp } = loaded;
-				const { timestamp: __, ...stateWithoutTimestamp } = state;
-				expect(loadedWithoutTimestamp).toEqual(stateWithoutTimestamp);
+				expect(loaded).toEqual(state);
+			}
+		});
+
+		test("preserves timestamp across saves", async () => {
+			const state = createInitialState();
+			const initialTimestamp = state.timestamp;
+
+			await saveState(TEST_RUN_DIR, state);
+			const loaded = await loadState(TEST_RUN_DIR);
+
+			expect(loaded).not.toBeNull();
+			if (loaded) {
+				expect(loaded.timestamp).toBe(initialTimestamp);
 			}
 		});
 

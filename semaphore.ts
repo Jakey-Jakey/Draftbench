@@ -3,9 +3,16 @@
  */
 export class Semaphore {
 	private permits: number;
+	private readonly maxPermits: number;
 	private waiting: Array<() => void> = [];
 
 	constructor(permits: number) {
+		if (!Number.isInteger(permits) || permits < 0) {
+			throw new Error(
+				`Semaphore permits must be a non-negative integer, received ${permits}`,
+			);
+		}
+		this.maxPermits = permits;
 		this.permits = permits;
 	}
 
@@ -24,9 +31,14 @@ export class Semaphore {
 		const next = this.waiting.shift();
 		if (next) {
 			next();
-		} else {
-			this.permits++;
+			return;
 		}
+
+		if (this.permits >= this.maxPermits) {
+			throw new Error("Semaphore released too many times");
+		}
+
+		this.permits++;
 	}
 }
 

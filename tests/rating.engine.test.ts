@@ -482,8 +482,9 @@ describe("hessian confidence intervals", () => {
 		for (const entry of withBootstrap) {
 			const other = withoutBootstrap.find((c) => c.id === entry.id);
 			expect(other).toBeDefined();
-			expect(entry.ciLow).toBe(other!.ciLow);
-			expect(entry.ciHigh).toBe(other!.ciHigh);
+			if (!other) throw new Error(`Missing standing for ${entry.id}`);
+			expect(entry.ciLow).toBe(other.ciLow);
+			expect(entry.ciHigh).toBe(other.ciHigh);
 		}
 	});
 
@@ -514,8 +515,9 @@ describe("hessian confidence intervals", () => {
 		for (const entry of withBootstrap) {
 			const other = withoutBootstrap.find((c) => c.id === entry.id);
 			expect(other).toBeDefined();
-			expect(entry.ciLow).toBe(other!.ciLow);
-			expect(entry.ciHigh).toBe(other!.ciHigh);
+			if (!other) throw new Error(`Missing standing for ${entry.id}`);
+			expect(entry.ciLow).toBe(other.ciLow);
+			expect(entry.ciHigh).toBe(other.ciHigh);
 		}
 	});
 

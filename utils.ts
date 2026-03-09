@@ -67,6 +67,10 @@ function hashString(value: string): string {
 	return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
+function hashSeed(value: string): number {
+	return Number.parseInt(hashString(value), 16) >>> 0;
+}
+
 /**
  * Stable model token based on full slug, safe for filenames/IDs.
  */
@@ -119,6 +123,36 @@ export function shuffleArray<T>(array: T[]): T[] {
 	const shuffled = [...array];
 	for (let i = shuffled.length - 1; i > 0; i--) {
 		const j = Math.floor(Math.random() * (i + 1));
+		const left = shuffled[i];
+		const right = shuffled[j];
+		if (left === undefined || right === undefined) continue;
+		shuffled[i] = right;
+		shuffled[j] = left;
+	}
+	return shuffled;
+}
+
+/**
+ * Creates a deterministic pseudo-random generator from a string seed.
+ */
+export function createDeterministicRandom(seed: string): () => number {
+	let state = hashSeed(seed) || 0x6d2b79f5;
+
+	return () => {
+		state = (state + 0x6d2b79f5) | 0;
+		let t = Math.imul(state ^ (state >>> 15), 1 | state);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+/**
+ * Fisher-Yates shuffle driven by a caller-provided RNG.
+ */
+export function shuffleArrayWithRng<T>(array: T[], rng: () => number): T[] {
+	const shuffled = [...array];
+	for (let i = shuffled.length - 1; i > 0; i--) {
+		const j = Math.floor(rng() * (i + 1));
 		const left = shuffled[i];
 		const right = shuffled[j];
 		if (left === undefined || right === undefined) continue;

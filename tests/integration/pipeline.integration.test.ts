@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { createInitialState, saveState } from "../../state";
 import { getModelToken } from "../../utils";
@@ -121,7 +127,10 @@ maxTotalMatches = 0
 		const newRuns = after.filter((entry) => !before.has(entry));
 		expect(newRuns.length).toBe(1);
 
-		const runDir = join(runsDir, newRuns[0]!);
+		const runName = newRuns[0];
+		expect(runName).toBeDefined();
+		if (!runName) throw new Error("Expected a new run directory");
+		const runDir = join(runsDir, runName);
 		const leaderboardPath = join(runDir, "leaderboard.md");
 		const summaryPath = join(runDir, "summary.json");
 		expect(readFileSync(leaderboardPath, "utf-8")).toContain("Leaderboard");
@@ -433,10 +442,16 @@ maxTotalMatches = 0
 		expect(stdout).toContain("New run directory:");
 		expect(stdout).toContain("Phase 5/6: Coarse Ranking");
 		expect(newRuns.length).toBe(1);
-		expect(newRuns[0]).not.toBe("reuse-seeded");
-		const newRunDir = join(runsDir, newRuns[0]!);
+		const runName = newRuns[0];
+		expect(runName).toBeDefined();
+		expect(runName).not.toBe("reuse-seeded");
+		if (!runName) throw new Error("Expected a new run directory");
+		const newRunDir = join(runsDir, runName);
 		expect(
-			readFileSync(join(newRunDir, `${getModelToken(gen)}_original_1.md`), "utf-8"),
+			readFileSync(
+				join(newRunDir, `${getModelToken(gen)}_original_1.md`),
+				"utf-8",
+			),
 		).toContain("Source original draft");
 		expect(
 			readFileSync(
@@ -537,13 +552,10 @@ maxTotalMatches = 0
 
 		mkdirSync(runsDir, { recursive: true });
 		const before = new Set(readdirSync(runsDir));
-		const { stdout } = runPipeline([
-			"--config",
-			cfgPath,
-			"--reuse-artifacts",
-			sourceRunDir,
-			"--dry-run",
-		], { cwd: root });
+		const { stdout } = runPipeline(
+			["--config", cfgPath, "--reuse-artifacts", sourceRunDir, "--dry-run"],
+			{ cwd: root },
+		);
 		const after = readdirSync(runsDir);
 		const newRuns = after.filter((entry) => !before.has(entry));
 
@@ -660,8 +672,13 @@ maxTotalMatches = 1
 		const newRuns = after.filter((entry) => !before.has(entry));
 		expect(newRuns.length).toBe(1);
 
-		const runDir = join(runsDir, newRuns[0]!);
-		const summary = JSON.parse(readFileSync(join(runDir, "summary.json"), "utf-8"));
+		const runName = newRuns[0];
+		expect(runName).toBeDefined();
+		if (!runName) throw new Error("Expected a new run directory");
+		const runDir = join(runsDir, runName);
+		const summary = JSON.parse(
+			readFileSync(join(runDir, "summary.json"), "utf-8"),
+		);
 		expect(summary.fineRanking.enabled).toBe(false);
 		expect(readFileSync(join(runDir, "leaderboard.md"), "utf-8")).toContain(
 			"Fine ranking is disabled.",
@@ -870,7 +887,9 @@ maxTotalMatches = 1
 		const newRuns = after.filter((entry) => !before.has(entry));
 
 		expect(stdout).toContain("REUSING ARTIFACTS");
-		expect(stdout).toContain("Coarse ranking: skipped (reusing source results)");
+		expect(stdout).toContain(
+			"Coarse ranking: skipped (reusing source results)",
+		);
 		expect(stdout).toContain("Loaded coarse ranking state (Swiss)");
 		expect(stdout).toContain("Phase 6/6: Fine Ranking");
 		expect(newRuns.length).toBe(1);

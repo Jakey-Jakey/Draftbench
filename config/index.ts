@@ -80,6 +80,10 @@ export function loadConfig(
 					...mergedConfig.prompts.judgeThreeWay,
 					...prompts.judgeThreeWay,
 				},
+				judgeRank: {
+					...mergedConfig.prompts.judgeRank,
+					...prompts.judgeRank,
+				},
 			};
 			console.log(`📝 Loaded prompts from: ${resolvedPromptsPath}`);
 		} catch (e) {
@@ -115,7 +119,9 @@ export function loadConfig(
 export function getConfig(): PipelineConfig {
 	const config = getLoadedConfig();
 	if (!config) {
-		return loadConfig();
+		throw new Error(
+			"Config has not been loaded. Call loadConfig() explicitly before using config helpers.",
+		);
 	}
 	return config;
 }

@@ -338,6 +338,7 @@ export async function judgeStatblocks(
 	statblocks: Map<string, string>,
 	effort: ReasoningEffort = "high",
 	temperature?: number,
+	prompts: PipelineConfig["prompts"] = DEFAULT_CONFIG.prompts,
 ): Promise<JudgeResult> {
 	return withConcurrencyLimit(async () => {
 		const statblockEntries = Array.from(statblocks.entries())
@@ -345,24 +346,21 @@ export async function judgeStatblocks(
 			.join("\n\n---\n\n");
 
 		const allIds = Array.from(statblocks.keys());
+		const systemPrompt = interpolate(prompts.judgeRank.system, {
+			count: `${allIds.length}`,
+			ids: allIds.join(", "),
+		});
+		const userPrompt = interpolate(prompts.judgeRank.userTemplate, {
+			count: `${allIds.length}`,
+			ids: allIds.join(", "),
+			entries: statblockEntries,
+		});
 
 		const result = await generateTextWithRetries({
 			_debugLabel: `judge-rank:${judgeSlug}`,
 			model: getOpenRouter()(judgeSlug),
-			system: `You are an expert D&D 5e game designer judging monster statblocks. Compare ALL the statblocks provided and rank them from best to worst. Consider: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
-
-You MUST respond with ONLY a valid JSON object in this exact format, no other text:
-{
-	"rankings": [
-		{ "id": "statblock_id", "rank": 1, "score": 95 },
-		{ "id": "statblock_id", "rank": 2, "score": 90 },
-		... (include ALL ${allIds.length} statblocks)
-	],
-	"reasoning": "One sentence summary of your ranking decision."
-}
-
-Use scores from 0-100. IDs must exactly match the provided Statblock IDs: ${allIds.join(", ")}`,
-			prompt: `Compare and rank ALL ${allIds.length} D&D 5e Doctor Doom statblocks:\n\n${statblockEntries}`,
+			system: systemPrompt,
+			prompt: userPrompt,
 			temperature,
 			providerOptions: {
 				openrouter: {

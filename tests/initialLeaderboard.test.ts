@@ -164,6 +164,7 @@ describe("prompts configuration", () => {
 		expect(config.prompts.revise).toBeDefined();
 		expect(config.prompts.judgePairwise).toBeDefined();
 		expect(config.prompts.judgeThreeWay).toBeDefined();
+		expect(config.prompts.judgeRank).toBeDefined();
 	});
 
 	test("generate prompts have system and user", () => {
@@ -192,5 +193,7 @@ describe("prompts configuration", () => {
 		expect(config.prompts.judgeThreeWay.userTemplate).toContain("{idA}");
 		expect(config.prompts.judgeThreeWay.userTemplate).toContain("{idB}");
 		expect(config.prompts.judgeThreeWay.userTemplate).toContain("{idC}");
+		expect(config.prompts.judgeRank.userTemplate).toContain("{count}");
+		expect(config.prompts.judgeRank.userTemplate).toContain("{entries}");
 	});
 });

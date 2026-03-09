@@ -123,22 +123,26 @@ describe("Semaphore", () => {
 	});
 
 	describe("edge cases", () => {
-		test("release without acquire increases permits", () => {
+		test("release without acquire throws", () => {
 			const sem = new Semaphore(1);
-			sem.release(); // Now has 2 permits
-
-			// Should be able to acquire twice without blocking
-			return Promise.all([sem.acquire(), sem.acquire()]);
+			expect(() => sem.release()).toThrow("Semaphore released too many times");
 		});
 
-		test("multiple releases queue up", () => {
+		test("release on zero-permit Semaphore throws", () => {
 			const sem = new Semaphore(0);
-			sem.release();
-			sem.release();
-			sem.release();
+			expect(() => sem.release()).toThrow("Semaphore released too many times");
+		});
 
-			// Should be able to acquire 3 times immediately
-			return Promise.all([sem.acquire(), sem.acquire(), sem.acquire()]);
+		test("rejects negative permit counts", () => {
+			expect(() => new Semaphore(-1)).toThrow(
+				"Semaphore permits must be a non-negative integer",
+			);
+		});
+
+		test("rejects fractional permit counts", () => {
+			expect(() => new Semaphore(1.5)).toThrow(
+				"Semaphore permits must be a non-negative integer",
+			);
 		});
 
 		test("interleaved acquire/release", async () => {

@@ -138,5 +138,22 @@ The IDs are: "{idA}", "{idB}", "{idC}". Rank all three.`,
 
 {textC}`,
 		},
+		judgeRank: {
+			system: `You are an expert D&D 5e game designer judging a set of candidate statblocks. Rank all provided entries from best to worst based on: mechanical balance, CR accuracy, thematic representation, 5e formatting, creativity, and playability.
+
+You MUST respond with ONLY a valid JSON object in this exact format, no other text:
+{
+  "rankings": [
+    { "id": "candidate_id", "rank": 1, "score": 95 },
+    { "id": "candidate_id", "rank": 2, "score": 90 }
+  ],
+  "reasoning": "One sentence summary of the ranking decision."
+}
+
+Use scores from 0-100. Include all {count} candidates exactly once. IDs must exactly match: {ids}.`,
+			userTemplate: `Compare and rank all {count} candidate statblocks:
+
+{entries}`,
+		},
 	},
 };

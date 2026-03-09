@@ -74,6 +74,10 @@ export function deepMerge(
 				...target.prompts.judgeThreeWay,
 				...source.prompts.judgeThreeWay,
 			},
+			judgeRank: {
+				...target.prompts.judgeRank,
+				...source.prompts.judgeRank,
+			},
 		};
 	}
 
@@ -547,6 +551,12 @@ export function parseTOMLConfig(content: string): Partial<PipelineConfig> {
 				userTemplate: string;
 			};
 		}
+		if (promptsRaw.judgeRank) {
+			result.prompts.judgeRank = promptsRaw.judgeRank as {
+				system: string;
+				userTemplate: string;
+			};
+		}
 	}
 
 	return result;
@@ -584,6 +594,12 @@ function parsePromptsTOML(content: string): Partial<PromptsConfig> {
 		result.judgeThreeWay = {
 			system: raw.judgeThreeWay.system ?? "",
 			userTemplate: raw.judgeThreeWay.userTemplate ?? "",
+		};
+	}
+	if (raw.judgeRank) {
+		result.judgeRank = {
+			system: raw.judgeRank.system ?? "",
+			userTemplate: raw.judgeRank.userTemplate ?? "",
 		};
 	}
 

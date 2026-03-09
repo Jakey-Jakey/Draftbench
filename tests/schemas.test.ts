@@ -217,22 +217,25 @@ describe("parseJsonResponse", () => {
 		});
 
 		test("handles JSON array (not object)", () => {
-			// parseJsonResponse looks for {} not []
 			const text = '[{"name": "array", "value": 1}]';
 			const result = parseJsonResponse(text, testSchema, fallback);
-			// The regex /{[\s\S]*}/ will match the inner object
 			expect(result.success).toBe(true);
 		});
 
-		test("greedy regex matches from first { to last }", () => {
-			// The regex /{[\s\S]*}/ is greedy, so it matches from first { to last }
-			// This means with multiple JSON objects, it may fail to parse
+		test("parses the first balanced JSON object when multiple objects exist", () => {
 			const text =
 				'First: {"name": "first", "value": 1}. Second: {"name": "second", "value": 2}';
 			const result = parseJsonResponse(text, testSchema, fallback);
-			// The greedy match captures: {"name": "first", "value": 1}. Second: {"name": "second", "value": 2}
-			// which is invalid JSON, so it will fail
-			expect(result.success).toBe(false);
+			expect(result.success).toBe(true);
+			expect(result.data).toEqual({ name: "first", value: 1 });
+		});
+
+		test("skips nested objects inside earlier wrapper candidates", () => {
+			const text =
+				'Example wrapper: {"example": {"name": "nested", "value": 1}} Actual answer: {"name": "real", "value": 2}';
+			const result = parseJsonResponse(text, testSchema, fallback);
+			expect(result.success).toBe(true);
+			expect(result.data).toEqual({ name: "real", value: 2 });
 		});
 
 		test("handles unicode in JSON", () => {

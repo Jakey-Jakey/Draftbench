@@ -465,6 +465,16 @@ export function validateConfig(config: PipelineConfig): string[] {
 				`Invalid model slug "${entry.model}": expected "provider/model-name"`,
 			);
 		}
+		if (
+			entry.temperature !== undefined &&
+			(!Number.isFinite(entry.temperature) ||
+				entry.temperature < 0 ||
+				entry.temperature > 2)
+		) {
+			throw new Error(
+				`Invalid temperature for model "${entry.model}": expected a number between 0 and 2`,
+			);
+		}
 	}
 
 	const estimatedContestants =

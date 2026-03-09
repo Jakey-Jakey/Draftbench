@@ -18,7 +18,12 @@ import {
 	type StoredGenerateResult,
 	saveState,
 } from "../state";
-import { getModelToken, getShortModelName, requireDefined } from "../utils";
+import {
+	createDeterministicRandom,
+	getModelToken,
+	getShortModelName,
+	requireDefined,
+} from "../utils";
 
 // ============================================================================
 // Initial Leaderboard Phase
@@ -97,6 +102,34 @@ function getStanding(
 	return requireDefined(standings[index], context);
 }
 
+function applyDeterministicPairwiseOutcome(
+	left: DraftStanding,
+	right: DraftStanding,
+	seed: string,
+): void {
+	const rng = createDeterministicRandom(seed);
+	const outcome = rng();
+
+	if (outcome < 0.4) {
+		left.points += 1;
+		left.wins += 1;
+		right.losses += 1;
+		return;
+	}
+
+	if (outcome < 0.8) {
+		right.points += 1;
+		right.wins += 1;
+		left.losses += 1;
+		return;
+	}
+
+	left.points += 0.5;
+	right.points += 0.5;
+	left.draws += 1;
+	right.draws += 1;
+}
+
 /**
  * Determines the effective style based on config and draft count.
  * Defaults to per-model-pairwise if initialGenerations > 1.
@@ -150,21 +183,11 @@ async function runPerModelPairwise(
 		for (const [i, j] of pairs) {
 			const left = getStanding(standings, i, "Missing left standing");
 			const right = getStanding(standings, j, "Missing right standing");
-			const outcome = Math.random();
-			if (outcome < 0.4) {
-				left.points += 1;
-				left.wins += 1;
-				right.losses += 1;
-			} else if (outcome < 0.8) {
-				right.points += 1;
-				right.wins += 1;
-				left.losses += 1;
-			} else {
-				left.points += 0.5;
-				right.points += 0.5;
-				left.draws += 1;
-				right.draws += 1;
-			}
+			applyDeterministicPairwiseOutcome(
+				left,
+				right,
+				`per-model-pairwise:${modelSlug}:${left.draftIndex}:${right.draftIndex}`,
+			);
 		}
 	} else {
 		// Real API calls - all pairs in parallel
@@ -265,6 +288,7 @@ async function runPerModelRank(
 	modelSlug: ModelSlug,
 	drafts: GenerateResult[],
 	swissJudge: RoleEntry,
+	prompts: PipelineConfig["prompts"],
 	dryRun: boolean,
 ): Promise<{ winner: DraftStanding; standings: DraftStanding[] }> {
 	const shortName = getShortModelName(modelSlug);
@@ -282,8 +306,9 @@ async function runPerModelRank(
 	console.log(`  ${shortName}: 1 ranking call`);
 
 	if (dryRun) {
-		// Mock: random winner
-		const winnerIdx = Math.floor(Math.random() * standings.length);
+		// Mock: deterministic winner
+		const rng = createDeterministicRandom(`per-model-rank:${modelSlug}`);
+		const winnerIdx = Math.floor(rng() * standings.length);
 		const winner = getStanding(
 			standings,
 			winnerIdx,
@@ -302,6 +327,8 @@ async function runPerModelRank(
 			swissJudge.model,
 			statblockMap,
 			swissJudge.effort,
+			swissJudge.temperature,
+			prompts,
 		);
 
 		// Apply rankings to standings
@@ -529,6 +556,7 @@ export async function runInitialLeaderboardPhase(
 					modelSlug,
 					drafts,
 					swissJudge,
+					phaseConfig.prompts,
 					dryRun,
 				);
 
@@ -663,21 +691,11 @@ export async function runInitialLeaderboardPhase(
 					allStandings.get(idB),
 					`Missing draft standing for ${idB}`,
 				);
-				const outcome = Math.random();
-				if (outcome < 0.4) {
-					a.points += 1;
-					a.wins += 1;
-					b.losses += 1;
-				} else if (outcome < 0.8) {
-					b.points += 1;
-					b.wins += 1;
-					a.losses += 1;
-				} else {
-					a.points += 0.5;
-					b.points += 0.5;
-					a.draws += 1;
-					b.draws += 1;
-				}
+				applyDeterministicPairwiseOutcome(
+					a,
+					b,
+					`global-pairwise:${idA}:${idB}`,
+				);
 			}
 		}
 
@@ -722,6 +740,8 @@ export async function runInitialLeaderboardPhase(
 				swissJudge.model,
 				statblockMap,
 				swissJudge.effort,
+				swissJudge.temperature,
+				phaseConfig.prompts,
 			);
 
 			// Assign points based on rank
@@ -733,9 +753,12 @@ export async function runInitialLeaderboardPhase(
 				}
 			}
 		} else {
-			// Mock: random points
+			// Mock: deterministic points
 			for (const standing of idToStanding.values()) {
-				standing.points = Math.random();
+				const rng = createDeterministicRandom(
+					`global-rank:${standing.model}:${standing.draftIndex}`,
+				);
+				standing.points = rng();
 			}
 		}
 
