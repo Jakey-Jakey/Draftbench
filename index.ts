@@ -253,24 +253,17 @@ async function runCrossReviewPipeline(): Promise<void> {
 				);
 			}
 			state.swissRound = sourceState.swissRound;
-			state.swissMatches = [...sourceState.swissMatches];
+			state.swissMatches = structuredClone(sourceState.swissMatches);
 			state.contestants = sourceState.contestants
-				? [...sourceState.contestants]
+				? structuredClone(sourceState.contestants)
 				: null;
 			state.ratingState = sourceState.ratingState
-				? {
-						...sourceState.ratingState,
-						config: { ...sourceState.ratingState.config },
-						records: sourceState.ratingState.records.map((record) => ({
-							...record,
-						})),
-						history: sourceState.ratingState.history.map((entry) => ({
-							...entry,
-						})),
-					}
+				? structuredClone(sourceState.ratingState)
 				: null;
-			state.pairwiseHistory = [...(sourceState.pairwiseHistory ?? [])];
-			state.topKHistory = [...(sourceState.topKHistory ?? [])];
+			state.pairwiseHistory = structuredClone(
+				sourceState.pairwiseHistory ?? [],
+			);
+			state.topKHistory = structuredClone(sourceState.topKHistory ?? []);
 			state.swissStopReason = sourceState.swissStopReason ?? null;
 			markPhaseCompleted(state, "swiss");
 		}
