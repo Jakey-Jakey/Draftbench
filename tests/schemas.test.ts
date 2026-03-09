@@ -230,6 +230,14 @@ describe("parseJsonResponse", () => {
 			expect(result.data).toEqual({ name: "first", value: 1 });
 		});
 
+		test("skips nested objects inside earlier wrapper candidates", () => {
+			const text =
+				'Example wrapper: {"example": {"name": "nested", "value": 1}} Actual answer: {"name": "real", "value": 2}';
+			const result = parseJsonResponse(text, testSchema, fallback);
+			expect(result.success).toBe(true);
+			expect(result.data).toEqual({ name: "real", value: 2 });
+		});
+
 		test("handles unicode in JSON", () => {
 			const text = '{"name": "日本語", "value": 42}';
 			const result = parseJsonResponse(text, testSchema, fallback);

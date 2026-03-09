@@ -56,15 +56,17 @@ export type JudgeStatblocksResponse = z.infer<
 
 function findBalancedJsonObjectCandidates(text: string): string[] {
 	const candidates: string[] = [];
+	let lastEnd = -1;
 
 	for (let start = 0; start < text.length; start++) {
+		if (start <= lastEnd) continue;
 		if (text[start] !== "{") continue;
 
-		let depth = 0;
+		let depth = 1;
 		let inString = false;
 		let escaping = false;
 
-		for (let i = start; i < text.length; i++) {
+		for (let i = start + 1; i < text.length; i++) {
 			const char = text[i];
 			if (!char) continue;
 
@@ -90,6 +92,7 @@ function findBalancedJsonObjectCandidates(text: string): string[] {
 				depth -= 1;
 				if (depth === 0) {
 					candidates.push(text.slice(start, i + 1));
+					lastEnd = i;
 					break;
 				}
 			}
