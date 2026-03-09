@@ -25,7 +25,13 @@ import { runRevisePhase } from "./phases/revise";
 import { runSwissPhase } from "./phases/swiss";
 import { computeDetailedRunSummary } from "./report/detailedSummary";
 import { initConcurrencyLimiter } from "./semaphore";
-import { createInitialState, loadState, type PipelineState } from "./state";
+import {
+	createInitialState,
+	loadState,
+	markPhaseCompleted,
+	saveState,
+	type PipelineState,
+} from "./state";
 import {
 	ensureRunsDirectory,
 	getShortModelName,
@@ -47,7 +53,9 @@ const RUNS_DIR = config.output.runsDirectory;
 const SWISS_ROUNDS = config.tournament.swissRounds;
 const INITIAL_LEADERBOARD = config.tournament.initialLeaderboard;
 const SWISS_JUDGES = getSwissJudges();
-const FINALE = config.tournament.finale;
+const FINALE = cliArgs.skipFine
+	? { ...config.tournament.finale, enabled: false }
+	: config.tournament.finale;
 const TOP_K = config.tournament.stopRules.topK;
 const FINALE_JUDGES = getFinaleJudges();
 const DRY_RUN = cliArgs.dryRun;
@@ -55,6 +63,29 @@ const SWISS_FORMAT = config.tournament.swissFormat ?? "1v1v1";
 const RATING = config.tournament.rating;
 const SCHEDULING = config.tournament.scheduling;
 const STOP_RULES = config.tournament.stopRules;
+
+function resolveRunPathFromArg(runArg: string, runsDir: string): string {
+	return runArg.startsWith(runsDir) ? runArg : join(runsDir, runArg);
+}
+
+function cloneReusedState(sourceState: PipelineState): PipelineState {
+	return {
+		...createInitialState(),
+		generatedDrafts: sourceState.generatedDrafts
+			? new Map(sourceState.generatedDrafts)
+			: null,
+		completedGenerators: [...(sourceState.completedGenerators ?? [])],
+		selectedDrafts: sourceState.selectedDrafts
+			? new Map(sourceState.selectedDrafts)
+			: null,
+		completedLeaderboardModels: [...(sourceState.completedLeaderboardModels ?? [])],
+		initialLeaderboardResults: sourceState.initialLeaderboardResults
+			? [...sourceState.initialLeaderboardResults]
+			: null,
+		reviews: sourceState.reviews ? [...sourceState.reviews] : null,
+		revisions: sourceState.revisions ? new Map(sourceState.revisions) : null,
+	};
+}
 
 // ============================================================================
 // Main Pipeline
@@ -116,9 +147,7 @@ async function runCrossReviewPipeline(): Promise<void> {
 	let isResuming = false;
 
 	if (cliArgs.resumeDir) {
-		const resumePath = cliArgs.resumeDir.startsWith(RUNS_DIR)
-			? cliArgs.resumeDir
-			: join(RUNS_DIR, cliArgs.resumeDir);
+		const resumePath = resolveRunPathFromArg(cliArgs.resumeDir, RUNS_DIR);
 
 		if (!existsSync(resumePath)) {
 			throw new Error(`Resume directory not found: ${resumePath}`);
@@ -134,6 +163,84 @@ async function runCrossReviewPipeline(): Promise<void> {
 		isResuming = true;
 		console.log(`\n🔄 RESUMING from: ${runDir}`);
 		console.log(`   Phases completed: [${state.phasesCompleted.join(", ")}]\n`);
+	} else if (cliArgs.reuseArtifactsDir) {
+		const sourcePath = resolveRunPathFromArg(
+			cliArgs.reuseArtifactsDir,
+			RUNS_DIR,
+		);
+
+		if (!existsSync(sourcePath)) {
+			throw new Error(
+				`Artifact reuse source directory not found: ${sourcePath}`,
+			);
+		}
+
+		const sourceState = loadState(sourcePath);
+		if (!sourceState) {
+			throw new Error(`Could not load state from: ${sourcePath}`);
+		}
+
+		const requiredPhases = [
+			"generate",
+			"initial_leaderboard",
+			"review",
+			"revise",
+		];
+		const missingPhases = requiredPhases.filter(
+			(phase) => !sourceState.phasesCompleted.includes(phase),
+		);
+		if (missingPhases.length > 0) {
+			throw new Error(
+				`Source run is missing completed phases: ${missingPhases.join(", ")}. Cannot reuse artifacts from an incomplete run.`,
+			);
+		}
+
+		const timestamp = getTimestamp();
+		runDir = await ensureRunsDirectory(RUNS_DIR, timestamp, DRY_RUN);
+		state = cloneReusedState(sourceState);
+		for (const phase of requiredPhases) {
+			markPhaseCompleted(state, phase);
+		}
+
+		if (cliArgs.skipCoarse) {
+			if (!sourceState.phasesCompleted.includes("swiss")) {
+				throw new Error(
+					"--skip-coarse requires the source run to have completed the swiss phase",
+				);
+			}
+			state.swissRound = sourceState.swissRound;
+			state.swissMatches = [...sourceState.swissMatches];
+			state.contestants = sourceState.contestants
+				? [...sourceState.contestants]
+				: null;
+			state.ratingState = sourceState.ratingState
+				? {
+						...sourceState.ratingState,
+						records: [...sourceState.ratingState.records],
+						history: [...sourceState.ratingState.history],
+					}
+				: null;
+			state.pairwiseHistory = [...(sourceState.pairwiseHistory ?? [])];
+			state.topKHistory = [...(sourceState.topKHistory ?? [])];
+			state.swissStopReason = sourceState.swissStopReason ?? null;
+			markPhaseCompleted(state, "swiss");
+		}
+
+		isResuming = true;
+		if (!DRY_RUN) {
+			saveState(runDir, state);
+		}
+
+		console.log(`\n♻️ REUSING ARTIFACTS from: ${sourcePath}`);
+		console.log(`   New run directory: ${runDir}`);
+		console.log(`   Phases carried over: [${state.phasesCompleted.join(", ")}]`);
+		if (cliArgs.skipCoarse) {
+			console.log("   Coarse ranking: skipped (reusing source results)");
+		}
+		if (cliArgs.skipFine) {
+			console.log("   Fine ranking: will be skipped");
+		}
+		console.log();
 	} else {
 		const timestamp = getTimestamp();
 		runDir = await ensureRunsDirectory(RUNS_DIR, timestamp, DRY_RUN);

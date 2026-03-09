@@ -217,6 +217,78 @@ describe("CLI argument parsing", () => {
 		expect(args.dryRun).toBe(true);
 	});
 
+	test("parses --reuse-artifacts flag", () => {
+		const args = parseArgs([
+			"node",
+			"index.ts",
+			"--reuse-artifacts",
+			"runs/2024-01-01T12-00-00",
+		]);
+		expect(args.reuseArtifactsDir).toBe("runs/2024-01-01T12-00-00");
+	});
+
+	test("parses --skip-coarse flag", () => {
+		const args = parseArgs([
+			"node",
+			"index.ts",
+			"--reuse-artifacts",
+			"runs/2024-01-01T12-00-00",
+			"--skip-coarse",
+		]);
+		expect(args.skipCoarse).toBe(true);
+		expect(args.reuseArtifactsDir).toBe("runs/2024-01-01T12-00-00");
+	});
+
+	test("parses --skip-fine flag", () => {
+		const args = parseArgs([
+			"node",
+			"index.ts",
+			"--reuse-artifacts",
+			"runs/2024-01-01T12-00-00",
+			"--skip-fine",
+		]);
+		expect(args.skipFine).toBe(true);
+	});
+
+	test("parses --skip-coarse and --skip-fine together", () => {
+		const args = parseArgs([
+			"node",
+			"index.ts",
+			"--reuse-artifacts",
+			"runs/2024-01-01T12-00-00",
+			"--skip-coarse",
+			"--skip-fine",
+		]);
+		expect(args.skipCoarse).toBe(true);
+		expect(args.skipFine).toBe(true);
+		expect(args.reuseArtifactsDir).toBe("runs/2024-01-01T12-00-00");
+	});
+
+	test("throws when --reuse-artifacts and --resume used together", () => {
+		expect(() =>
+			parseArgs([
+				"node",
+				"index.ts",
+				"--reuse-artifacts",
+				"runs/source",
+				"--resume",
+				"runs/target",
+			]),
+		).toThrow("Cannot use --reuse-artifacts and --resume together");
+	});
+
+	test("throws when --skip-coarse used without --reuse-artifacts", () => {
+		expect(() => parseArgs(["node", "index.ts", "--skip-coarse"])).toThrow(
+			"--skip-coarse and --skip-fine require --reuse-artifacts",
+		);
+	});
+
+	test("throws when --skip-fine used without --reuse-artifacts", () => {
+		expect(() => parseArgs(["node", "index.ts", "--skip-fine"])).toThrow(
+			"--skip-coarse and --skip-fine require --reuse-artifacts",
+		);
+	});
+
 	test("defaults to dryRun false", () => {
 		const args = parseArgs(["node", "index.ts"]);
 		expect(args.dryRun).toBe(false);

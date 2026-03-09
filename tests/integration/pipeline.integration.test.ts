@@ -48,6 +48,26 @@ function runPipeline(args: string[]): { stdout: string; stderr: string } {
 	return { stdout, stderr };
 }
 
+function runPipelineExpectFailure(args: string[]): {
+	exitCode: number;
+	stdout: string;
+	stderr: string;
+} {
+	const proc = Bun.spawnSync({
+		cmd: ["bun", "run", "index.ts", ...args],
+		cwd: process.cwd(),
+		stdout: "pipe",
+		stderr: "pipe",
+		env: process.env,
+	});
+
+	return {
+		exitCode: proc.exitCode,
+		stdout: proc.stdout.toString(),
+		stderr: proc.stderr.toString(),
+	};
+}
+
 afterEach(() => {
 	for (const root of tmpRoots.splice(0, tmpRoots.length)) {
 		rmSync(root, { recursive: true, force: true });
@@ -259,6 +279,407 @@ maxTotalMatches = 0
 		expect(
 			JSON.parse(readFileSync(join(runDir, "summary.json"), "utf-8")),
 		).toHaveProperty("leaderboard.entries");
+	});
+
+	test("reuse-artifacts reruns coarse phase from a fresh run directory", async () => {
+		const root = makeTempRoot("reuse-coarse");
+		const runsDir = join(root, "runs");
+		const sourceRunDir = join(runsDir, "reuse-seeded");
+		mkdirSync(sourceRunDir, { recursive: true });
+		const cfgPath = join(root, "config.toml");
+		writeConfig(
+			cfgPath,
+			runsDir,
+			`[roles]
+[[roles.generators]]
+model = "openai/gpt-5.2"
+
+[[roles.reviewers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "anthropic/claude-opus-4.5"
+
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+
+[tournament]
+coarseRounds = 1
+coarseFormat = "1v1"
+
+[tournament.firstDraftSelection]
+enabled = false
+initialGenerations = 1
+
+[tournament.rating]
+enabled = false
+
+[tournament.stopRules]
+enabled = false
+
+[tournament.fineRanking]
+enabled = false
+maxMatchesPerBatch = 0
+maxTotalMatches = 0
+`,
+		);
+
+		const gen = "openai/gpt-5.2";
+		const reviewer = "openai/gpt-5.2";
+		const reviserA = "openai/gpt-5.2";
+		const reviserB = "anthropic/claude-opus-4.5";
+		const idA = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserA)}`;
+		const idB = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserB)}`;
+
+		const sourceState = createInitialState();
+		sourceState.phasesCompleted = [
+			"generate",
+			"initial_leaderboard",
+			"review",
+			"revise",
+			"swiss",
+			"finale",
+		];
+		sourceState.generatedDrafts = new Map([
+			[gen, [{ text: "seed draft", model: gen }]],
+		]);
+		sourceState.completedGenerators = [gen];
+		sourceState.selectedDrafts = new Map([
+			[gen, { text: "seed draft", model: gen }],
+		]);
+		sourceState.completedLeaderboardModels = [gen];
+		sourceState.reviews = [{ text: "seed review", reviewer, reviewed: gen }];
+		sourceState.revisions = new Map([
+			[
+				idA,
+				{
+					id: idA,
+					text: "seed rev A",
+					generator: gen,
+					reviewer,
+					reviser: reviserA,
+				},
+			],
+			[
+				idB,
+				{
+					id: idB,
+					text: "seed rev B",
+					generator: gen,
+					reviewer,
+					reviser: reviserB,
+				},
+			],
+		]);
+		sourceState.swissRound = 1;
+		sourceState.swissMatches = [
+			{
+				round: 1,
+				ids: [idA, idB, "BYE"],
+				first: idA,
+				second: idB,
+				third: "BYE",
+				reasoning: "seeded",
+			},
+		];
+		await saveState(sourceRunDir, sourceState);
+		const sourceStateBefore = readFileSync(
+			join(sourceRunDir, "state.json"),
+			"utf-8",
+		);
+
+		const before = new Set(readdirSync(runsDir));
+		const { stdout } = runPipeline([
+			"--config",
+			cfgPath,
+			"--reuse-artifacts",
+			sourceRunDir,
+			"--dry-run",
+		]);
+		const after = readdirSync(runsDir);
+		const newRuns = after.filter((entry) => !before.has(entry));
+
+		expect(stdout).toContain("REUSING ARTIFACTS");
+		expect(stdout).toContain("New run directory:");
+		expect(stdout).toContain("Phase 5/6: Coarse Ranking");
+		expect(newRuns.length).toBe(1);
+		expect(newRuns[0]).not.toBe("reuse-seeded");
+		expect(readFileSync(join(sourceRunDir, "state.json"), "utf-8")).toBe(
+			sourceStateBefore,
+		);
+	});
+
+	test("reuse-artifacts with --skip-coarse carries over swiss state into a fresh run", async () => {
+		const root = makeTempRoot("reuse-skip-coarse");
+		const runsDir = join(root, "runs");
+		const sourceRunDir = join(runsDir, "reuse-fine-seeded");
+		mkdirSync(sourceRunDir, { recursive: true });
+		const cfgPath = join(root, "config.toml");
+		writeConfig(
+			cfgPath,
+			runsDir,
+			`[roles]
+[[roles.generators]]
+model = "openai/gpt-5.2"
+
+[[roles.reviewers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "anthropic/claude-opus-4.5"
+
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+
+[tournament]
+coarseRounds = 1
+coarseFormat = "1v1"
+
+[tournament.firstDraftSelection]
+enabled = false
+initialGenerations = 1
+
+[tournament.rating]
+enabled = true
+backend = "elo"
+
+[tournament.stopRules]
+enabled = true
+topK = 2
+
+[tournament.fineRanking]
+enabled = true
+maxMatchesPerBatch = 1
+maxTotalMatches = 1
+`,
+		);
+
+		const gen = "openai/gpt-5.2";
+		const reviewer = "openai/gpt-5.2";
+		const reviserA = "openai/gpt-5.2";
+		const reviserB = "anthropic/claude-opus-4.5";
+		const idA = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserA)}`;
+		const idB = `${getModelToken(gen)}_${getModelToken(reviewer)}_${getModelToken(reviserB)}`;
+
+		const sourceState = createInitialState();
+		sourceState.phasesCompleted = [
+			"generate",
+			"initial_leaderboard",
+			"review",
+			"revise",
+			"swiss",
+			"finale",
+		];
+		sourceState.generatedDrafts = new Map([
+			[gen, [{ text: "seed draft", model: gen }]],
+		]);
+		sourceState.completedGenerators = [gen];
+		sourceState.selectedDrafts = new Map([
+			[gen, { text: "seed draft", model: gen }],
+		]);
+		sourceState.completedLeaderboardModels = [gen];
+		sourceState.reviews = [{ text: "seed review", reviewer, reviewed: gen }];
+		sourceState.revisions = new Map([
+			[
+				idA,
+				{
+					id: idA,
+					text: "seed rev A",
+					generator: gen,
+					reviewer,
+					reviser: reviserA,
+				},
+			],
+			[
+				idB,
+				{
+					id: idB,
+					text: "seed rev B",
+					generator: gen,
+					reviewer,
+					reviser: reviserB,
+				},
+			],
+		]);
+		sourceState.swissRound = 1;
+		sourceState.swissMatches = [
+			{
+				round: 1,
+				ids: [idA, idB, "BYE"],
+				first: idA,
+				second: idB,
+				third: "BYE",
+				reasoning: "seeded",
+			},
+		];
+		sourceState.contestants = [
+			{
+				id: idA,
+				points: 1,
+				opponents: [idB],
+				placements: { first: 1, second: 0, third: 0, ties: 0 },
+				wins: 1,
+				losses: 0,
+				draws: 0,
+				rating: 1510,
+				ratingUncertainty: 80,
+				ratingCiLow: 1430,
+				ratingCiHigh: 1590,
+			},
+			{
+				id: idB,
+				points: 0,
+				opponents: [idA],
+				placements: { first: 0, second: 1, third: 0, ties: 0 },
+				wins: 0,
+				losses: 1,
+				draws: 0,
+				rating: 1490,
+				ratingUncertainty: 80,
+				ratingCiLow: 1410,
+				ratingCiHigh: 1570,
+			},
+		];
+		sourceState.ratingState = {
+			config: {
+				backend: "elo",
+				initialRating: 1500,
+				kFactor: 24,
+				tieValue: 0.5,
+				provisionalMatches: 0,
+				btIterations: 100,
+				btTolerance: 0.0001,
+				ciBootstrapSamples: 0,
+				btRegularization: 0,
+				btUseNewton: false,
+				ciMode: "normal",
+			},
+			records: [
+				{
+					id: idA,
+					rating: 1510,
+					matches: 1,
+					wins: 1,
+					losses: 0,
+					draws: 0,
+					uncertainty: 80,
+				},
+				{
+					id: idB,
+					rating: 1490,
+					matches: 1,
+					wins: 0,
+					losses: 1,
+					draws: 0,
+					uncertainty: 80,
+				},
+			],
+			history: [{ aId: idA, bId: idB, scoreA: 1, scoreB: 0, round: 1 }],
+		};
+		sourceState.finaleMatches = [
+			{
+				iteration: 1,
+				aId: idA,
+				bId: idB,
+				scoreA: 1,
+				scoreB: 0,
+				votesA: 1,
+				votesB: 0,
+				judges: ["openai/gpt-5.2"],
+			},
+		];
+		sourceState.finaleIterations = 1;
+		sourceState.finaleConverged = true;
+		await saveState(sourceRunDir, sourceState);
+
+		const before = new Set(readdirSync(runsDir));
+		const { stdout } = runPipeline([
+			"--config",
+			cfgPath,
+			"--reuse-artifacts",
+			sourceRunDir,
+			"--skip-coarse",
+			"--dry-run",
+		]);
+		const after = readdirSync(runsDir);
+		const newRuns = after.filter((entry) => !before.has(entry));
+
+		expect(stdout).toContain("REUSING ARTIFACTS");
+		expect(stdout).toContain("Coarse ranking: skipped (reusing source results)");
+		expect(stdout).toContain("Loaded coarse ranking state (Swiss)");
+		expect(stdout).toContain("Phase 6/6: Fine Ranking");
+		expect(newRuns.length).toBe(1);
+		expect(newRuns[0]).not.toBe("reuse-fine-seeded");
+	});
+
+	test("reuse-artifacts fails fast for incomplete source runs", async () => {
+		const root = makeTempRoot("reuse-invalid");
+		const runsDir = join(root, "runs");
+		const sourceRunDir = join(runsDir, "reuse-incomplete");
+		mkdirSync(sourceRunDir, { recursive: true });
+		const cfgPath = join(root, "config.toml");
+		writeConfig(
+			cfgPath,
+			runsDir,
+			`[roles]
+[[roles.generators]]
+model = "openai/gpt-5.2"
+
+[[roles.reviewers]]
+model = "openai/gpt-5.2"
+
+[[roles.revisers]]
+model = "openai/gpt-5.2"
+
+[[roles.coarseJudges]]
+model = "openai/gpt-5.2"
+
+[[roles.fineJudges]]
+model = "openai/gpt-5.2"
+
+[tournament]
+coarseRounds = 1
+coarseFormat = "1v1"
+
+[tournament.firstDraftSelection]
+enabled = false
+initialGenerations = 1
+
+[tournament.fineRanking]
+enabled = false
+maxMatchesPerBatch = 0
+maxTotalMatches = 0
+`,
+		);
+
+		const state = createInitialState();
+		state.phasesCompleted = ["generate", "review"];
+		await saveState(sourceRunDir, state);
+
+		const result = runPipelineExpectFailure([
+			"--config",
+			cfgPath,
+			"--reuse-artifacts",
+			sourceRunDir,
+			"--dry-run",
+		]);
+
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr).toContain(
+			"Source run is missing completed phases: initial_leaderboard, revise",
+		);
 	});
 
 	test("deprecated key warnings are emitted", () => {
