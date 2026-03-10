@@ -55,7 +55,7 @@ What to expect:
 ## Use a Custom Config
 
 ```bash
-bun run index.ts --config config.1v1-swiss.toml
+bun run index.ts --config config.custom.toml
 ```
 
 The config loader merges your file over built-in defaults. Canonical public config names are documented in [configuration.md](./configuration.md).

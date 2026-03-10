@@ -108,7 +108,7 @@ bun run index.ts
 bun run index.ts --dry-run
 
 # Custom config
-bun run index.ts --config config.1v1-swiss.toml
+bun run index.ts --config config.custom.toml
 
 # Custom prompts
 bun run index.ts --prompts prompts.toml

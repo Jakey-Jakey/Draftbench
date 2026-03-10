@@ -171,7 +171,7 @@ coarseRounds = 7
 coarseFormat = "1v1v1"
 ```
 
-- `coarseFormat` may be `1v1` or `1v1v1`
+- `coarseFormat` must be `1v1` or `1v1v1`
 - `coarseRounds` must be an integer greater than or equal to `1`
 - `roles.coarseJudges` must contain at least one judge
 
