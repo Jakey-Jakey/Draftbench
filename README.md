@@ -135,9 +135,9 @@ Each run writes a timestamped directory under `runs/` with:
 - `initial_leaderboard/` when First Draft Selection is enabled
 - `coarse/` with round logs, standings, and judgments
 - `fine/` with iteration logs, standings, and judgments
-- `leaderboard.md`, `summary.json`, `summary.detailed.json`, and `state.json`
+- `leaderboard.md`, `summary.json`, and `state.json`
 
-Dry runs also write `DRY_RUN.md`. Resumed legacy runs may keep older `swiss_*` and `finale_*` paths instead of the newer `coarse/` and `fine/` layout.
+Non-dry runs also write `summary.detailed.json`. Dry runs write `DRY_RUN.md` instead. Resumed legacy runs may keep older `swiss_*` and `finale_*` paths instead of the newer `coarse/` and `fine/` layout.
 
 ## Documentation
 
