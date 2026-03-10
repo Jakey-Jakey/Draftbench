@@ -37,7 +37,7 @@ bun install
 Bun auto-loads `.env` files, so either export the variable or place it in a local `.env`:
 
 ```bash
-OPENROUTER_API_KEY=your_api_key_here
+export OPENROUTER_API_KEY=your_api_key_here
 ```
 
 ### Run a Dry Run First

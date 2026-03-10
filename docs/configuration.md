@@ -14,17 +14,21 @@ The config loader still accepts several older aliases for backward compatibility
 
 ## Resolution Order
 
-Config values come from:
+`config/index.ts` selects one effective config path and one effective prompts path.
 
-1. `--config <path>`
-2. `config.toml`
-3. built-in defaults in `config/defaults.ts`
+For config:
 
-Prompt templates come from:
+- if you pass `--config <path>`, Draftbench reads that file
+- otherwise it reads `config.toml` if present
+- the selected file is merged over built-in defaults from `config/defaults.ts`
 
-1. `--prompts <path>`
-2. `prompts.toml`
-3. built-in defaults in `config/defaults.ts`
+For prompts:
+
+- if you pass `--prompts <path>`, Draftbench reads that file
+- otherwise it reads `prompts.toml` if present
+- the selected prompts file is merged over the prompt defaults in `config/defaults.ts`
+
+The CLI flags do not layer multiple config files together. They replace the default file path that `config/index.ts` would otherwise load.
 
 ## Role Schema
 

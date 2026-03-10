@@ -73,11 +73,11 @@ Use this when you want a new run directory that reuses previously completed arti
 Requirements:
 
 - the source run must already have completed `generate`
-- the source run must already have completed first-draft selection
+- the source run must already have completed `initial_leaderboard`
 - the source run must already have completed `review`
 - the source run must already have completed `revise`
 
-Draftbench copies reusable artifacts into a fresh run and continues from there.
+Draftbench copies reusable artifacts into a fresh run and continues from there. This gate is based on the phase-2 checkpoint name in state, not on whether `tournament.firstDraftSelection.enabled` was turned on. Runs with `initialGenerations = 1` still complete the `initial_leaderboard` phase.
 
 ## Skip Flags
 

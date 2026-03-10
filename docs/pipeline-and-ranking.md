@@ -17,9 +17,18 @@ If enabled, Draftbench narrows multiple seeds down to one selected draft per gen
 
 Selection modes:
 
-- pairwise internal tournaments
-- global pairwise tournament
-- ranking-based selection
+- pairwise internal tournaments: `per-model-pairwise`
+- global pairwise tournament: `global-pairwise`
+- per-model ranking: `per-model-rank`
+- global ranking across all drafts: `global-rank`
+
+Example:
+
+```toml
+style = "per-model-pairwise"
+```
+
+Use `per-model-rank` when you want one ranking call per generator. Use `global-rank` when you want one ranking call across the entire seed pool.
 
 If disabled, the generated draft set flows directly into review.
 

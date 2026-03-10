@@ -19,7 +19,7 @@ bun install
 Bun auto-loads `.env` files. Add your key to a local `.env` or export it in your shell:
 
 ```bash
-OPENROUTER_API_KEY=your_api_key_here
+export OPENROUTER_API_KEY=your_api_key_here
 ```
 
 ## Start With a Dry Run
