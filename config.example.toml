@@ -2,7 +2,7 @@
 # Draftbench Configuration
 # =============================================================================
 # TOML config file. Comments start with #
-# See agents.md for full documentation.
+# See README.md and docs/configuration.md for full documentation.
 
 # -----------------------------------------------------------------------------
 # ROLES: Define which models perform each role and their reasoning effort
