@@ -4,204 +4,28 @@ globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
 alwaysApply: false
 ---
 
-Default to using Bun instead of Node.js.
+Default to Bun.
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bun run lint` to lint the code (using Biome)
-- Bun automatically loads .env, so don't use dotenv.
+- Use `bun <file>` instead of `node <file>`.
+- Use `bun install` instead of package-manager alternatives.
+- Use `bun test` for tests.
+- Use `bun run lint` for linting.
 
-## Draftbench Project
+Draftbench's canonical user-facing documentation lives in:
 
-This is an AI model benchmarking pipeline. Key commands:
+- [`README.md`](./README.md)
+- [`docs/getting-started.md`](./docs/getting-started.md)
+- [`docs/configuration.md`](./docs/configuration.md)
+- [`docs/pipeline-and-ranking.md`](./docs/pipeline-and-ranking.md)
+- [`docs/runs-and-recovery.md`](./docs/runs-and-recovery.md)
+- [`docs/troubleshooting.md`](./docs/troubleshooting.md)
+- [`docs/config-migration.md`](./docs/config-migration.md)
 
-```bash
-# Run pipeline
-bun run index.ts
+Agent guidance for this repo:
 
-# Dry run (no API calls)
-bun run index.ts --dry-run
-
-# Custom config and prompts
-bun run index.ts --config config.1v1-swiss.toml --prompts my-prompts.toml
-
-# Resume interrupted run
-bun run index.ts --resume runs/<timestamp>
-
-# Run tests
-bun test
-
-# Lint
-bun run lint
-
-# Lint (auto-fix)
-bun x @biomejs/biome check --write
-```
-
-**Configuration is TOML-based** (not JSON). Edit `config.toml` for settings.
-See `agents.md` for full documentation.
-
-### First Draft Selection Styles
-
-When `initialGenerations > 1`, you can configure how the best draft per model is selected:
-
-```toml
-[tournament.firstDraftSelection]
-enabled = true
-initialGenerations = 3
-style = "per-model-pairwise"  # Default: each model's drafts compete internally
-# style = "global-pairwise"   # All drafts compete (expensive!)
-# style = "per-model-rank"    # Single ranking call per model (cheap)
-# style = "global-rank"       # Single ranking call for all (cheapest)
-```
-
-### Coarse Ranking (Swiss) Rating + Adaptive Scheduling
-
-Coarse ranking (Swiss rounds) supports a formal rating backend and Swiss early stop rules:
-
-```toml
-[tournament.rating]
-enabled = true
-backend = "elo" # or "bradley-terry"
-btRegularization = 0.01 # L2 regularization for BT (0 = disabled)
-btUseNewton = true # Per-player Hessian step sizes for BT
-ciMode = "hessian" # "bootstrap", "hessian", or "normal"
-
-[tournament.scheduling]
-mode = "adaptive" # or "static"
-scoringMode = "fisher" # "heuristic" or "fisher"
-
-[tournament.stopRules]
-enabled = true
-minBatches = 3
-maxBatches = 7
-topK = 8
-```
-
-After coarse ranking, Draftbench can run a fine ranking stage (Top-K refinement matches) using active-learning pairwise matchups (budget-capped).
-
-```toml
-[tournament.fineRanking]
-enabled = true
-maxMatchesPerBatch = 4          # parallel matches per iteration
-maxTotalMatches = 30            # budget cap
-targetWinProb = 0.5             # prioritize matchups with predicted win prob near this target
-confidence = 0.9                # CI separation confidence
-minSeparation = 0               # rating-gap fallback (0 disables)
-allowOverRepeatCap = false      # if false, respects tournament.scheduling.maxRepeatPairs
-```
-
-### Resumability
-
-The pipeline saves checkpoints throughout execution:
-- reviews and revisions save incrementally per completed task
-- coarse ranking (Swiss) saves after each completed round
-- fine ranking saves after each completed iteration (`finaleMatches` in state)
-
-If interrupted, use `--resume` to continue from where it left off.
-
-### Stable IDs
-
-Revision and artifact filenames use deterministic model tokens:
-- token format: `<short-model-name>-<8hexhash>`
-- revision format: `<generator-token>_<reviewer-token>_<reviser-token>`
-
-## APIs
-
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
-
-## Testing
-
-Use `bun test` to run tests.
-
-```ts#index.test.ts
-import { test, expect } from "bun:test";
-
-test("hello world", () => {
-  expect(1).toBe(1);
-});
-```
-
-## Frontend
-
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
-
-Server:
-
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
-
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
-
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
-
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-
-// import .css files directly and it works
-import './index.css';
-
-import { createRoot } from "react-dom/client";
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.md`.
+- Run the benchmark with `bun run index.ts`.
+- Use `bun run index.ts --dry-run` before expensive runs.
+- Use `bun run index.ts --resume runs/<timestamp>` to resume.
+- Use `bun run index.ts --reuse-artifacts runs/<timestamp>` to rerun ranking from prior artifacts.
+- Keep public docs on canonical names such as `coarseJudges`, `fineJudges`, `firstDraftSelection`, `coarseRounds`, and `fineRanking`.
+- Avoid duplicating product documentation in agent-specific files.

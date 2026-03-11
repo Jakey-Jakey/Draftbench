@@ -143,3 +143,4 @@ runsDirectory = "runs"      # Where run outputs are saved
 # -----------------------------------------------------------------------------
 # See prompts.toml for customizable prompts, or override inline below.
 # Use --prompts <file.toml> CLI flag to load a different prompts file.
+# See docs/configuration.md for the canonical public config vocabulary.

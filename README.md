@@ -1,266 +1,162 @@
 # Draftbench
 
-An AI-powered artifact benchmark that asks multiple models to create, review, and refine creative artifacts—essays, short stories, game statblocks, and more—before ranking the results with Swiss tournament judging.
+Draftbench runs a full generate-review-revise-ranking pipeline for creative artifacts. You can use it as a benchmark harness for comparing models, or as a quality-first workflow for producing a strong final artifact by forcing multiple passes through critique and revision.
 
-## Attribution
+The project ships with D&D 5e statblocks as the default benchmark, but the prompts and configuration are designed so you can run the same workflow on other artifact types such as essays, product specs, fiction, or design documents.
 
-This project began as a fork of `auto-draftify` (Theo Browne): `github.com/T3-Content/auto-draftify`.
+## Who It Is For
 
-Thanks to Theo Browne for inspiring me to try programming.
+- People who want to run the benchmark and compare models on a full artifact workflow
+- People who want a fairly inefficient but often high-quality way to produce a final artifact
+- Users who want reusable run outputs, resumability, and artifact files they can actually inspect or use
 
-## Overview
+## Pipeline
 
-This pipeline benchmarks AI models on creative artifact generation end-to-end:
+1. Generate initial drafts from each generator model.
+2. Optionally run First Draft Selection to choose the best seed per generator.
+3. Review every selected draft with every reviewer, including self-review.
+4. Revise every draft against every review.
+5. Run coarse ranking with Swiss-style judging.
+6. Run fine ranking on the top-K using active-learning pairwise matches.
 
-1. **Generate**: Multiple models each create an artifact from the same brief
-2. **Review**: Each model reviews all generated artifacts
-3. **Revise**: All models revise each artifact based on each review
-4. **Coarse Ranking (Swiss rounds)**: 7 rounds of configurable `1v1` or `1v1v1` judging to rank all revisions
-5. **Fine Ranking (Top-K refinement; active learning)**: Active-learning pairwise matches among the top-K (budget-capped) for final ordering confidence
+## Quickstart
 
-## Features
+### Prerequisites
 
-- **1v1v1 Format**: Each Swiss match compares 3 artifacts simultaneously for 3× data efficiency
-- **Formal Rating Backend**: Swiss can rank by `elo` or `bradley-terry` instead of raw points
-- **Adaptive Swiss Scheduling**: Prioritizes informative comparisons and avoids redundant rematches
-- **Coarse Early Stop Rules**: End coarse ranking (Swiss rounds) when top-K is stable/confident or budget/round caps are hit
-- **Fine Ranking (Active Learning)**: Iteratively selects the most informative pairwise matches to separate the top-K ordering
-- **Position Randomization**: All matches randomize presentation order to eliminate position bias
-- **Multi-Judge Swiss (Optional)**: Swiss can use one or many judges with majority/tie aggregation
-- **Multi-Judge Fine Ranking**: Configurable judges vote on each fine ranking match
-- **Anonymized Judging**: All artifacts are presented with anonymous IDs (S1, S2, S3)
-- **Resumable Runs**: Interrupted pipelines can be resumed with `--resume` with phase checkpoints (reviews/revisions saved incrementally, Swiss saved per round, fine ranking saved per iteration)
-- **Incremental Writes**: Files are written as each result completes
-- **Stable IDs**: Filenames and revision IDs use deterministic model tokens (`<model>-<hash>`) to avoid collisions
-- **Judge Fallback Safety**: Judge payloads are schema-validated and semantically checked before scoring
-- **Cost-Efficient First Draft Selection**: Multiple selection styles from 30 matches (per-model) to 1 call (global-rank)
+- [Bun](https://bun.sh/)
+- An [OpenRouter](https://openrouter.ai/) API key with access to the models in your config
 
-## Prerequisites
-
-- [Bun](https://bun.sh/) runtime installed
-- An [OpenRouter](https://openrouter.ai/) API key with access to the configured models
-
-## Setup
+### Install
 
 ```bash
 bun install
 ```
 
-## Configuration
+### Set Your API Key
 
-### API Key
-
-Set the `OPENROUTER_API_KEY` environment variable (Bun auto-loads `.env` files):
+Bun auto-loads `.env` files, so either export the variable or place it in a local `.env`:
 
 ```bash
 export OPENROUTER_API_KEY=your_api_key_here
 ```
 
-### Config Files (TOML)
+### Run a Dry Run First
 
-The pipeline uses TOML configuration with this priority:
+```bash
+bun run index.ts --dry-run
+```
 
-1. `--config <path>` CLI flag (highest priority)
-2. `config.toml` in project root
-3. Built-in defaults in `config/defaults.ts`
+### Run the Default Benchmark
 
-Reference files:
-- [`config.default.toml`](./config.default.toml) — All defaults with documentation
-- [`config.example.toml`](./config.example.toml) — Commented example
+```bash
+bun run index.ts
+```
 
-### Role-Centric Schema
+## Minimal Config Example
 
-Models are assigned to specific roles rather than globally:
+Public docs use the canonical config names below: `coarseJudges`, `fineJudges`, `firstDraftSelection`, `coarseRounds`, `coarseFormat`, and `fineRanking`.
 
 ```toml
 [roles]
 
-# Generators
 [[roles.generators]]
-model = "anthropic/claude-opus-4.5"
+model = "openai/gpt-5.2"
 effort = "high"
-# ... add more generators ...
 
-# Reviewers
 [[roles.reviewers]]
-model = "google/gemini-3-pro-preview"
+model = "anthropic/claude-opus-4.5"
 effort = "medium"
-# ... add more reviewers ...
 
-# Revisers
 [[roles.revisers]]
-model = "moonshot/kimi-k2-preview"
+model = "openai/gpt-5.2"
 effort = "high"
-# ... add more revisers ...
 
 [[roles.coarseJudges]]
-model = "openai/gpt-5.2"
-effort = "low"
-# ... add more judges ...
-
-[[roles.fineJudges]]
 model = "anthropic/claude-opus-4.5"
 effort = "low"
 
 [[roles.fineJudges]]
-model = "mistral/mistral-large-2"
+model = "openai/gpt-5.2"
 effort = "medium"
 
 [tournament]
-coarseFormat = "1v1v1"    # "1v1" or "1v1v1"
-coarseRounds = 7
+coarseRounds = 5
+coarseFormat = "1v1"
 
 [tournament.firstDraftSelection]
 enabled = false
 initialGenerations = 1
 
-[tournament.rating]
-enabled = true
-backend = "elo"          # "elo" or "bradley-terry"
-
-[tournament.scheduling]
-mode = "adaptive"        # "adaptive" or "static"
-
-[tournament.stopRules]
-enabled = true
-minBatches = 3
-maxBatches = 7
-topK = 8
-
 [tournament.fineRanking]
 enabled = true
 maxMatchesPerBatch = 4
-maxTotalMatches = 30
-targetWinProb = 0.5
-confidence = 0.9
-minSeparation = 0
-allowOverRepeatCap = false
+maxTotalMatches = 20
 
-[concurrency]
-maxParallel = 5          # Limit parallel API calls (omit or set 0 for unlimited)
+[output]
+runsDirectory = "runs"
 ```
 
-### Custom Prompts
+For the full schema and examples, see [docs/configuration.md](./docs/configuration.md). If you are migrating from older config names, see [docs/config-migration.md](./docs/config-migration.md).
 
-Override prompts via a separate TOML file:
-
-```bash
-bun run index.ts --prompts my-prompts.toml
-```
-
-See [`prompts.toml`](./prompts.toml) for the default prompt templates.
-
-### Customization
-
-To tailor Draftbench for your own artifact types:
-
-1. Copy `config.default.toml` and modify the `[prompts]` section
-2. Or create a `prompts.toml` file and use `--prompts prompts.toml`
-3. Ask an LLM to generate a config—describe what you want to benchmark
-
-See [`agents.md`](./agents.md) for full schema reference.
-
-## Usage
+## CLI
 
 ```bash
-# Run full pipeline
+# Default run
 bun run index.ts
 
-# Dry run (no API calls, no file writes)
+# Dry run
 bun run index.ts --dry-run
 
 # Custom config
-bun run index.ts --config config.1v1-swiss.toml
+bun run index.ts --config config.custom.toml
 
 # Custom prompts
-bun run index.ts --prompts my-prompts.toml
+bun run index.ts --prompts prompts.toml
 
-# Resume interrupted run
+# Resume an interrupted run
 bun run index.ts --resume runs/<timestamp>
+
+# Reuse earlier artifacts and rerun ranking only
+bun run index.ts --reuse-artifacts runs/<timestamp>
+
+# Reuse artifacts and skip coarse ranking
+bun run index.ts --reuse-artifacts runs/<timestamp> --skip-coarse
+
+# Reuse artifacts and skip fine ranking
+bun run index.ts --reuse-artifacts runs/<timestamp> --skip-fine
 ```
+
+## Output Overview
+
+Each run writes a timestamped directory under `runs/` with:
+
+- original generations
+- `reviews/` and `revisions/`
+- `initial_leaderboard/` when First Draft Selection is enabled
+- `coarse/` with round logs, standings, and judgments
+- `fine/` with iteration logs, standings, and judgments
+- `leaderboard.md`, `summary.json`, and `state.json`
+
+Non-dry runs also write `summary.detailed.json`. Dry runs write `DRY_RUN.md` instead. Resumed legacy runs may keep older `swiss_*` and `finale_*` paths instead of the newer `coarse/` and `fine/` layout.
+
+## Documentation
+
+- [docs/getting-started.md](./docs/getting-started.md)
+- [docs/configuration.md](./docs/configuration.md)
+- [docs/pipeline-and-ranking.md](./docs/pipeline-and-ranking.md)
+- [docs/runs-and-recovery.md](./docs/runs-and-recovery.md)
+- [docs/troubleshooting.md](./docs/troubleshooting.md)
+- [docs/config-migration.md](./docs/config-migration.md)
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## Development
 
 ```bash
-# Run tests
 bun test
-
-# Run integration tests
 bun run test:integration
-
-# Lint
 bun run lint
-
-# Lint with auto-fix
-bun x @biomejs/biome check --write
 ```
 
-## Output Structure
+## Attribution
 
-Each run creates a timestamped directory in `runs/`:
-
-```
-runs/YYYY-MM-DDTHH-MM-SS/
-├── <generator-token>_original_<n>.md  # Initial generations
-├── reviews/                 # Cross-review files
-│   └── <reviewer-token>_reviews_<generator-token>.md
-├── revisions/               # Revised artifacts
-│   └── <generator-token>_<reviewer-token>_<reviser-token>.md
-├── initial_leaderboard/     # Optional initial draft selection output
-│   └── leaderboard.md
-├── coarse/
-│   ├── rounds/              # round-by-round coarse log (one file per round)
-│   ├── standings/           # per-round rating snapshots (md + json)
-│   └── judgments/           # per-match coarse judge outputs
-├── fine/
-│   ├── iterations/          # iteration-by-iteration fine log (one file per iteration)
-│   ├── standings/           # per-iteration rating snapshots (md + json)
-│   └── judgments/           # per-match fine judge outputs
-├── leaderboard.md           # Final rankings
-├── summary.json             # Machine-readable run summary (leaderboard + attribution)
-└── state.json               # Pipeline state (for resume)
-```
-
-Token format: `<short-model-name>-<8hexhash>` (stable per full model slug).
-
-## Cost Estimate
-
-| Phase | API Calls | Est. Cost |
-|-------|-----------|-----------|
-| Generate | 3 | ~$0.50 |
-| Review | 9 | ~$1.00 |
-| Revise | 27 | ~$2.00 |
-| Swiss (7 rounds × 9 matches × 1 judge) | 63 | ~$5.67 |
-| Fine ranking (variable) | up to `maxTotalMatches × judges` | varies |
-
-*Fine ranking cost is variable and capped by `tournament.fineRanking.maxTotalMatches`. Costs vary based on model selection, judge counts, and reasoning effort.*
-
-## Scoring
-
-### Coarse Ranking (Swiss rounds; points + optional ratings)
-- 1st place: 2 points
-- 2nd place: 1 point
-- 3rd place: 0 points
-- With multiple Swiss judges, points are aggregated per match and ties split points (for example, 1.5/1.5/0)
-- Positions are randomized each match
-- When `tournament.rating.enabled = true`, Swiss standings (and the finale) use rating estimates (with confidence), while points remain visible for readability
-- When `tournament.scheduling.mode = "adaptive"`, matchups are selected by uncertainty/closeness/repeat-penalty scoring
-- When `tournament.stopRules.enabled = true`, coarse ranking may stop before `coarseRounds` once configured criteria are met (set `minSeparation = 0` to disable the separation threshold)
-
-### Fine Ranking (Top-K refinement matches; active-learning pairwise)
-- Configurable judges vote on each match
-- Matches are selected to maximize information gain (prioritizing predicted ~50/50 outcomes)
-- Scores are applied in pairwise space using vote proportions (draws use `tieValue`)
-- Stops when adjacent pairs in the top-K separate by confidence interval (or when the match budget is exhausted)
-
----
-
-Built with [Bun](https://bun.sh).
-
-## Origins
-
-Draftbench began as a fork of Auto-Draftify. Thanks to Theo Browne for inspiring me to try programming.
-
-```text
-https://github.com/T3-Content/auto-draftify
-```
+Draftbench began as a fork of `auto-draftify` by Theo Browne. The project has since evolved into a more general benchmark pipeline for creative artifact generation and ranking.
